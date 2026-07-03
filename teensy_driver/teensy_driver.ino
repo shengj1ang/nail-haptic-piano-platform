@@ -58,71 +58,53 @@ void setup() {
 }
 
 void loop() {
-  // Non-blocking updates
+  // Check and dispatch any already-arrived command first, so it isn't
+  // stuck behind the (potentially blocking) subsystem updates below.
+  if (readLine()) {
+    char* p = skipSpaces(lineBuf);
+
+    if (*p) {
+      char cmd = *p++;
+      p = skipSpaces(p);
+
+      // ===== motor =====
+      if (cmd == 'X') {
+        stopAll();
+      } else if (cmd == 'E') {
+        handleEcho();
+      } else if (cmd == 'P') {
+        handlePulse(p);
+      } else if (cmd == 'S') {
+        handleImmediate(p);
+
+      // ===== accelerometer =====
+      // A HELP | A WHOAMI | A READ | A START [interval_ms] | A STOP | A RATE interval_ms | A STATUS
+      } else if (cmd == 'A') {
+        handleAccelCommand(p);
+
+      // ===== LED =====
+      // L strip idx r g b brightness
+      } else if (cmd == 'L') {
+        handleLEDSet(p);
+
+      // B brightness
+      } else if (cmd == 'B') {
+        handleLEDGlobalBrightness(p);
+
+      // C strip (strip = 0 / 1 / -1(all))
+      } else if (cmd == 'C') {
+        handleLEDClear(p);
+
+      // U (force LED output immediately)
+      } else if (cmd == 'U') {
+        handleLEDShowNow();
+      }
+    }
+  }
+
+  // Non-blocking updates (accel SPI read still briefly blocks, so these run
+  // after command dispatch, not before it).
   updateMotors();
   updateLEDs();
   updateAccelerometer();
-
-  if (!readLine()) return;
-
-  char* p = skipSpaces(lineBuf);
-  if (!*p) return;
-
-  char cmd = *p++;
-  p = skipSpaces(p);
-
-  // ===== motor =====
-  if (cmd == 'X') {
-    stopAll();
-    return;
-  }
-
-  if (cmd == 'E') {
-    handleEcho();
-    return;
-  }
-
-  if (cmd == 'P') {
-    handlePulse(p);
-    return;
-  }
-
-  if (cmd == 'S') {
-    handleImmediate(p);
-    return;
-  }
-
-
-  // ===== accelerometer =====
-  // A HELP | A WHOAMI | A READ | A START [interval_ms] | A STOP | A RATE interval_ms | A STATUS
-  if (cmd == 'A') {
-    handleAccelCommand(p);
-    return;
-  }
-  // ===== LED =====
-  // L strip idx r g b brightness
-  if (cmd == 'L') {
-    handleLEDSet(p);
-    return;
-  }
-
-  // B brightness
-  if (cmd == 'B') {
-    handleLEDGlobalBrightness(p);
-    return;
-  }
-
-  // C strip
-  // strip = 0 / 1 / -1(all)
-  if (cmd == 'C') {
-    handleLEDClear(p);
-    return;
-  }
-
-  // U
-  // force LED output immediately
-  if (cmd == 'U') {
-    handleLEDShowNow();
-    return;
-  }
 }
