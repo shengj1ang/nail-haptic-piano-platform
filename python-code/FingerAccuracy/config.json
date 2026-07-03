@@ -1,0 +1,28 @@
+{
+  "camera": {
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "flip_vertical": true,
+    "flip_horizontal": true
+  },
+  "keyboard_detection": {
+    "canny_low": 50,
+    "canny_high": 150,
+    "hough_threshold": 80,
+    "hough_min_line_length": 60,
+    "hough_max_line_gap": 10,
+    "min_region_area_ratio": 0.05,
+    "min_key_width_px": 10
+  },
+  "wizard": {
+    "fill_tolerance": 12,
+    "min_fill_px": 300,
+    "max_fill_size_ratio": 0.35
+  },
+  "midi": {
+    "port_name": "SE25 MIDI1"
+  },
+  "active_profile": "20260603A"
+}
