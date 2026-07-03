@@ -81,12 +81,22 @@ Motor control uses asynchronous scheduling.
 
 ## LED Strips
 
-Two WS2812 strips are supported.
+Two WS2812 strips are supported, driven by the `WS2812Serial` library
+(hardware UART + DMA). This library only runs on specific hardware serial
+TX pins per Teensy model — see its `readme.md` for the full list. On
+Teensy 4.1 the usable pins are: `1, 8, 14, 17, 20, 24, 29, 35, 47, 53`.
+Pins `1/8/14` are used by the motor PWM outputs and `35` by the
+accelerometer SPI (MISO), so the strips use two of the remaining pins:
 
 | Strip | Pin |
 |------|------|
-| Strip 0 | 23 |
-| Strip 1 | 22 |
+| Strip 0 | 24 |
+| Strip 1 | 29 |
+
+`WS2812Serial.show()` starts the DMA transfer and returns immediately
+without disabling interrupts, unlike the previous `FastLED` bit-banged
+output (which blocked the CPU with interrupts disabled for the whole
+strip refresh, adding latency/jitter to serial command handling).
 
 Typical configuration:
 
@@ -303,11 +313,14 @@ Drivers are separated:
 Typical loop:
 
 ```
+handleSerialCommands();  // dispatch any already-arrived command first
 updateMotors();
 updateLEDs();
 updateAccelerometer();
-handleSerialCommands();
 ```
+
+Serial commands are checked and dispatched before the subsystem updates
+so an already-arrived command isn't left waiting behind them.
 
 ---
 
