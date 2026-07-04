@@ -8,6 +8,12 @@ WS2812 strips light up and a matching tone plays; release -> both turn back
 off. Pressing the real MIDI keyboard does the same, via a live MIDI
 connection.
 
+LED and MIDI are both optional, manually-triggered connections (buttons,
+not auto-connect-on-launch/on-profile-change) - this is meant to run
+against a second piano rig that has no LED strip wired up at all, so the
+on-screen piano, audio feedback, and MIDI-driven highlighting all need to
+keep working with no LED controller attached.
+
 This file is just a thin PySide6 wrapper for manual testing - the actual
 reusable "profile + MIDI -> light the right LED" logic lives in
 profile_led_mapper.py and note_led_map.py, and "MIDI note -> tone" lives in
@@ -27,6 +33,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +41,7 @@ from PySide6.QtWidgets import (
 import profile_led_mapper
 from app.config import Config
 from app.keyboard.midi_mapping import MidiMapping
+from app.midi import list_input_ports
 from app.profiles import DATA_DIR, list_profiles
 from common.led_controller import LEDArrayController
 from note_audio import NoteAudioPlayer
@@ -44,26 +52,40 @@ class KeyFeedback:
     """Combines LED + audio feedback for a note press/release into one
     call, so PianoKey doesn't need to know both exist. audio_player is
     optional - if it failed to open (no output device, etc.) LED feedback
-    still works on its own."""
+    still works on its own. Likewise, the LED controller may simply not be
+    connected (no strip wired up on this rig, or not connected yet) - every
+    led_mapper call is guarded, so on-screen + audio feedback keep working
+    with no LED hardware present at all."""
 
     def __init__(self, led_mapper: NoteLEDMapper, audio_player: NoteAudioPlayer | None):
         self.led_mapper = led_mapper
         self.audio_player = audio_player
 
     def on(self, note: int) -> bool:
-        lit = self.led_mapper.light_key(note)
+        lit = False
+        try:
+            lit = self.led_mapper.light_key(note)
+        except RuntimeError:
+            pass  # LED controller not connected
         if self.audio_player is not None:
             self.audio_player.play_key(note)
         return lit
 
     def off(self, note: int) -> bool:
-        cleared = self.led_mapper.clear_key(note)
+        cleared = False
+        try:
+            cleared = self.led_mapper.clear_key(note)
+        except RuntimeError:
+            pass
         if self.audio_player is not None:
             self.audio_player.stop_key(note)
         return cleared
 
     def off_all(self) -> None:
-        self.led_mapper.clear_all()
+        try:
+            self.led_mapper.clear_all()
+        except RuntimeError:
+            pass
         if self.audio_player is not None:
             self.audio_player.stop_all()
 
@@ -233,13 +255,13 @@ class PianoWindow(QMainWindow):
         self.setWindowTitle("Virtual Piano -> LED (manual test)")
 
         self.cfg = Config.load()
+
+        # Both the LED controller and the MIDI port are optional, manually
+        # (button-)triggered connections - never opened automatically on
+        # launch or on profile change - so this still runs against a piano
+        # with no LED strip at all, or before a MIDI cable is plugged in.
         self.led = LEDArrayController()
-        try:
-            self.led.connect()
-        except Exception as exc:
-            QMessageBox.critical(self, "Connection failed", f"Could not connect to the LED controller:\n{exc}")
-            raise SystemExit(1)
-        self.led.off()
+        self.led_connected = False
 
         self.audio_player: NoteAudioPlayer | None = None
         try:
@@ -256,12 +278,24 @@ class PianoWindow(QMainWindow):
         self.profile_combo = QComboBox()
         self.profile_combo.currentTextChanged.connect(self._load_profile)
 
-        self.led_status = QLabel(f"LED: connected on {self.led.port}")
+        self.led_status = QLabel("LED: not connected")
+        self.led_connect_btn = QPushButton("Connect LED")
+        self.led_connect_btn.clicked.connect(self._toggle_led)
+
         self.audio_status = QLabel(audio_status_text)
+
+        self.midi_port_combo = QComboBox()
+        self.midi_refresh_btn = QPushButton("Refresh")
+        self.midi_refresh_btn.clicked.connect(self._refresh_midi_ports)
+        self.midi_connect_btn = QPushButton("Connect MIDI")
+        self.midi_connect_btn.clicked.connect(self._toggle_midi)
         self.midi_status = QLabel("MIDI: not connected")
+
         self.instructions = QLabel(
             "Click and hold a key to light its LED and play its tone (label = MIDI note); release to "
-            "turn both off. Blue = clicked here, orange = pressed on the real keyboard."
+            "turn both off. Blue = clicked here, orange = pressed on the real keyboard.\n"
+            "LED and MIDI are both optional - connect them with the buttons below; the on-screen "
+            "piano and audio work fine with neither connected."
         )
 
         self.midi_bridge = MidiBridge()
@@ -271,19 +305,97 @@ class PianoWindow(QMainWindow):
         profile_row.addWidget(QLabel("Profile:"))
         profile_row.addWidget(self.profile_combo, 1)
 
+        led_row = QHBoxLayout()
+        led_row.addWidget(self.led_status, 1)
+        led_row.addWidget(self.led_connect_btn)
+
+        midi_row = QHBoxLayout()
+        midi_row.addWidget(QLabel("MIDI port:"))
+        midi_row.addWidget(self.midi_port_combo, 1)
+        midi_row.addWidget(self.midi_refresh_btn)
+        midi_row.addWidget(self.midi_connect_btn)
+
         self.piano_slot = QVBoxLayout()
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(profile_row)
-        layout.addWidget(self.led_status)
+        layout.addLayout(led_row)
         layout.addWidget(self.audio_status)
+        layout.addLayout(midi_row)
         layout.addWidget(self.midi_status)
         layout.addWidget(self.instructions)
         layout.addLayout(self.piano_slot)
         self.setCentralWidget(central)
 
+        self._refresh_midi_ports()
         self._refresh_profiles()
+
+    # ------------------------------------------------------------------
+    # LED connection (manual)
+    # ------------------------------------------------------------------
+
+    def _toggle_led(self) -> None:
+        if self.led_connected:
+            if self.mapper is not None:
+                try:
+                    self.mapper.clear_all()
+                except RuntimeError:
+                    pass
+            self.led.close()
+            self.led_connected = False
+            self.led_status.setText("LED: not connected")
+            self.led_connect_btn.setText("Connect LED")
+            return
+
+        try:
+            self.led.connect()
+            self.led.off()
+        except Exception as exc:
+            QMessageBox.warning(self, "LED connection failed", str(exc))
+            self.led_status.setText(f"LED: not connected ({exc})")
+            return
+
+        self.led_connected = True
+        self.led_status.setText(f"LED: connected on {self.led.port}")
+        self.led_connect_btn.setText("Disconnect LED")
+
+    # ------------------------------------------------------------------
+    # MIDI connection (manual)
+    # ------------------------------------------------------------------
+
+    def _refresh_midi_ports(self) -> None:
+        ports = list_input_ports()
+        self.midi_port_combo.blockSignals(True)
+        self.midi_port_combo.clear()
+        self.midi_port_combo.addItems(ports)
+        if self.cfg.midi.port_name in ports:
+            self.midi_port_combo.setCurrentText(self.cfg.midi.port_name)
+        self.midi_port_combo.blockSignals(False)
+
+    def _toggle_midi(self) -> None:
+        if self.midi_port is not None:
+            self.midi_port.close()
+            self.midi_port = None
+            self.midi_status.setText("MIDI: not connected")
+            self.midi_connect_btn.setText("Connect MIDI")
+            return
+
+        port_name = self.midi_port_combo.currentText()
+        if not port_name:
+            QMessageBox.warning(self, "No MIDI port selected", "Pick a MIDI port first.")
+            return
+
+        try:
+            self.midi_port = mido.open_input(port_name, callback=self._midi_callback)
+        except Exception as exc:
+            print(f"Could not open MIDI port {port_name!r}: {exc}")
+            print(f"Available MIDI inputs: {mido.get_input_names()}")
+            self.midi_status.setText(f"MIDI: not connected ({exc})")
+            return
+
+        self.midi_status.setText(f"MIDI: listening on {port_name}")
+        self.midi_connect_btn.setText("Disconnect MIDI")
 
     def _refresh_profiles(self) -> None:
         profiles = list_profiles(DATA_DIR)
@@ -324,26 +436,13 @@ class PianoWindow(QMainWindow):
         self.piano = PianoWidget(feedback, visual_sequence)
         self.piano_slot.addWidget(self.piano)
 
-        self._connect_midi(profile_name)
-
-    def _connect_midi(self, profile_name: str) -> None:
-        if self.midi_port is not None:
-            self.midi_port.close()
-            self.midi_port = None
-
+        # Just preselect this profile's usual MIDI port in the combo, if it's
+        # currently available - connecting is still a manual step (see
+        # _toggle_midi()), independent of which profile is loaded.
         mapping = MidiMapping.load(DATA_DIR / profile_name / "midi_mapping.json")
-        port_name = mapping.port_name
-        if not port_name:
-            self.midi_status.setText("MIDI: not connected (profile has no port_name)")
-            return
-
-        try:
-            self.midi_port = mido.open_input(port_name, callback=self._midi_callback)
-            self.midi_status.setText(f"MIDI: listening on {port_name}")
-        except Exception as exc:
-            print(f"Could not open MIDI port {port_name!r}: {exc}")
-            print(f"Available MIDI inputs: {mido.get_input_names()}")
-            self.midi_status.setText(f"MIDI: not connected ({exc})")
+        available_ports = [self.midi_port_combo.itemText(i) for i in range(self.midi_port_combo.count())]
+        if mapping.port_name and mapping.port_name in available_ports:
+            self.midi_port_combo.setCurrentText(mapping.port_name)
 
     def _midi_callback(self, msg):
         """Runs on mido's background listener thread - do nothing here except
@@ -366,11 +465,14 @@ class PianoWindow(QMainWindow):
         if self.midi_port is not None:
             self.midi_port.close()
         if self.mapper is not None:
-            self.mapper.clear_all()
+            try:
+                self.mapper.clear_all()
+            except RuntimeError:
+                pass
         if self.audio_player is not None:
             self.audio_player.stop_all()
             self.audio_player.close()
-        self.led.close()
+        self.led.close()  # a no-op if it was never connected
         super().closeEvent(event)
 
 
