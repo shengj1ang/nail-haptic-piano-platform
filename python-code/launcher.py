@@ -37,6 +37,7 @@ SECTION_COLUMNS = 2
 
 from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
+from app.gui.cue_window import CueStyleSelectionCancelled
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
@@ -186,6 +187,10 @@ class LauncherWindow(QWidget):
 
         try:
             window = window_cls(self.cfg)
+        except CueStyleSelectionCancelled:
+            # User closed the "pick a cue style" dialog instead of
+            # confirming one - not an error, just don't open anything.
+            return
         except Exception as e:
             QMessageBox.warning(self, "Couldn't open tool", str(e))
             return

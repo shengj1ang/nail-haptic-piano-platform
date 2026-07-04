@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 import profile_led_mapper
 from app.camera import Camera
 from app.config import Config
-from app.gui.cue_window import ScreenCueOutput
+from app.gui.cue_window import CueStyleSelectionCancelled, ScreenCueOutput, choose_cue_style
 from app.haptic_cue import HapticCueOutput
 from app.gui.image_view import ImageView
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
@@ -95,6 +95,13 @@ class QuizWindow(QMainWindow):
         label = "Visual" if guidance_type == "visual" else "Haptic"
         self.setWindowTitle(f"Student Quiz - {label} Guidance")
         self.cfg = cfg
+
+        # Asked first, before the camera/cue window are opened, so closing
+        # this dialog instead of confirming a style (see main()/launcher.py,
+        # which let CueStyleSelectionCancelled propagate out of here) leaves
+        # nothing half-built to clean up.
+        cue_style = choose_cue_style(self) if guidance_type == "visual" else None
+
         self.camera = Camera(cfg.camera)
 
         # The cue is shown through this interface only - this is the one
@@ -104,7 +111,7 @@ class QuizWindow(QMainWindow):
         if guidance_type == "haptic":
             self.cue = HapticCueOutput()
         else:
-            self.cue = ScreenCueOutput()
+            self.cue = ScreenCueOutput(cue_style)
         self.cue.show_message("Pick a song and press Start.")
 
         self.led = LEDArrayController()
@@ -615,7 +622,10 @@ def main() -> None:
     cfg = Config.load()
 
     app = QApplication(sys.argv)
-    window = QuizWindow(cfg)
+    try:
+        window = QuizWindow(cfg)
+    except CueStyleSelectionCancelled:
+        return
     window.resize(1000, 780)
     window.show()
     sys.exit(app.exec())

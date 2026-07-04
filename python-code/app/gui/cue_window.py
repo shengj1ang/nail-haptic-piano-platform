@@ -1,8 +1,19 @@
 """The on-screen implementation of app.quiz.CueOutput - a standalone
 window meant to be dragged onto a second monitor and maximized/
-fullscreened, showing only the "press this finger" cue (ten dots standing
-in for two hands, same convention as music_playback.py's HandsWidget) plus
-a short status line (countdown, note name, ...).
+fullscreened, showing only the "press this finger" cue plus a short status
+line (countdown, note name, ...).
+
+Two cue styles are supported (see CUE_STYLES):
+
+- "circles": ten dots standing in for two hands, same convention as
+  music_playback.py's HandsWidget.
+- "images": one of the eleven hand-photo assets under app/assets/image/
+  (HAND.jpg for idle, L1-L5/R1-R5 with that finger highlighted).
+
+choose_cue_style() is a blocking dialog that asks which one to use - call
+it once, before building the quiz window (and the cue window it opens),
+since the cue window may get dragged onto a second monitor and there's no
+good reason to support switching styles mid-quiz.
 
 Everything is drawn from scratch in paintEvent, sized off the widget's
 current width/height rather than fixed pixel constants, so it scales
@@ -13,11 +24,20 @@ screen: swap it for a vibration-motor CueOutput later and nothing in
 student_quiz.py's quiz-running logic needs to change.
 """
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QMainWindow,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..quiz import CueOutput
 
@@ -31,15 +51,84 @@ IDLE_COLOR = QColor(70, 70, 78)
 ACTIVE_COLOR = QColor(255, 140, 0)
 TEXT_COLOR = QColor(240, 240, 245)
 
+# The "images" style's hand photos are white-background line art, so the
+# dark circles-style background/text would clash - use a white/black pair
+# just for that style instead.
+IMAGE_BG_COLOR = QColor(255, 255, 255)
+IMAGE_TEXT_COLOR = QColor(0, 0, 0)
+
+# key -> human-readable label, in the order they should be offered to pick
+# from (see choose_cue_style() below).
+CUE_STYLES = {
+    "circles": "Circles (dots)",
+    "images": "Hand images",
+}
+DEFAULT_CUE_STYLE = "circles"
+
+
+class CueStyleSelectionCancelled(Exception):
+    """Raised by choose_cue_style() when the dialog is closed (the window's
+    close button, Escape, ...) instead of confirmed with Ok - callers must
+    not proceed to build a quiz/cue window in that case."""
+
+
+def choose_cue_style(parent: Optional[QWidget] = None) -> str:
+    """Blocking "which cue style?" dialog - call this once, before
+    constructing the quiz window, to pick which of CUE_STYLES the cue
+    window should use for the whole session.
+
+    Raises CueStyleSelectionCancelled if the dialog is dismissed without
+    picking Ok, since there's no sane default to silently fall back to."""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Visual Cue Style")
+    dialog.setModal(True)
+
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(QLabel("How should the target finger be shown on the cue screen?"))
+
+    combo = QComboBox()
+    for key, name in CUE_STYLES.items():
+        combo.addItem(name, key)
+    combo.setCurrentIndex(max(combo.findData(DEFAULT_CUE_STYLE), 0))
+    layout.addWidget(combo)
+
+    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+    buttons.accepted.connect(dialog.accept)
+    layout.addWidget(buttons)
+
+    result = dialog.exec()
+    if result != QDialog.DialogCode.Accepted:
+        raise CueStyleSelectionCancelled()
+    return combo.currentData()
+
+
+IMAGE_DIR = Path(__file__).resolve().parent.parent / "assets" / "image"
+# One highlighted-hand photo per finger, plus a no-finger idle photo -
+# filenames match FINGER_ORDER's finger ids exactly.
+IDLE_IMAGE_FILENAME = "HAND.jpg"
+FINGER_IMAGE_FILENAMES = {finger_id: f"{finger_id}.png" for finger_id in FINGER_ORDER}
+
+# Loaded lazily (QPixmap needs a QApplication) and cached, since these are
+# large fixed assets reloaded from disk on every set_target() otherwise.
+_PIXMAP_CACHE: dict[str, QPixmap] = {}
+
+
+def _load_pixmap(cache_key: str, filename: str) -> QPixmap:
+    if cache_key not in _PIXMAP_CACHE:
+        _PIXMAP_CACHE[cache_key] = QPixmap(str(IMAGE_DIR / filename))
+    return _PIXMAP_CACHE[cache_key]
+
 
 class FingerCueWidget(QWidget):
-    """Ten labeled circles (5 per hand) plus a status line, all sized off
+    """The finger cue itself - either ten labeled circles (5 per hand) or a
+    highlighted-hand photo, plus a status line, all sized off
     self.width()/self.height() so the whole thing scales with the window."""
 
-    def __init__(self):
+    def __init__(self, style: str = DEFAULT_CUE_STYLE):
         super().__init__()
         self.active_finger: Optional[str] = None
         self.message = "Waiting..."
+        self.style = style
         self.setMinimumSize(320, 160)
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
@@ -47,10 +136,20 @@ class FingerCueWidget(QWidget):
         self.message = message
         self.update()
 
+    def set_style(self, style: str) -> None:
+        if style not in CUE_STYLES:
+            raise ValueError(f"Unknown cue style {style!r}, expected one of {list(CUE_STYLES)}")
+        self.style = style
+        self.update()
+
     def paintEvent(self, event) -> None:
+        is_images = self.style == "images"
+        bg_color = IMAGE_BG_COLOR if is_images else BG_COLOR
+        text_color = IMAGE_TEXT_COLOR if is_images else TEXT_COLOR
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), BG_COLOR)
+        painter.fillRect(self.rect(), bg_color)
 
         w, h = self.width(), self.height()
 
@@ -60,9 +159,32 @@ class FingerCueWidget(QWidget):
             msg_font.setPointSizeF(max(h * 0.07, 10))
             msg_font.setBold(True)
             painter.setFont(msg_font)
-            painter.setPen(QPen(TEXT_COLOR))
+            painter.setPen(QPen(text_color))
             painter.drawText(0, 0, w, int(h * 0.32), Qt.AlignmentFlag.AlignCenter, self.message)
 
+        if self.style == "images":
+            self._paint_image(painter, w, h)
+        else:
+            self._paint_circles(painter, w, h)
+
+    def _paint_image(self, painter: QPainter, w: int, h: int) -> None:
+        if self.active_finger in FINGER_IMAGE_FILENAMES:
+            pixmap = _load_pixmap(self.active_finger, FINGER_IMAGE_FILENAMES[self.active_finger])
+        else:
+            pixmap = _load_pixmap("_idle", IDLE_IMAGE_FILENAME)
+        if pixmap.isNull():
+            return
+
+        # Same top third reserved for the message line as the circles style,
+        # the rest is the image area.
+        area_y = int(h * 0.32)
+        area_h = h - area_y
+        scaled = pixmap.scaled(w, area_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        x = (w - scaled.width()) // 2
+        y = area_y + (area_h - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
+
+    def _paint_circles(self, painter: QPainter, w: int, h: int) -> None:
         # Ten dots across the bottom two-thirds. All gaps are equal except
         # the one between L1 and R1 (the hand split), which is doubled so
         # it's visually obvious which five dots belong to which hand.
@@ -96,24 +218,30 @@ class CueWindow(QMainWindow):
     maximize/fullscreen it (F11 or the OS's own fullscreen control), the
     content keeps scaling to fill whatever space it's given."""
 
-    def __init__(self):
+    def __init__(self, style: str = DEFAULT_CUE_STYLE):
         super().__init__()
         self.setWindowTitle("Finger Cue")
-        self.widget = FingerCueWidget()
+        self.widget = FingerCueWidget(style)
         self.setCentralWidget(self.widget)
         self.resize(900, 380)
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
         self.widget.set_target(finger, message)
 
+    def set_style(self, style: str) -> None:
+        self.widget.set_style(style)
+
 
 class ScreenCueOutput(CueOutput):
     """Qt-window-backed CueOutput - see the module docstring for why this
     is the only file that should ever import Qt for the cue itself."""
 
-    def __init__(self):
-        self.window = CueWindow()
+    def __init__(self, style: str = DEFAULT_CUE_STYLE):
+        self.window = CueWindow(style)
         self.window.show()
+
+    def set_style(self, style: str) -> None:
+        self.window.set_style(style)
 
     def show_target(self, note: int, finger: Optional[str]) -> None:
         from ..keyboard.midi_mapping import note_name
