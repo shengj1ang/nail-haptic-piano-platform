@@ -26,10 +26,12 @@ from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
+from app.gui.recording_wizard import RecordingWizard
 
 TOOLS = [
     ("Step 1 - Keyboard Calibration Wizard", KeyboardCalibrationWizard),
     ("Step 2 - MIDI Mapping Wizard", MidiMappingWizard),
+    ("Step 3 - Song Recording Wizard", RecordingWizard),
     ("Main - Live Finger Detection", FingerDetectorWindow),
     ("Demo - Keyboard Preview", KeyPreviewWindow),
 ]

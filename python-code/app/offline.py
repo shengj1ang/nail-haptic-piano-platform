@@ -13,7 +13,7 @@ each MIDI event is matched to hand positions by that shared timestamp.
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import cv2
 
@@ -30,25 +30,36 @@ def analyze_recording(
     midi_log_path: Path,
     profile_name: str,
     data_dir: Path = DATA_DIR,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> List[Optional[FingerMatch]]:
     """Returns one FingerMatch (or None, if nothing could be resolved) per
-    event in the MIDI log, in the same order."""
+    event in the MIDI log, in the same order.
+
+    If given, progress_callback(frames_done, total_frames) is called after
+    each frame is processed - this is the slow part (one MediaPipe pass per
+    frame) - so a caller can drive a progress bar. total_frames is 0 if the
+    video container doesn't report a frame count."""
     template = KeyboardTemplate.load(data_dir / profile_name / "keyboard_template.json")
     mapping = MidiMapping.load(data_dir / profile_name / "midi_mapping.json")
     events = load_midi_log(midi_log_path)
 
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     tracker = HandTracker()
     hands_by_frame = []
 
     try:
+        frames_done = 0
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
             hands_by_frame.append(tracker.process(frame))
+            frames_done += 1
+            if progress_callback is not None:
+                progress_callback(frames_done, total_frames)
     finally:
         cap.release()
         tracker.close()
