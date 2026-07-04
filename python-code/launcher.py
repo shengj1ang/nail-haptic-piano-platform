@@ -21,6 +21,7 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QGridLayout,
     QGroupBox,
     QLabel,
     QMessageBox,
@@ -28,6 +29,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+# Sections are laid out left-to-right, top-to-bottom in a grid this many
+# columns wide, instead of one long vertical stack that runs off the
+# screen once there are more than a handful of sections/buttons.
+SECTION_COLUMNS = 2
 
 from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
@@ -39,6 +45,7 @@ from app.gui.recording_wizard import RecordingWizard
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
+from test_haptic_vibrator import HapticTestWindow
 from test_virtual_piano_led import PianoWindow
 
 # (section heading, [(button label, window class), ...])
@@ -56,6 +63,7 @@ SECTIONS = [
             ("Keyboard Region Preview", KeyPreviewWindow),
             ("Live Finger Detection", FingerDetectorWindow),
             ("Virtual Piano + LED Test", PianoWindow),
+            ("Haptic Vibrator Test", HapticTestWindow),
         ],
     ),
     (
@@ -151,7 +159,12 @@ class LauncherWindow(QWidget):
         layout.addWidget(subtitle)
         layout.addSpacing(6)
 
-        for section_title, tools in SECTIONS:
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        for col in range(SECTION_COLUMNS):
+            grid.setColumnStretch(col, 1)
+
+        for i, (section_title, tools) in enumerate(SECTIONS):
             box = QGroupBox(section_title)
             box_layout = QVBoxLayout(box)
             box_layout.setSpacing(8)
@@ -160,8 +173,10 @@ class LauncherWindow(QWidget):
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda _checked=False, cls=window_cls: self._open(cls))
                 box_layout.addWidget(btn)
-            layout.addWidget(box)
+            box_layout.addStretch(1)
+            grid.addWidget(box, i // SECTION_COLUMNS, i % SECTION_COLUMNS)
 
+        layout.addLayout(grid)
         layout.addStretch(1)
 
     def _open(self, window_cls) -> None:
@@ -189,7 +204,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     window = LauncherWindow(cfg)
-    window.resize(420, 560)
+    window.resize(760, 480)
     window.show()
     sys.exit(app.exec())
 
