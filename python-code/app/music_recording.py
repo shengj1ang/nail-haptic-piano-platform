@@ -18,12 +18,13 @@ data/music/<song_name>/:
 Video and MIDI capture start on separate clocks (a camera pipeline and a
 MIDI thread), so their timestamps can drift apart over a long recording.
 The convention here is the same "flash-frame sync" trick used with
-clapperboards: right as a recording starts, every key's backlight LED is
-switched fully on and then off while both the camera and the MIDI reader
-are already running, and the wall-clock time.time() of each switch is
-saved to sync.json. Anyone reviewing the raw recording later can compare
-that logged on/off time against the video frame the flash actually
-appears/disappears on to measure (and correct for) any clock drift.
+clapperboards: right as a recording starts, the first white key's
+backlight LED is switched fully on and then off while both the camera and
+the MIDI reader are already running, and the wall-clock time.time() of
+each switch is saved to sync.json. Anyone reviewing the raw recording
+later can compare that logged on/off time against the video frame the
+flash actually appears/disappears on to measure (and correct for) any
+clock drift.
 """
 
 import json
@@ -230,8 +231,8 @@ def build_score_midi(events: List[RawMidiEvent], path: Path, bpm: float = 120.0,
 class SyncInfo:
     video_start_time: float  # time.time() when video capture began
     midi_start_time: float  # time.time() when the MIDI recorder began (RawMidiRecorder.start_time)
-    led_on_time: float  # time.time() when the sync flash switched all key LEDs on
-    led_off_time: float  # time.time() when the sync flash switched them back off
+    led_on_time: float  # time.time() when the sync flash switched the sync LED on
+    led_off_time: float  # time.time() when the sync flash switched it back off
 
     def save(self, path: Path) -> None:
         path = Path(path)

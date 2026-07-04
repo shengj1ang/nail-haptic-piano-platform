@@ -36,6 +36,7 @@ from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
 from app.gui.recording_wizard import RecordingWizard
 from music_playback import PlaybackWindow
+from student_quiz import QuizWindow
 from test_virtual_piano_led import PianoWindow
 
 # (section heading, [(button label, window class), ...])
@@ -60,6 +61,12 @@ SECTIONS = [
         [
             ("Song Recording Wizard", RecordingWizard),
             ("Song Playback", PlaybackWindow),
+        ],
+    ),
+    (
+        "4. Practice && Assessment",
+        [
+            ("Student Quiz", QuizWindow),
         ],
     ),
 ]

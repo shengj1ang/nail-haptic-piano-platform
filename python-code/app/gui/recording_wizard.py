@@ -4,8 +4,8 @@ Three pages:
   0. Song info - title, difficulty (1/2/3, a label only), keyboard
      profile, MIDI port.
   1. Record - starting it opens the LED controller + MIDI port and begins
-     writing video, then (once both are rolling) flashes every key's
-     backlight fully on and back off once for video/MIDI sync - see
+     writing video, then (once both are rolling) flashes the first white
+     key's backlight on and back off once for video/MIDI sync - see
      app.music_recording.SyncInfo - before the teacher performs the piece.
      Stop ends capture.
   2. Review & save - runs app.offline.analyze_recording over the just
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
-from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -36,13 +36,14 @@ from PySide6.QtWidgets import (
 
 from common.led_controller import LEDArrayController
 from note_audio import NoteAudioPlayer
+from note_led_map import WHITE_LEDS
 
 from ..camera import Camera
 from ..config import Config
 from ..midi import list_input_ports, save_midi_log
-from ..offline import analyze_recording
 from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..profiles import list_profiles
+from .analyze_worker import AnalyzeWorker
 from ..music_recording import (
     FINGERING_FILENAME,
     META_FILENAME,
@@ -71,6 +72,10 @@ PAGE_INFO, PAGE_RECORD, PAGE_REVIEW = range(3)
 
 LED_FLASH_DELAY_MS = 300  # let a couple of frames record before the flash, so it isn't cut off
 LED_FLASH_DURATION_MS = 800
+
+# The sync mark only needs one LED to flash, not the whole rig - the first
+# white key is as good a landmark as any for finding it in the footage.
+SYNC_LED_STRIP, SYNC_LED_IDX = WHITE_LEDS[0][0]
 
 
 class InfoPage(QWizardPage):
@@ -167,8 +172,8 @@ class RecordPage(QWizardPage):
         super().__init__()
         self.setTitle("Step 3b - Record the performance")
         self.setSubTitle(
-            "Starting the recording flashes every key's backlight on and off once, for video/MIDI "
-            "sync - wait for it to finish, then play the piece. Stop when done."
+            "Starting the recording flashes the first white key's backlight on and off once, for "
+            "video/MIDI sync - wait for it to finish, then play the piece. Stop when done."
         )
         self._wizard = wizard
 
@@ -297,16 +302,14 @@ class RecordPage(QWizardPage):
         if not self._recording or self.led is None:
             return
         self.led_on_time = time.time()
-        with self.led.batch(show=True):
-            self.led.fill_strip(0, (255, 255, 255))
-            self.led.fill_strip(1, (255, 255, 255))
+        self.led.set_pixel(SYNC_LED_STRIP, SYNC_LED_IDX, 255, 255, 255, 255)
         self.status_label.setText("Recording - sync flash on...")
         QTimer.singleShot(LED_FLASH_DURATION_MS, self._flash_leds_off)
 
     def _flash_leds_off(self) -> None:
         if not self._recording or self.led is None:
             return
-        self.led.clear(-1)
+        self.led.set_pixel(SYNC_LED_STRIP, SYNC_LED_IDX, 0, 0, 0, 0)
         self.led_off_time = time.time()
         self.status_label.setText("Recording - play the piece now.")
 
@@ -362,38 +365,6 @@ class RecordPage(QWizardPage):
 
     def isComplete(self) -> bool:
         return self._finished and any(e.type == "note_on" for e in self.raw_events)
-
-
-class AnalyzeWorker(QThread):
-    """Runs app.offline.analyze_recording (one MediaPipe pass per video
-    frame - the slow part of saving) off the GUI thread, so the wizard
-    doesn't freeze while it works through a whole recording."""
-
-    progress = Signal(int, int)  # frames_done, total_frames (total may be 0 if unknown)
-    succeeded = Signal(list)  # List[Optional[FingerMatch]]
-    failed = Signal(str)
-
-    def __init__(self, video_path: Path, notes_path: Path, profile_name: str):
-        super().__init__()
-        self.video_path = video_path
-        self.notes_path = notes_path
-        self.profile_name = profile_name
-
-    def run(self) -> None:
-        def on_progress(done: int, total: int) -> None:
-            # Emitting a cross-thread signal per frame is overkill for a
-            # multi-minute recording - a few updates a second is plenty.
-            if done % 3 == 0 or done == total:
-                self.progress.emit(done, total)
-
-        try:
-            matches = analyze_recording(
-                self.video_path, self.notes_path, self.profile_name, progress_callback=on_progress
-            )
-        except Exception as e:
-            self.failed.emit(str(e))
-            return
-        self.succeeded.emit(matches)
 
 
 class ReviewPage(QWizardPage):
