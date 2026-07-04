@@ -10,7 +10,7 @@ Two data sources are combined:
    left-to-right key order confirmed against the real hardware.
 
    Earlier this used the FingerAccuracy calibration profile
-   (FingerAccuracy/data/20260603A/midi_mapping.json) instead, with 4 key_ids
+   (data/keyboard-profile/20260603A/midi_mapping.json) instead, with 4 key_ids
    "corrected" based on an assumption about which keys should be natural
    notes. That assumption was wrong - the direct MIDI probe confirmed the
    FingerAccuracy profile's original (uncorrected) values were right all
@@ -21,7 +21,7 @@ Two data sources are combined:
    black keys (key_id 15-24) each get two pixels on strip 1.
 """
 
-from led_controller import LEDArrayController
+from common.led_controller import LEDArrayController
 
 # key_id -> MIDI note number (measured via midi_probe.py, see module docstring).
 KEY_ID_TO_NOTE = {

@@ -9,7 +9,7 @@ Combines everything the earlier steps set up:
 into one live view: the colored keyboard overlay and the hand skeleton are
 drawn together, and every MIDI note-on is resolved to the fingertip that
 was on the corresponding key when it fired (or the closest one, if none
-were exactly inside it - see fingeraccuracy/finger_matching.py).
+were exactly inside it - see app/finger_matching.py).
 
 Left hand thumb..pinky = L1..L5, right hand thumb..pinky = R1..R5.
 """
@@ -18,8 +18,8 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from fingeraccuracy.config import Config
-from fingeraccuracy.gui.finger_detector_window import FingerDetectorWindow
+from app.config import Config
+from app.gui.finger_detector_window import FingerDetectorWindow
 
 
 def main() -> None:

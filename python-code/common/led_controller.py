@@ -3,7 +3,7 @@ import time
 from contextlib import contextmanager
 from typing import Iterable, List, Sequence, Tuple
 
-from serial_utils import auto_detect_port, open_serial
+from common.serial_utils import auto_detect_port, open_serial
 
 
 Color = Tuple[int, int, int]

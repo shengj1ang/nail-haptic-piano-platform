@@ -1,7 +1,7 @@
 """STEP 1 of the pipeline - Keyboard Calibration Wizard.
 
 Marks out where every key of the physical piano/MIDI keyboard sits in the
-camera's view, and saves that as a reusable profile under data/<name>/.
+camera's view, and saves that as a reusable profile under data/keyboard-profile/<name>/.
 Later steps (hand/finger tracking, MIDI-note matching, ...) read that
 profile instead of re-detecting the keyboard each time.
 
@@ -14,8 +14,8 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from fingeraccuracy.config import Config
-from fingeraccuracy.gui.calibration_wizard import KeyboardCalibrationWizard
+from app.config import Config
+from app.gui.calibration_wizard import KeyboardCalibrationWizard
 
 
 def main() -> None:

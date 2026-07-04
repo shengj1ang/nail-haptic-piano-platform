@@ -1,12 +1,17 @@
 # pip install pyserial sounddevice numpy scipy matplotlib
 
+import sys
 import time
 import queue
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import numpy as np
 import sounddevice as sd
 import matplotlib.pyplot as plt
 from scipy.signal import butter, sosfiltfilt
-from controller import VibratorController
+from common.controller import VibratorController
 
 
 # =========================

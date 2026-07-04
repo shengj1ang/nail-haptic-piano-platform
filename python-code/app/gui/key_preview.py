@@ -76,7 +76,7 @@ class KeyPreviewWindow(QWidget):
 
         if not profiles:
             self.template = None
-            self.status_label.setText("No profiles found under data/. Run step1_keyboard_wizard.py first.")
+            self.status_label.setText("No profiles found under data/keyboard-profile/. Run step1_keyboard_wizard.py first.")
             return
 
         target = current if current in profiles else self.cfg.active_profile
