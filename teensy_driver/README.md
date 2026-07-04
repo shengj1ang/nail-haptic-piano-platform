@@ -93,6 +93,24 @@ accelerometer SPI (MISO), so the strips use two of the remaining pins:
 | Strip 0 | 24 |
 | Strip 1 | 29 |
 
+Plug each strip's data line into its assigned pin above. If you need to
+rewire onto different pins (e.g. pin 24/29 is inconvenient for your
+layout), any two of the remaining usable pins work — just update
+`LED_PIN_0`/`LED_PIN_1` in `LED_array.cpp` to match:
+
+| Pin | Location |
+|------|------|
+| 17 | main header (top, pins 0-39 row) |
+| 20 | main header (top, pins 0-39 row) |
+| 24 | main header (top, pins 0-39 row) — currently strip 0 |
+| 29 | main header (top, pins 0-39 row) — currently strip 1 |
+| 47 | extra pads on the back of the board (Teensy 4.1 only, not on the main header) |
+| 53 | extra pads on the back of the board (Teensy 4.1 only, not on the main header) |
+
+Prefer 17/20/24/29 unless you specifically want to use the back pads — they
+sit on the same two rows as everything else on the board, so no extra
+soldering is needed.
+
 `WS2812Serial.show()` starts the DMA transfer and returns immediately
 without disabling interrupts, unlike the previous `FastLED` bit-banged
 output (which blocked the CPU with interrupts disabled for the whole
