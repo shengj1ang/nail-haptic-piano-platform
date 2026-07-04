@@ -63,11 +63,16 @@ class FingerCueWidget(QWidget):
             painter.setPen(QPen(TEXT_COLOR))
             painter.drawText(0, 0, w, int(h * 0.32), Qt.AlignmentFlag.AlignCenter, self.message)
 
-        # Ten dots across the bottom two-thirds.
+        # Ten dots across the bottom two-thirds. All gaps are equal except
+        # the one between L1 and R1 (the hand split), which is doubled so
+        # it's visually obvious which five dots belong to which hand.
         margin = w * 0.04
         usable_w = w - 2 * margin
-        dot_d = min(usable_w / 12.0, h * 0.55)
-        gap = (usable_w - 10 * dot_d) / 11.0
+        # 10 dots + 12 gap "units" (11 normal-sized gaps around/between the
+        # dots, with the hand-split gap counting as 2 of those units).
+        dot_d = min(usable_w / 13.0, h * 0.55)
+        gap = (usable_w - 10 * dot_d) / 12.0
+        hand_gap = gap * 2.0
         y = h * 0.62 - dot_d / 2.0
 
         dot_font = painter.font()
@@ -83,7 +88,7 @@ class FingerCueWidget(QWidget):
             painter.drawEllipse(int(x), int(y), int(dot_d), int(dot_d))
             painter.setPen(QPen(QColor(255, 255, 255)))
             painter.drawText(int(x), int(y), int(dot_d), int(dot_d), Qt.AlignmentFlag.AlignCenter, finger_id)
-            x += dot_d + gap
+            x += dot_d + (hand_gap if finger_id == "L1" else gap)
 
 
 class CueWindow(QMainWindow):

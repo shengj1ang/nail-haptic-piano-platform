@@ -44,7 +44,7 @@ from app.keyboard.midi_mapping import MidiMapping
 from app.midi import list_input_ports
 from app.profiles import DATA_DIR, list_profiles
 from common.led_controller import LEDArrayController
-from note_audio import NoteAudioPlayer
+from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import NoteLEDMapper
 
 
@@ -283,6 +283,11 @@ class PianoWindow(QMainWindow):
         self.led_connect_btn.clicked.connect(self._toggle_led)
 
         self.audio_status = QLabel(audio_status_text)
+        self.timbre_combo = QComboBox()
+        for key, timbre in TIMBRES.items():
+            self.timbre_combo.addItem(timbre.name, key)
+        self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
+        self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
 
         self.midi_port_combo = QComboBox()
         self.midi_refresh_btn = QPushButton("Refresh")
@@ -315,13 +320,18 @@ class PianoWindow(QMainWindow):
         midi_row.addWidget(self.midi_refresh_btn)
         midi_row.addWidget(self.midi_connect_btn)
 
+        audio_row = QHBoxLayout()
+        audio_row.addWidget(self.audio_status, 1)
+        audio_row.addWidget(QLabel("Timbre:"))
+        audio_row.addWidget(self.timbre_combo)
+
         self.piano_slot = QVBoxLayout()
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addLayout(profile_row)
         layout.addLayout(led_row)
-        layout.addWidget(self.audio_status)
+        layout.addLayout(audio_row)
         layout.addLayout(midi_row)
         layout.addWidget(self.midi_status)
         layout.addWidget(self.instructions)
@@ -330,6 +340,10 @@ class PianoWindow(QMainWindow):
 
         self._refresh_midi_ports()
         self._refresh_profiles()
+
+    def _on_timbre_changed(self, index: int) -> None:
+        if self.audio_player is not None:
+            self.audio_player.set_timbre(self.timbre_combo.itemData(index))
 
     # ------------------------------------------------------------------
     # LED connection (manual)

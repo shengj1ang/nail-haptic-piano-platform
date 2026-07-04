@@ -149,6 +149,13 @@ class QuizMeta:
     note_accuracy: float
     mean_timing_error_s: Optional[float]
     finger_accuracy: Optional[float]
+    # How the target/finger was cued - "visual" (see student_quiz.py) today,
+    # a vibration-motor guidance_type could be added later without changing
+    # this schema. analyzed tracks whether the (separate, reusable -
+    # app/gui/quiz_analysis_window.py) finger-matching pass has run yet;
+    # note_accuracy/timing error don't need it, only finger_accuracy does.
+    guidance_type: str = "visual"
+    analyzed: bool = True
 
     def save(self, path: Path) -> None:
         path = Path(path)

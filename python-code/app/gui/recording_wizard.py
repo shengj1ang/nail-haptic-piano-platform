@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from common.led_controller import LEDArrayController
-from note_audio import NoteAudioPlayer
+from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import WHITE_LEDS
 
 from ..camera import Camera
@@ -187,9 +187,17 @@ class RecordPage(QWizardPage):
         self.start_btn.clicked.connect(self._start)
         self.stop_btn.clicked.connect(self._stop)
 
+        self.timbre_combo = QComboBox()
+        for key, timbre in TIMBRES.items():
+            self.timbre_combo.addItem(timbre.name, key)
+        self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
+        self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
+
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.start_btn)
         btn_row.addWidget(self.stop_btn)
+        btn_row.addWidget(QLabel("Timbre:"))
+        btn_row.addWidget(self.timbre_combo)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.view)
@@ -220,6 +228,12 @@ class RecordPage(QWizardPage):
             self._timer.start(33)
         else:
             self._timer.stop()
+
+    def _on_timbre_changed(self, index: int) -> None:
+        # Takes effect immediately if already recording; otherwise it's
+        # just remembered for the next Start recording.
+        if self.audio is not None:
+            self.audio.set_timbre(self.timbre_combo.itemData(index))
 
     # ------------------------------------------------------------------
 
@@ -252,7 +266,7 @@ class RecordPage(QWizardPage):
             return
 
         try:
-            self.audio = NoteAudioPlayer()
+            self.audio = NoteAudioPlayer(timbre=self.timbre_combo.currentData())
         except Exception as e:
             self.audio = None
             QMessageBox.warning(

@@ -34,6 +34,7 @@ from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
+from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
@@ -66,7 +67,13 @@ SECTIONS = [
     (
         "4. Practice && Assessment",
         [
-            ("Student Quiz", QuizWindow),
+            ("Quiz - Visual Guidance", QuizWindow),
+        ],
+    ),
+    (
+        "5. Data Analysis",
+        [
+            ("Quiz Analysis", QuizAnalysisWindow),
         ],
     ),
 ]

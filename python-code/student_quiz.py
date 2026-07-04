@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -45,7 +44,7 @@ from app.camera import Camera
 from app.config import Config
 from app.gui.cue_window import ScreenCueOutput
 from app.gui.image_view import ImageView
-from app.gui.analyze_worker import AnalyzeWorker
+from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.keyboard.midi_mapping import MidiMapping
 from app.midi import MidiEvent, list_input_ports, save_midi_log
 from app.music_recording import META_FILENAME as SONG_META_FILENAME
@@ -71,6 +70,7 @@ from app.quiz import (
     summarize,
 )
 from common.led_controller import LEDArrayController
+from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import WHITE_LEDS
 
 LED_FLASH_DELAY_MS = 300
@@ -104,6 +104,7 @@ class QuizWindow(QMainWindow):
         self.led_mapper = None
 
         self.midi_recorder: Optional[RawMidiRecorder] = None
+        self.audio: Optional[NoteAudioPlayer] = None
         self.video_writer: Optional[cv2.VideoWriter] = None
         self.video_path: Optional[Path] = None
         self.raw_events: list = []
@@ -117,9 +118,9 @@ class QuizWindow(QMainWindow):
         self.current_index = 0
         self.cue_onset_time = 0.0
         self.lit_note: Optional[int] = None
-        self.phase = "idle"  # idle -> flashing -> countdown -> presenting -> gap -> processing -> idle
+        self.phase = "idle"  # idle -> flashing -> countdown -> presenting -> gap -> idle
         self.phase_start_wall = 0.0
-        self._worker: Optional[AnalyzeWorker] = None
+        self._analysis_window: Optional[QuizAnalysisWindow] = None
 
         # ------------------------------------------------------------ UI
         self.song_combo = QComboBox()
@@ -142,9 +143,16 @@ class QuizWindow(QMainWindow):
 
         self.led_connect_btn = QPushButton("Connect LED")
         self.led_connect_btn.clicked.connect(self._toggle_led)
-        self.led_status = QLabel("LED: not connected")
+        self.led_status = QLabel("LED: not connected (required to start)")
+
+        self.timbre_combo = QComboBox()
+        for key, timbre in TIMBRES.items():
+            self.timbre_combo.addItem(timbre.name, key)
+        self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
+        self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
 
         self.start_btn = QPushButton("Start Quiz")
+        self.start_btn.setEnabled(False)  # needs the LED connected first - see _toggle_led()
         self.start_btn.clicked.connect(self._start_quiz)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)
@@ -152,8 +160,6 @@ class QuizWindow(QMainWindow):
 
         self.view = ImageView()
         self.status_label = QLabel("Pick a song to begin.")
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
         self.results_label = QLabel("")
         self.results_label.setWordWrap(True)
 
@@ -174,6 +180,8 @@ class QuizWindow(QMainWindow):
         port_row.addWidget(port_refresh_btn)
         port_row.addWidget(self.led_status)
         port_row.addWidget(self.led_connect_btn)
+        port_row.addWidget(QLabel("Timbre:"))
+        port_row.addWidget(self.timbre_combo)
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.start_btn)
@@ -187,7 +195,6 @@ class QuizWindow(QMainWindow):
         layout.addWidget(self.view)
         layout.addWidget(self.status_label)
         layout.addLayout(btn_row)
-        layout.addWidget(self.progress_bar)
         layout.addWidget(self.results_label)
         self.setCentralWidget(central)
 
@@ -251,8 +258,10 @@ class QuizWindow(QMainWindow):
                 self.led_mapper.clear_all()
             self.led.close()
             self.led_connected = False
-            self.led_status.setText("LED: not connected")
+            self.led_status.setText("LED: not connected (required to start)")
             self.led_connect_btn.setText("Connect LED")
+            if self.phase == "idle":
+                self.start_btn.setEnabled(False)
             return
 
         try:
@@ -265,12 +274,24 @@ class QuizWindow(QMainWindow):
         self.led_connected = True
         self.led_status.setText(f"LED: connected on {self.led.port}")
         self.led_connect_btn.setText("Disconnect LED")
+        if self.phase == "idle":
+            self.start_btn.setEnabled(True)
+
+    def _on_timbre_changed(self, index: int) -> None:
+        # Takes effect immediately if a quiz is already recording; otherwise
+        # it's just remembered for the next Start Quiz.
+        if self.audio is not None:
+            self.audio.set_timbre(self.timbre_combo.itemData(index))
 
     # ------------------------------------------------------------------
     # Starting a quiz
     # ------------------------------------------------------------------
 
     def _start_quiz(self) -> None:
+        if not self.led_connected:
+            QMessageBox.warning(self, "LED not connected", "Connect the LED strip before starting a quiz.")
+            return
+
         if not self.targets:
             QMessageBox.warning(self, "No song loaded", "Pick a recorded song first.")
             return
@@ -290,6 +311,16 @@ class QuizWindow(QMainWindow):
         except RuntimeError as e:
             QMessageBox.warning(self, "MIDI connection failed", str(e))
             return
+
+        try:
+            self.audio = NoteAudioPlayer(timbre=self.timbre_combo.currentData())
+        except Exception as e:
+            self.audio = None
+            QMessageBox.warning(
+                self,
+                "Audio output not available",
+                f"Could not start audio playback ({e}). Continuing without sound feedback.",
+            )
 
         r_dir = quiz_raw_dir(quiz_name)
         r_dir.mkdir(parents=True, exist_ok=True)
@@ -419,7 +450,14 @@ class QuizWindow(QMainWindow):
                 self.video_writer.write(frame)
 
         if self.midi_recorder is not None:
-            self.raw_events.extend(self.midi_recorder.pop_events())
+            new_events = self.midi_recorder.pop_events()
+            self.raw_events.extend(new_events)
+            if self.audio is not None:
+                for e in new_events:
+                    if e.type == "note_on":
+                        self.audio.play_key(e.note)
+                    else:
+                        self.audio.stop_key(e.note)
 
         if self.phase == "countdown":
             remaining = COUNTDOWN_S - (time.time() - self.phase_start_wall)
@@ -455,13 +493,18 @@ class QuizWindow(QMainWindow):
             self.raw_events.extend(self.midi_recorder.pop_events())
             self.midi_recorder.close()
             self.midi_recorder = None
+        if self.audio is not None:
+            self.audio.stop_all()
+            time.sleep(0.05)  # let the release fade finish before tearing down the stream
+            self.audio.close()
+            self.audio = None
         if self.video_writer is not None:
             self.video_writer.release()
             self.video_writer = None
         self._clear_current_led()
 
     def _unlock_inputs(self) -> None:
-        self.start_btn.setEnabled(True)
+        self.start_btn.setEnabled(self.led_connected)
         self.cancel_btn.setEnabled(False)
         for w_ in (self.song_combo, self.quiz_name_edit, self.port_combo, self.timeout_spin):
             w_.setEnabled(True)
@@ -475,11 +518,9 @@ class QuizWindow(QMainWindow):
 
     def _finish_quiz(self) -> None:
         self._release_session()
-        self.phase = "processing"
-        self.cue.show_message("Processing...")
-        self.status_label.setText("Matching fingers against the video...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)
+        self.phase = "idle"
+        self.cue.show_message("Recording complete - see the analysis window for finger accuracy.")
+        self.status_label.setText("Saving recording...")
 
         r_dir = quiz_raw_dir(self.quiz_name)
         save_raw_midi_log(self.raw_events, r_dir / RAW_MIDI_FILENAME)
@@ -494,41 +535,11 @@ class QuizWindow(QMainWindow):
 
         pressed = [r for r in self.results if not r.timed_out]
         notes_for_analysis = [MidiEvent(time=r.keypress_time, note=r.actual_note) for r in pressed]
-        notes_path = r_dir / RAW_NOTES_FILENAME
-        save_midi_log(notes_for_analysis, notes_path)
+        save_midi_log(notes_for_analysis, r_dir / RAW_NOTES_FILENAME)
 
-        if not notes_for_analysis:
-            self._finalize_results([])
-            return
-
-        self._worker = AnalyzeWorker(self.video_path, notes_path, self.song_meta.profile_name)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.succeeded.connect(self._finalize_results)
-        self._worker.failed.connect(self._on_analyze_failed)
-        self._worker.start()
-
-    def _on_progress(self, done: int, total: int) -> None:
-        if total > 0:
-            self.progress_bar.setRange(0, total)
-            self.progress_bar.setValue(done)
-            self.status_label.setText(f"Matching fingers against the video... {done}/{total} frames")
-        else:
-            self.status_label.setText(f"Matching fingers against the video... {done} frames")
-
-    def _on_analyze_failed(self, message: str) -> None:
-        self.progress_bar.setVisible(False)
-        self.status_label.setText("Finger-matching failed - results saved without finger accuracy.")
-        QMessageBox.warning(self, "Finger matching failed", message)
-        self._finalize_results([])
-
-    def _finalize_results(self, matches: list) -> None:
-        pressed = [r for r in self.results if not r.timed_out]
-        for result, match in zip(pressed, matches):
-            result.actual_finger = match.finger if match else None
-            result.finger_correct = (
-                (result.actual_finger == result.target_finger) if (match and result.target_finger) else None
-            )
-
+        # Note Accuracy and Timing Error don't need the video at all, so
+        # they're already final here - only Finger Accuracy is pending,
+        # filled in by the separate (reusable) analysis window below.
         s_dir = quiz_dir(self.quiz_name)
         save_quiz_results(self.results, s_dir / RESULTS_FILENAME)
 
@@ -545,32 +556,32 @@ class QuizWindow(QMainWindow):
             misses=summary["misses"],
             note_accuracy=summary["note_accuracy"],
             mean_timing_error_s=summary["mean_timing_error_s"],
-            finger_accuracy=summary["finger_accuracy"],
+            finger_accuracy=None,
+            guidance_type="visual",
+            analyzed=False,
         )
         meta.save(s_dir / QUIZ_META_FILENAME)
 
-        timing_text = (
-            f"{summary['mean_timing_error_s'] * 1000:.0f} ms" if summary["mean_timing_error_s"] is not None else "n/a"
-        )
-        finger_text = f"{summary['finger_accuracy'] * 100:.0f}%" if summary["finger_accuracy"] is not None else "n/a"
         self.results_label.setText(
             f"Note Accuracy: {summary['note_accuracy'] * 100:.0f}% ({summary['hits']}/{len(self.results)}, "
             f"{summary['misses']} missed)\n"
-            f"Mean Timing Error: {timing_text}\n"
-            f"Finger Accuracy: {finger_text}\n"
-            f"Saved to {s_dir}"
+            f"Saved to {s_dir} - see the analysis window for Finger Accuracy."
         )
-
-        self.progress_bar.setVisible(False)
-        self.phase = "idle"
-        self.cue.show_message("Done! Pick a song and press Start to try again.")
         self.status_label.setText("Quiz finished.")
         self._unlock_inputs()
+
+        # Finger-matching is identical regardless of how the cue was shown,
+        # so it lives in its own reusable window instead of here - see
+        # app/gui/quiz_analysis_window.py.
+        self._analysis_window = QuizAnalysisWindow(self.cfg, initial_quiz_name=self.quiz_name)
+        self._analysis_window.show()
 
     def closeEvent(self, event) -> None:
         self._timer.stop()
         if self.midi_recorder is not None:
             self.midi_recorder.close()
+        if self.audio is not None:
+            self.audio.close()
         if self.video_writer is not None:
             self.video_writer.release()
         if self.led_connected:

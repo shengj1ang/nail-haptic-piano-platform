@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 from app.config import Config
 from app.music_recording import PlaybackEvent, SongMeta, load_playback_events, list_songs, song_dir, META_FILENAME
 from test_virtual_piano_led import KeyFeedback, PianoKey
-from note_audio import NoteAudioPlayer
+from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import NoteLEDMapper
 
 # Left hand pinky-to-thumb, then right hand thumb-to-pinky, so the two
@@ -189,6 +189,11 @@ class PlaybackWindow(QMainWindow):
         self.info_label = QLabel("No song loaded.")
         self.progress_label = QLabel("")
         self.audio_status = QLabel(audio_status_text)
+        self.timbre_combo = QComboBox()
+        for key, timbre in TIMBRES.items():
+            self.timbre_combo.addItem(timbre.name, key)
+        self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
+        self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
         self.hands = HandsWidget()
 
         song_row = QHBoxLayout()
@@ -201,6 +206,11 @@ class PlaybackWindow(QMainWindow):
         transport_row.addWidget(self.stop_btn)
         transport_row.addWidget(self.progress_label, 1)
 
+        audio_row = QHBoxLayout()
+        audio_row.addWidget(self.audio_status, 1)
+        audio_row.addWidget(QLabel("Timbre:"))
+        audio_row.addWidget(self.timbre_combo)
+
         # No LED hardware involved in playback - an empty note table makes
         # every light_key()/clear_key() call a no-op, so KeyFeedback only
         # ever drives the on-screen highlight + (optional) audio here. The
@@ -212,7 +222,7 @@ class PlaybackWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.addLayout(song_row)
         layout.addWidget(self.info_label)
-        layout.addWidget(self.audio_status)
+        layout.addLayout(audio_row)
         layout.addLayout(transport_row)
         layout.addWidget(self.hands)
         layout.addWidget(self.piano)
@@ -230,6 +240,10 @@ class PlaybackWindow(QMainWindow):
         self._active_events: list[PlaybackEvent] = []  # currently-held notes, so we know when to release them
 
         self._refresh_songs()
+
+    def _on_timbre_changed(self, index: int) -> None:
+        if self.audio_player is not None:
+            self.audio_player.set_timbre(self.timbre_combo.itemData(index))
 
     # ------------------------------------------------------------------
     # Song loading
