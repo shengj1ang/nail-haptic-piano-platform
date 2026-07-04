@@ -1,15 +1,19 @@
 """
-Ground-truth calibration probe: prints each MIDI note as you press physical
-keyboard keys, in order pressed.
+Quick, no-profile-needed diagnostic: prints each MIDI note as you press
+physical keyboard keys, in order pressed.
 
-Run this, then press all 25 keys on the real keyboard LEFT TO RIGHT, one at a
-time, starting from the lowest key on the far left (white1, black1, white2,
-black2, white3, white4, ... matching key_id 0..24 in piano_led_gui.py's
-VISUAL_SEQUENCE). The Nth key you press gets labeled "key_id N" below.
+This is a raw sanity check, not part of the calibration pipeline - the
+actual key_id -> note data other tools rely on comes from
+step1_keyboard_wizard.py + step2_midi_mapping.py (saved into a profile
+under data/keyboard-profile/<profile>/, and consumed by
+profile_led_mapper.py for LED mapping). Use this script instead when you
+just want a fast answer to "what note does this key send right now" -
+e.g. verifying the keyboard's own transpose/octave setting is correct
+(middle C should send note 60) before running the real calibration wizard.
 
-This sidesteps the FingerAccuracy calibration profile entirely (which turned
-out to have at least one mismatch) - it's a direct, no-assumptions capture
-of what THIS keyboard actually sends for each physical key.
+Press the 15 white keys left to right, then the 10 black keys left to
+right, to get a readable summary at the end, or just press whatever keys
+you're curious about - the numbering here is only for display.
 
 Ctrl+C to stop.
 """
@@ -20,15 +24,20 @@ PORT_NAME = "SE25 MIDI1"
 
 
 def main():
-    count = 0
+    white_count = 0
+    black_count = 0
     print(f"Listening on {PORT_NAME!r}.")
-    print("Press all 25 keys, left to right, one at a time (Ctrl+C when done).\n")
+    print("Press the 15 white keys left to right, then the 10 black keys left to right (Ctrl+C when done).\n")
     try:
         with mido.open_input(PORT_NAME) as inport:
             for msg in inport:
                 if msg.type == "note_on" and msg.velocity > 0:
-                    print(f"key_id {count}: note={msg.note}")
-                    count += 1
+                    if white_count < 15:
+                        print(f"white[{white_count}]: note={msg.note}")
+                        white_count += 1
+                    else:
+                        print(f"black[{black_count}]: note={msg.note}")
+                        black_count += 1
     except KeyboardInterrupt:
         print("\nStopped.")
 

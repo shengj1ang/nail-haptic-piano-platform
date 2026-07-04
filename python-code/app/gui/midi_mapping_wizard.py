@@ -1,13 +1,24 @@
-"""PyQt window for step 3: press the keyboard's keys in order 1, 2, 3, ...
+"""PyQt (PySide6) wizard for step 2: press the keyboard's keys in order 1, 2, 3, ...
 and record which MIDI note number each one sends.
 
-No vision/detection happens here - the camera feed is only shown so you can
-see which key is highlighted as "next" against the profile's key_map.
+Two pages:
+  0. Connect - reminder to verify the keyboard's middle C sends note 60 (with a
+     reference image/link), then pick and connect the MIDI port. A live "last
+     key pressed" readout lets you test-press middle C right here and confirm
+     it reads note 60 before doing anything else.
+  1. Map keys - pick a profile, then step through its keys in the order
+     step1_keyboard_wizard.py numbered them, pressing whichever physical key
+     the camera view highlights as "next". No vision/detection happens on
+     this page - the camera feed is only shown so you can see which key is
+     highlighted.
 """
+
+from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -15,7 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QWidget,
+    QWizard,
+    QWizardPage,
 )
 
 from ..camera import Camera
@@ -25,29 +37,43 @@ from ..keyboard.template import KeyboardTemplate
 from ..keyboard.visualize import build_color_luts, draw_labels
 from ..midi import MidiListener, list_input_ports
 from ..profiles import DATA_DIR, list_profiles
-from .image_view import ImageView
+from .image_view import ImageView, _default_max_size
 
 HIGHLIGHT_COLOR = (0, 255, 255)  # bright - the key you should press next
 MAPPED_COLOR = (0, 200, 0)  # already captured
 UNMAPPED_COLOR = (60, 60, 60)  # not reached yet
 
+MIDDLE_C_IMAGE = Path(__file__).resolve().parent.parent / "assets" / "image" / "MiddleC-Keyboard.png"
+MIDDLE_C_REFERENCE_URL = "https://www.phys.unsw.edu.au/jw/notes.html"
 
-class MidiMappingWindow(QWidget):
-    def __init__(self, cfg: Config):
+PAGE_CONNECT, PAGE_MAP = range(2)
+
+
+class ConnectPage(QWizardPage):
+    def __init__(self, wizard: "MidiMappingWizard"):
         super().__init__()
-        self.setWindowTitle("Step 3 - MIDI Key Mapping")
+        self.setTitle("Step 2a - Connect the MIDI keyboard")
+        self.setSubTitle("Verify middle C first, then connect the keyboard's MIDI port.")
+        self._wizard = wizard
 
-        self.cfg = cfg
-        self.camera = Camera(cfg.camera)
-        self.template = None
-        self.luts = None
-        self.midi = None
-        self.mapping: dict = {}
-        self.order: list = []
-        self.pos = 0
+        hint = QLabel(
+            "If this is a custom/non-standard MIDI keyboard, verify its middle C sends note 60 "
+            "(check/adjust the keyboard's own octave/transpose setting first) - after connecting "
+            "below, press middle C and confirm the readout says note 60 / C4."
+        )
+        hint.setWordWrap(True)
 
-        self.profile_combo = QComboBox()
-        self.profile_combo.currentTextChanged.connect(self._load_profile)
+        image_label = QLabel()
+        pixmap = QPixmap(str(MIDDLE_C_IMAGE))
+        if not pixmap.isNull():
+            image_label.setPixmap(pixmap)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        reference_link = QLabel(
+            f'Reference: <a href="{MIDDLE_C_REFERENCE_URL}">{MIDDLE_C_REFERENCE_URL}</a> '
+            "(piano key layout / note number chart)"
+        )
+        reference_link.setOpenExternalLinks(True)
 
         self.port_combo = QComboBox()
         self.refresh_ports_btn = QPushButton("Refresh ports")
@@ -55,7 +81,97 @@ class MidiMappingWindow(QWidget):
         self.refresh_ports_btn.clicked.connect(self._refresh_ports)
         self.connect_btn.clicked.connect(self._connect_midi)
 
-        self.view = ImageView()
+        self.status_label = QLabel("Not connected.")
+
+        self.live_note_label = QLabel("Last key pressed: -")
+        big_font = self.live_note_label.font()
+        big_font.setPointSize(big_font.pointSize() + 4)
+        self.live_note_label.setFont(big_font)
+
+        port_row = QHBoxLayout()
+        port_row.addWidget(QLabel("MIDI port:"))
+        port_row.addWidget(self.port_combo, 1)
+        port_row.addWidget(self.refresh_ports_btn)
+        port_row.addWidget(self.connect_btn)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(hint)
+        layout.addWidget(image_label)
+        layout.addWidget(reference_link)
+        layout.addLayout(port_row)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.live_note_label)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._poll_midi)
+
+    def initializePage(self) -> None:
+        self._refresh_ports()
+
+    def set_polling(self, active: bool) -> None:
+        if active:
+            self._timer.start(33)
+        else:
+            self._timer.stop()
+
+    def _refresh_ports(self) -> None:
+        ports = list_input_ports()
+        self.port_combo.clear()
+        self.port_combo.addItems(ports)
+        if self._wizard.cfg.midi.port_name in ports:
+            self.port_combo.setCurrentText(self._wizard.cfg.midi.port_name)
+
+    def _connect_midi(self) -> None:
+        if self._wizard.midi is not None:
+            self._wizard.midi.close()
+            self._wizard.midi = None
+
+        port_name = self.port_combo.currentText() or None
+        try:
+            midi = MidiListener(port_name)
+        except RuntimeError as e:
+            QMessageBox.warning(self, "MIDI connection failed", str(e))
+            return
+
+        self._wizard.midi = midi
+        self._wizard.cfg.midi.port_name = midi.port_name
+        self._wizard.cfg.save()
+        self.status_label.setText(f"Connected to '{midi.port_name}'.")
+        self.completeChanged.emit()
+
+    def _poll_midi(self) -> None:
+        if self._wizard.midi is None:
+            return
+        for event in self._wizard.midi.pop_events():
+            self.live_note_label.setText(f"Last key pressed: note {event.note} ({note_name(event.note)})")
+
+    def isComplete(self) -> bool:
+        return self._wizard.midi is not None
+
+
+class MapKeysPage(QWizardPage):
+    def __init__(self, wizard: "MidiMappingWizard"):
+        super().__init__()
+        self.setTitle("Step 2b - Map keys to MIDI notes")
+        self.setSubTitle("Press the highlighted key on the physical keyboard, in order.")
+        self._wizard = wizard
+
+        self.template = None
+        self.luts = None
+        self.mapping: dict = {}
+        self.order: list = []
+        self.pos = 0
+
+        self.profile_combo = QComboBox()
+        self.profile_combo.currentTextChanged.connect(self._load_profile)
+
+        # This page stacks a profile row above the video and progress/status/button
+        # rows below it - more surrounding chrome than ImageView's default sizing
+        # assumes, so ask for a shorter (but still full-width) box to make sure the
+        # whole frame stays visible instead of getting clipped by the wizard's fixed
+        # window size.
+        default_w, default_h = _default_max_size()
+        self.view = ImageView(max_size=(default_w, int(default_h * 0.75)))
         self.progress_label = QLabel("")
         self.status_label = QLabel("")
 
@@ -72,11 +188,9 @@ class MidiMappingWindow(QWidget):
         profile_row.addWidget(QLabel("Profile:"))
         profile_row.addWidget(self.profile_combo, 1)
 
-        midi_row = QHBoxLayout()
-        midi_row.addWidget(QLabel("MIDI port:"))
-        midi_row.addWidget(self.port_combo, 1)
-        midi_row.addWidget(self.refresh_ports_btn)
-        midi_row.addWidget(self.connect_btn)
+        info_row = QHBoxLayout()
+        info_row.addWidget(self.progress_label, 1)
+        info_row.addWidget(self.status_label, 1)
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.undo_btn)
@@ -86,18 +200,21 @@ class MidiMappingWindow(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addLayout(profile_row)
-        layout.addLayout(midi_row)
         layout.addWidget(self.view)
-        layout.addWidget(self.progress_label)
-        layout.addWidget(self.status_label)
+        layout.addLayout(info_row)
         layout.addLayout(btn_row)
-
-        self._refresh_profiles()
-        self._refresh_ports()
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(33)
+
+    def initializePage(self) -> None:
+        self._refresh_profiles()
+
+    def set_polling(self, active: bool) -> None:
+        if active:
+            self._timer.start(33)
+        else:
+            self._timer.stop()
 
     # ------------------------------------------------------------------
     # Profile handling
@@ -114,7 +231,7 @@ class MidiMappingWindow(QWidget):
             self.status_label.setText("No profiles found under data/keyboard-profile/. Run step1_keyboard_wizard.py first.")
             return
 
-        target = self.cfg.active_profile if self.cfg.active_profile in profiles else profiles[0]
+        target = self._wizard.cfg.active_profile if self._wizard.cfg.active_profile in profiles else profiles[0]
         self.profile_combo.setCurrentText(target)
         self._load_profile(target)
 
@@ -136,33 +253,6 @@ class MidiMappingWindow(QWidget):
         self._update_progress()
 
     # ------------------------------------------------------------------
-    # MIDI handling
-    # ------------------------------------------------------------------
-
-    def _refresh_ports(self) -> None:
-        ports = list_input_ports()
-        self.port_combo.clear()
-        self.port_combo.addItems(ports)
-        if self.cfg.midi.port_name in ports:
-            self.port_combo.setCurrentText(self.cfg.midi.port_name)
-
-    def _connect_midi(self) -> None:
-        if self.midi is not None:
-            self.midi.close()
-            self.midi = None
-
-        port_name = self.port_combo.currentText() or None
-        try:
-            self.midi = MidiListener(port_name)
-        except RuntimeError as e:
-            QMessageBox.warning(self, "MIDI connection failed", str(e))
-            return
-
-        self.cfg.midi.port_name = self.midi.port_name
-        self.cfg.save()
-        self.status_label.setText(f"Connected to '{self.midi.port_name}'.")
-
-    # ------------------------------------------------------------------
     # Stepping through keys
     # ------------------------------------------------------------------
 
@@ -170,7 +260,7 @@ class MidiMappingWindow(QWidget):
         return self.order[self.pos] if self.pos < len(self.order) else None
 
     def _tick(self) -> None:
-        frame = self.camera.read()
+        frame = self._wizard.camera.read()
         if frame is None:
             return
 
@@ -179,8 +269,8 @@ class MidiMappingWindow(QWidget):
 
         self.view.set_frame(frame)
 
-        if self.midi is not None:
-            for event in self.midi.pop_events():
+        if self._wizard.midi is not None:
+            for event in self._wizard.midi.pop_events():
                 self._on_note(event.note)
 
     def _draw_overlay(self, frame: np.ndarray) -> None:
@@ -253,15 +343,39 @@ class MidiMappingWindow(QWidget):
 
         profile_name = self.profile_combo.currentText()
         path = DATA_DIR / profile_name / "midi_mapping.json"
-        port_name = self.midi.port_name if self.midi else self.cfg.midi.port_name
+        port_name = self._wizard.midi.port_name if self._wizard.midi else self._wizard.cfg.midi.port_name
 
         mapping = MidiMapping(port_name=port_name, key_to_note=dict(self.mapping))
         mapping.save(path)
 
         QMessageBox.information(self, "Saved", f"Saved {len(self.mapping)} key-to-note mappings to {path}")
 
+
+class MidiMappingWizard(QWizard):
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.setWindowTitle("Step 2 - MIDI Key Mapping")
+        self.setOptions(QWizard.WizardOption.NoBackButtonOnLastPage)
+
+        self.cfg = cfg
+        self.camera = Camera(cfg.camera)
+        self.midi: MidiListener | None = None
+
+        self.connect_page = ConnectPage(self)
+        self.map_page = MapKeysPage(self)
+        self.setPage(PAGE_CONNECT, self.connect_page)
+        self.setPage(PAGE_MAP, self.map_page)
+        self.setStartId(PAGE_CONNECT)
+
+        self.currentIdChanged.connect(self._on_page_changed)
+
+    def _on_page_changed(self, page_id: int) -> None:
+        self.connect_page.set_polling(page_id == PAGE_CONNECT)
+        self.map_page.set_polling(page_id == PAGE_MAP)
+
     def closeEvent(self, event) -> None:
-        self._timer.stop()
+        self.connect_page.set_polling(False)
+        self.map_page.set_polling(False)
         self.camera.release()
         if self.midi is not None:
             self.midi.close()

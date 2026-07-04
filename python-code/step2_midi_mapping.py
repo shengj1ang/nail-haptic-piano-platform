@@ -16,15 +16,15 @@ import sys
 from PySide6.QtWidgets import QApplication
 
 from app.config import Config
-from app.gui.midi_mapping_wizard import MidiMappingWindow
+from app.gui.midi_mapping_wizard import MidiMappingWizard
 
 
 def main() -> None:
     cfg = Config.load()
 
     app = QApplication(sys.argv)
-    window = MidiMappingWindow(cfg)
-    window.resize(960, 760)
+    window = MidiMappingWizard(cfg)
+    window.resize(1000, 860)
     window.show()
     sys.exit(app.exec())
 

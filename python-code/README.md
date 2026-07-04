@@ -19,11 +19,13 @@ data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
 hand_landmarker.task    MediaPipe hand landmark model, used by app/
 requirements.txt        Python deps for app/ (conda env "fingercam")
 
-piano_led_gui.py        on-screen piano (PySide6) that lights the physical LED strips
-note_led_map.py         MIDI note -> LED pixel mapping, used by piano_led_gui.py
+demo_live_piano_led_test.py   manual-test UI (PySide6): on-screen piano that lights the physical LED strips
+profile_led_mapper.py   reusable, GUI-free: profile + MIDI note -> LED positions
+note_led_map.py         this LED rig's fixed wiring (position -> LED pixels), used by profile_led_mapper.py
+note_audio.py           reusable, GUI-free: MIDI note -> audio tone playback (no profile needed)
 
 common/                 shared low-level modules (serial/motor/LED), used by both
-                         piano_led_gui.py and test-script/
+                         demo_live_piano_led_test.py and test-script/
 test-script/            older, non-UI motor/LED/latency/MIDI scripts + their output
 archive/                early FingerAccuracy prototypes, kept for reference only
 ```
@@ -210,32 +212,67 @@ kept only for reference.
 
 ---
 
-## piano_led_gui.py + note_led_map.py - virtual piano / LED preview
+## profile_led_mapper.py + note_led_map.py - MIDI note -> LED, and demo_live_piano_led_test.py - manual test UI
 
-`piano_led_gui.py` is an on-screen 25-key piano (PySide6) that mirrors the
-physical MIDI keyboard used elsewhere in this project. Press and hold a
-virtual key (or the matching real MIDI key) and the corresponding LED(s) on
-the physical Teensy WS2812 strips light up; release to turn them off. It's
-useful for eyeballing/measuring LED response without needing the physical
-keyboard in hand.
+This LED rig is hardware-specific and isn't meant to generalize to other
+keyboards, but the identifier it's keyed by is: `note_led_map.py` only knows
+about *this strip's fixed wiring* (which pixel(s) light up for the Nth
+white/black key, left to right - see `test-script/test_led_array.py`), and
+its `NoteLEDMapper.light_key(note)` / `clear_key(note)` take a MIDI note
+number directly, no separate key_id.
+
+`profile_led_mapper.py` is the reusable, GUI-free glue that combines that
+wiring with a calibration profile's actual `key_id -> note` mapping (from
+`data/keyboard-profile/<profile>/`, produced by `step1_keyboard_wizard.py` +
+`step2_midi_mapping.py`) to build a ready-to-use `NoteLEDMapper` -
+`build_mapper(led, profile_name)` is the one-shot entry point. Import this
+directly in any script that needs "MIDI note -> light the right LED"
+without pulling in a GUI.
+
+`demo_live_piano_led_test.py` is a thin PySide6 wrapper around the above,
+for manual testing: pick a profile, and an on-screen 25-key piano mirrors
+it. Press and hold a virtual key (or the matching real MIDI key) and the
+corresponding LED(s) on the physical Teensy WS2812 strips light up; release
+to turn them off.
 
 ```bash
-python piano_led_gui.py
+python demo_live_piano_led_test.py
 ```
 
-`note_led_map.py` provides the `NOTE_TO_KEY_ID` table and `NoteLEDMapper`
-class that translate a MIDI note number into LED strip/pixel positions. The
-key_id -> MIDI note half of that mapping was measured directly off the real
-keyboard with `test-script/midi_probe.py`; the key_id -> LED pixel half
-follows the layout used in `test-script/test_led_array.py`. Both
-`piano_led_gui.py` and `note_led_map.py` depend on `common/led_controller.py`
-to actually talk to the Teensy.
+If the keyboard's transpose/octave setting changes, only the profile needs
+re-calibrating (`step2_midi_mapping.py`) - `note_led_map.py`'s wiring table
+doesn't need to change.
+
+---
+
+## note_audio.py - MIDI note -> audio tone playback
+
+Reusable, GUI-free playback of a continuous tone for whichever MIDI note(s)
+are currently held down, meant to be imported by future teaching modules
+the same way `profile_led_mapper.py` is - a note-keyed `play_key(note)` /
+`stop_key(note)` pair, mirroring `NoteLEDMapper`'s `light_key`/`clear_key`.
+No calibration profile needed here: frequency comes straight from the MIDI
+note number via the standard equal-tempered formula (note 69 = A4 = 440Hz),
+since pitch is physics, not a fact about specific hardware.
+
+```python
+from note_audio import NoteAudioPlayer
+
+with NoteAudioPlayer() as player:
+    player.play_key(60)   # starts a middle-C tone, fades in
+    ...
+    player.stop_key(60)   # fades it back out
+```
+
+Uses `sounddevice` (already a project dependency via `test-script/measure_latency*.py`)
+to mix all currently-held notes into one output stream, with a short linear
+fade on press/release to avoid clicks.
 
 ---
 
 ## common/ - shared serial/motor/LED modules
 
-Low-level modules shared by `piano_led_gui.py` above and the scripts in
+Low-level modules shared by `demo_live_piano_led_test.py` above and the scripts in
 `test-script/` below. Not a UI on its own.
 
 | Module | Purpose |
