@@ -38,6 +38,7 @@ from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
+from student_quiz_haptic import HapticQuizWindow
 from test_virtual_piano_led import PianoWindow
 
 # (section heading, [(button label, window class), ...])
@@ -68,6 +69,7 @@ SECTIONS = [
         "4. Practice && Assessment",
         [
             ("Quiz - Visual Guidance", QuizWindow),
+            ("Quiz - Haptic Guidance", HapticQuizWindow),
         ],
     ),
     (

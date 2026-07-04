@@ -3,10 +3,14 @@ time.
 
 Pick a previously recorded song (see music_recording_wizard.py), give this
 attempt a name, and click Start: the target key's LED lights up (if a
-strip is connected) and a cue window - see app/gui/cue_window.py, drag it
-to a second monitor and fullscreen it if you like - shows which finger to
-use. Press a key on the real MIDI keyboard (or let it time out) and the
-quiz moves to the next note.
+strip is connected) and a cue tells you which finger to use - either the
+on-screen cue window (see app/gui/cue_window.py, drag it to a second
+monitor and fullscreen it if you like) for guidance_type "visual", or a
+vibration motor on that finger (see app/haptic_cue.py) for "haptic" -
+picked by which QuizWindow(cfg, guidance_type=...) constructs; see
+student_quiz_haptic.py for the haptic entry point. Everything else about
+the quiz is identical between the two. Press a key on the real MIDI
+keyboard (or let it time out) and the quiz moves to the next note.
 
 Exactly like a teacher's recording, the whole session's video + MIDI are
 captured throughout (data/quiz/<quiz name>/raw/), and afterward
@@ -43,6 +47,7 @@ import profile_led_mapper
 from app.camera import Camera
 from app.config import Config
 from app.gui.cue_window import ScreenCueOutput
+from app.haptic_cue import HapticCueOutput
 from app.gui.image_view import ImageView
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.keyboard.midi_mapping import MidiMapping
@@ -84,15 +89,22 @@ GAP_S = 0.4  # brief pause between one note's result and the next cue
 
 
 class QuizWindow(QMainWindow):
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, guidance_type: str = "visual"):
         super().__init__()
-        self.setWindowTitle("Student Quiz")
+        self.guidance_type = guidance_type
+        label = "Visual" if guidance_type == "visual" else "Haptic"
+        self.setWindowTitle(f"Student Quiz - {label} Guidance")
         self.cfg = cfg
         self.camera = Camera(cfg.camera)
 
-        # The cue is shown through this interface only - swap it for a
-        # vibration-motor CueOutput later without touching anything below.
-        self.cue = ScreenCueOutput()
+        # The cue is shown through this interface only - this is the one
+        # place that knows whether "which finger" is conveyed on screen or
+        # by a vibration motor; everything below just calls show_target()/
+        # show_message()/clear().
+        if guidance_type == "haptic":
+            self.cue = HapticCueOutput()
+        else:
+            self.cue = ScreenCueOutput()
         self.cue.show_message("Pick a song and press Start.")
 
         self.led = LEDArrayController()
@@ -436,11 +448,12 @@ class QuizWindow(QMainWindow):
         self._clear_current_led()
         self.cue.clear()
         self.current_index += 1
-        if self.current_index >= len(self.targets):
-            self._finish_quiz()
-        else:
-            self.phase = "gap"
-            self.phase_start_wall = time.time()
+        # Same short breathing room after every note, including the last -
+        # otherwise the final note's audio gets cut off mid-tone because
+        # _finish_quiz() tears down the audio stream practically the same
+        # instant the note starts sounding.
+        self.phase = "gap"
+        self.phase_start_wall = time.time()
 
     def _tick(self) -> None:
         frame = self.camera.read()
@@ -482,7 +495,10 @@ class QuizWindow(QMainWindow):
 
         elif self.phase == "gap":
             if time.time() - self.phase_start_wall >= GAP_S:
-                self._show_current_target()
+                if self.current_index >= len(self.targets):
+                    self._finish_quiz()
+                else:
+                    self._show_current_target()
 
     # ------------------------------------------------------------------
     # Finishing / cancelling
@@ -495,7 +511,11 @@ class QuizWindow(QMainWindow):
             self.midi_recorder = None
         if self.audio is not None:
             self.audio.stop_all()
-            time.sleep(0.05)  # let the release fade finish before tearing down the stream
+            # Let the current timbre's release fade finish before tearing
+            # down the stream, not just a fixed guess - release_ms varies
+            # per timbre (8ms for sine, up to 200ms for electric piano).
+            release_s = TIMBRES[self.audio.timbre_name].release_ms / 1000.0
+            time.sleep(release_s + 0.05)
             self.audio.close()
             self.audio = None
         if self.video_writer is not None:
@@ -557,7 +577,7 @@ class QuizWindow(QMainWindow):
             note_accuracy=summary["note_accuracy"],
             mean_timing_error_s=summary["mean_timing_error_s"],
             finger_accuracy=None,
-            guidance_type="visual",
+            guidance_type=self.guidance_type,
             analyzed=False,
         )
         meta.save(s_dir / QUIZ_META_FILENAME)
