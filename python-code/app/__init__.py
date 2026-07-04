@@ -11,7 +11,7 @@ Public API, usable both live and offline (see README.md):
 
 from .camera import Camera
 from .config import Config
-from .finger_matching import FingerMatch, collect_fingertips, match_note_to_finger
+from .finger_matching import FingerMatch, collect_fingertips, match_note_to_finger, match_notes_to_fingers
 from .hand_tracking import Hand, HandTracker
 from .keyboard import KeyBox, KeyboardTemplate, MidiMapping, note_name
 from .midi import MidiEvent, MidiListener, list_input_ports, load_midi_log, save_midi_log
@@ -25,6 +25,7 @@ __all__ = [
     "FingerMatch",
     "collect_fingertips",
     "match_note_to_finger",
+    "match_notes_to_fingers",
     "MidiListener",
     "MidiEvent",
     "list_input_ports",

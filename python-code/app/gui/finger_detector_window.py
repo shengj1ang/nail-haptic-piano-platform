@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -24,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from ..camera import Camera
 from ..config import Config
-from ..finger_matching import match_note_to_finger
+from ..finger_matching import match_note_to_finger, match_notes_to_fingers
 from ..hand_tracking import HandTracker, draw_hands
 from ..keyboard.midi_mapping import MidiMapping, note_name
 from ..keyboard.template import KeyboardTemplate
@@ -51,8 +52,7 @@ class FingerDetectorWindow(QWidget):
         self.luts = None
         self.midi = None
         self.last_hands = {}
-        self.last_match = None
-        self.last_match_time = 0.0
+        self.recent_matches = []  # list of (FingerMatch, matched_at_time)
 
         self.profile_combo = QComboBox()
         self.profile_combo.currentTextChanged.connect(self._load_profile)
@@ -62,6 +62,12 @@ class FingerDetectorWindow(QWidget):
         self.connect_btn = QPushButton("Connect MIDI")
         self.refresh_ports_btn.clicked.connect(self._refresh_ports)
         self.connect_btn.clicked.connect(self._connect_midi)
+
+        self.multi_finger_check = QCheckBox("Multi-finger (chord) detection")
+        self.multi_finger_check.setToolTip(
+            "When several notes fire in the same instant, match them together "
+            "so no two notes are credited to the same fingertip."
+        )
 
         self.view = ImageView()
         self.status_label = QLabel("")
@@ -80,6 +86,7 @@ class FingerDetectorWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(profile_row)
         layout.addLayout(midi_row)
+        layout.addWidget(self.multi_finger_check)
         layout.addWidget(self.view)
         layout.addWidget(self.status_label)
         layout.addWidget(QLabel("Recent matches:"))
@@ -174,19 +181,23 @@ class FingerDetectorWindow(QWidget):
 
         self.last_hands = self.hand_tracker.process(frame)
 
+        now = time.time()
+        self.recent_matches = [(m, t) for m, t in self.recent_matches if now - t <= MATCH_HIGHLIGHT_SECONDS]
+
         if self.template is not None and frame.shape[:2] == self.template.key_map.shape[:2]:
             overlay_keys(frame, self.template.key_map, self.luts, alpha=0.35)
             draw_labels(frame, self.template.key_map, len(self.template.keys))
 
-            if self.last_match is not None and time.time() - self.last_match_time <= MATCH_HIGHLIGHT_SECONDS:
-                self._draw_match(frame, self.last_match)
+            for match, _ in self.recent_matches:
+                self._draw_match(frame, match)
 
         draw_hands(frame, self.last_hands)
         self.view.set_frame(frame)
 
         if self.midi is not None:
-            for event in self.midi.pop_events():
-                self._on_note(event.note)
+            notes = [event.note for event in self.midi.pop_events()]
+            if notes:
+                self._on_notes(notes)
 
     def _draw_match(self, frame: np.ndarray, match) -> None:
         mask = self.template.key_map == match.key_id + 1
@@ -197,25 +208,29 @@ class FingerDetectorWindow(QWidget):
 
         cv2.circle(frame, match.point, 16, MATCH_COLOR, 3)
 
-    def _on_note(self, note: int) -> None:
+    def _on_notes(self, notes) -> None:
         if self.template is None or self.mapping is None:
-            self.status_label.setText(f"Note {note} ({note_name(note)}) received, but no profile/mapping loaded.")
+            for note in notes:
+                text = f"Note {note} ({note_name(note)}) received, but no profile/mapping loaded."
+                self.status_label.setText(text)
+                self.log_list.insertItem(0, text)
             return
 
-        match = match_note_to_finger(note, self.template, self.mapping, self.last_hands)
-        if match is None:
-            text = f"Note {note} ({note_name(note)}) - no matching key/finger (is a hand visible?)"
+        if self.multi_finger_check.isChecked() and len(notes) > 1:
+            matches = match_notes_to_fingers(notes, self.template, self.mapping, self.last_hands)
+        else:
+            matches = [match_note_to_finger(note, self.template, self.mapping, self.last_hands) for note in notes]
+
+        now = time.time()
+        for note, match in zip(notes, matches):
+            if match is None:
+                text = f"Note {note} ({note_name(note)}) - no matching key/finger (is a hand visible?)"
+            else:
+                self.recent_matches.append((match, now))
+                where = "inside key" if match.inside else f"~{match.distance_px:.0f}px from key"
+                text = f"Key {match.key_id + 1} / note {note} ({note_name(note)}) -> {match.finger} ({where})"
             self.status_label.setText(text)
             self.log_list.insertItem(0, text)
-            return
-
-        self.last_match = match
-        self.last_match_time = time.time()
-
-        where = "inside key" if match.inside else f"~{match.distance_px:.0f}px from key"
-        text = f"Key {match.key_id + 1} / note {note} ({note_name(note)}) -> {match.finger} ({where})"
-        self.status_label.setText(text)
-        self.log_list.insertItem(0, text)
 
         while self.log_list.count() > 50:
             self.log_list.takeItem(self.log_list.count() - 1)
