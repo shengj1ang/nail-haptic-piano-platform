@@ -2,9 +2,14 @@
 
 
 
+import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from pynput import keyboard
-from controller import VibratorController
+from common.controller import VibratorController
 
 # Key mapping
 KEY_MAP = {

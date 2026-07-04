@@ -1,4 +1,9 @@
-from led_controller import LEDArrayController
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from common.led_controller import LEDArrayController
 
 with LEDArrayController() as led:
     led.off()

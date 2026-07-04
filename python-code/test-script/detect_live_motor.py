@@ -1,9 +1,14 @@
+import sys
 import time
 import queue
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import numpy as np
 import sounddevice as sd
 from scipy.signal import butter, sosfilt
-from controller import VibratorController
+from common.controller import VibratorController
 
 
 # =========================

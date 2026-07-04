@@ -1,8 +1,8 @@
 """FingerAccuracy - camera + MIDI based piano finger-usage detection.
 
-Public API, usable both live and offline (see README.md / README.zh.md):
+Public API, usable both live and offline (see README.md):
 
-    from fingeraccuracy import (
+    from app import (
         Config, Camera, HandTracker, MidiListener, MidiEvent,
         save_midi_log, load_midi_log, KeyboardTemplate, MidiMapping,
         match_note_to_finger, analyze_recording,

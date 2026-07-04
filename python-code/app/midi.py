@@ -7,7 +7,7 @@ waiting on MIDI I/O.
 Events are timestamped relative to when the listener was created, the same
 convention HandTracker uses for its video timestamps - so if a MIDI log
 saved here and a video recording were started at the same moment, their
-timestamps line up for offline analysis (see fingeraccuracy/offline.py).
+timestamps line up for offline analysis (see app/offline.py).
 """
 
 import json

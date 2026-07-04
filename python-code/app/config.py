@@ -12,7 +12,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 class CameraConfig:
     # A live camera index (0, 1, ...), or a path to a recorded video file -
     # cv2.VideoCapture accepts either, which is what makes offline analysis
-    # of a pre-recorded session possible (see fingeraccuracy/offline.py).
+    # of a pre-recorded session possible (see app/offline.py).
     index: Union[int, str] = 0
     width: int = 1280
     height: int = 720
@@ -53,7 +53,7 @@ class Config:
     keyboard_detection: KeyboardDetectionConfig = field(default_factory=KeyboardDetectionConfig)
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
-    # Name of the calibration profile (data/<active_profile>/) that tools
+    # Name of the calibration profile (data/keyboard-profile/<active_profile>/) that tools
     # load by default - set automatically each time step1_keyboard_wizard.py saves.
     active_profile: str = "default"
 

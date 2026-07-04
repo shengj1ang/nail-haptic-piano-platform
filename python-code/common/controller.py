@@ -1,5 +1,5 @@
 import time
-from serial_utils import auto_detect_port, open_serial
+from common.serial_utils import auto_detect_port, open_serial
 
 
 class VibratorController:

@@ -17,6 +17,12 @@ It includes:
 root/
 ├── teensy_driver/       # Arduino / Teensy firmware
 ├── python-code/         # Python control and analysis tools
+│   ├── app/             # UI app package: calibration + MIDI finger-detection pipeline
+│   ├── demo_fingeraccuracy.py, launcher.py, step1_*.py, step2_*.py  # entry points for app/
+│   ├── piano_led_gui.py # UI app: on-screen piano / LED preview
+│   ├── note_led_map.py  # MIDI note -> LED pixel mapping (used by piano_led_gui.py)
+│   ├── test-script/     # Older, non-UI control/testing/analysis scripts
+│   └── common/          # Shared low-level modules (controller, led_controller, serial_utils)
 ├── README.md
 
 
@@ -56,13 +62,17 @@ S
 
 ## Python Code (python-code)
 
-This folder contains all control, testing, and analysis scripts.
+UI-based tools live directly under `python-code/`: the [app](python-code/app) package (calibration + MIDI detection pipeline, see [python-code/README.md](python-code/README.md)) and [piano_led_gui.py](python-code/piano_led_gui.py) (on-screen piano / LED preview).
+
+Two subfolders hold everything else:
+- `test-script/` — older, non-UI control, testing, and analysis scripts
+- `common/` — shared low-level modules used by both `app/` and `test-script/`
 
 ---
 
 ## File Overview
 
-### controller.py
+### common/controller.py
 
 High-level interface for communicating with the device.
 
@@ -74,7 +84,7 @@ Provides:
 
 ---
 
-### serial_utils.py
+### common/serial_utils.py
 
 Handles serial port detection and initialization.
 
@@ -84,7 +94,7 @@ Features:
 
 ---
 
-### demo_async.py
+### test-script/demo_async.py
 
 Demonstrates asynchronous motor control.
 
@@ -94,7 +104,7 @@ Demonstrates asynchronous motor control.
 
 ---
 
-### demo_keyboard_control.py
+### test-script/demo_keyboard_control.py
 
 Real-time keyboard control.
 
@@ -104,7 +114,7 @@ Real-time keyboard control.
 
 ---
 
-### detect_live_motor.py
+### test-script/detect_live_motor.py
 
 Real-time microphone-based detection tool.
 
@@ -114,7 +124,7 @@ Real-time microphone-based detection tool.
 
 ---
 
-### measure_latency.py
+### test-script/measure_latency.py
 
 Single-motor latency measurement.
 
@@ -124,7 +134,7 @@ Single-motor latency measurement.
 
 ---
 
-### measure_latency_multi_motor.py
+### test-script/measure_latency_multi_motor.py
 
 Advanced latency measurement (multi-motor version).
 
@@ -156,7 +166,7 @@ This includes:
 
 ## Output (latency_results)
 
-Running the measurement script generates:
+Running the measurement script generates (under `test-script/`):
 ```
 latency_results/
 ├── latency_by_run.png
@@ -168,7 +178,7 @@ latency_results/
 
 ## Configuration
 
-In `measure_latency_multi_motor.py`:
+In `test-script/measure_latency_multi_motor.py`:
 
 ```python
 TEST_MOTORS = [0, 2, 6]

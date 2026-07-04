@@ -1,7 +1,7 @@
 """PyQt (PySide6) calibration wizard - mouse and buttons only, no keyboard shortcuts.
 
 Five pages:
-  0. Profile   - name this camera/keyboard setup; saved under data/<name>/.
+  0. Profile   - name this camera/keyboard setup; saved under data/keyboard-profile/<name>/.
   1. Capture   - live preview, click "Capture" to freeze a photo.
   2. Boundary  - click the keyboard's top-left corner, then its bottom-right
      corner (two plain clicks, no dragging).
@@ -9,7 +9,7 @@ Five pages:
   4. Fill keys - click once inside each key to flood-fill its range.
 
 This is meant to be run once per physical setup: as long as the camera and
-keyboard don't move relative to each other, data/<profile>/keyboard_template.json
+keyboard don't move relative to each other, data/keyboard-profile/<profile>/keyboard_template.json
 from the last run stays valid. Multiple profiles can coexist side by side -
 whichever was saved most recently becomes config.json's active_profile.
 """
@@ -47,7 +47,7 @@ class ProfileNamePage(QWizardPage):
         super().__init__()
         self.setTitle("Step 0 - Name this camera profile")
         self.setSubTitle(
-            "Saved under data/<name>/ - use a different name per camera/keyboard "
+            "Saved under data/keyboard-profile/<name>/ - use a different name per camera/keyboard "
             "setup so you can switch between them later."
         )
         self._wizard = wizard

@@ -1,7 +1,7 @@
 """Demo / utility - Keyboard Key Preview.
 
 Not a pipeline step - just a sanity-check viewer. PyQt window with a
-dropdown listing every profile found under data/ (each one saved by
+dropdown listing every profile found under data/keyboard-profile/ (each one saved by
 step1_keyboard_wizard.py). Pick one and its keys are colored live on the
 camera feed, so you can confirm the calibration still lines up with the
 physical keyboard. If the profile also has a midi_mapping.json (from
@@ -17,8 +17,8 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from fingeraccuracy.config import Config
-from fingeraccuracy.gui.key_preview import KeyPreviewWindow
+from app.config import Config
+from app.gui.key_preview import KeyPreviewWindow
 
 
 def main() -> None:

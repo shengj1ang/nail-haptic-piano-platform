@@ -26,10 +26,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from led_controller import LEDArrayController
+from common.led_controller import LEDArrayController
 from note_led_map import NOTE_TO_KEY_ID, NoteLEDMapper
 
-# Physical MIDI keyboard input port (see FingerAccuracy/config.json / MIDI.py).
+# Physical MIDI keyboard input port (see config.json / test-script/MIDI.py).
 MIDI_PORT_NAME = "SE25 MIDI1"
 
 # ---- key sizes ----

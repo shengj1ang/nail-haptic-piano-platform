@@ -2,7 +2,7 @@
 
 Click a button, get the corresponding tool as a sub-window - reusing the
 exact same window classes that step1_keyboard_wizard.py, step2_midi_mapping.py,
-main.py, and demo_keyboard_preview.py each already wrap, so none of those
+demo_fingeraccuracy.py, and demo_keyboard_preview.py each already wrap, so none of those
 scripts need to change (they stay usable standalone too).
 
 Only one tool window is open at a time: opening another one closes whichever
@@ -21,11 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from fingeraccuracy.config import Config
-from fingeraccuracy.gui.calibration_wizard import KeyboardCalibrationWizard
-from fingeraccuracy.gui.finger_detector_window import FingerDetectorWindow
-from fingeraccuracy.gui.key_preview import KeyPreviewWindow
-from fingeraccuracy.gui.midi_mapping_wizard import MidiMappingWindow
+from app.config import Config
+from app.gui.calibration_wizard import KeyboardCalibrationWizard
+from app.gui.finger_detector_window import FingerDetectorWindow
+from app.gui.key_preview import KeyPreviewWindow
+from app.gui.midi_mapping_wizard import MidiMappingWindow
 
 TOOLS = [
     ("Step 1 - Keyboard Calibration Wizard", KeyboardCalibrationWizard),
