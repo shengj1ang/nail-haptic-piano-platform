@@ -1,10 +1,10 @@
 """
 Reusable, GUI-free glue between a calibration profile (data/keyboard-profile/<name>/,
-produced by step1_keyboard_wizard.py + step2_midi_mapping.py) and the physical
+produced by setup_keyboard_wizard.py + setup_midi_mapping_wizard.py) and the physical
 LED wiring in note_led_map.py.
 
 Import this directly in any script that needs "MIDI note -> light the right
-LED" without pulling in the PySide6 demo UI - demo_live_piano_led_test.py is
+LED" without pulling in the PySide6 demo UI - test_virtual_piano_led.py is
 just a thin manual-test wrapper around this.
 
 The profile's key_id numbering is whatever order the vision wizard happened

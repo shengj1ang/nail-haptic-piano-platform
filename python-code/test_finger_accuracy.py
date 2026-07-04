@@ -1,9 +1,9 @@
 """Main app - real-time finger-accuracy detection.
 
 Combines everything the earlier steps set up:
-  - the keyboard profile from step1_keyboard_wizard.py (where every key is,
+  - the keyboard profile from setup_keyboard_wizard.py (where every key is,
     pixel-exact)
-  - the MIDI mapping from step2_midi_mapping.py (which note each key sends)
+  - the MIDI mapping from setup_midi_mapping_wizard.py (which note each key sends)
   - live MediaPipe hand tracking
 
 into one live view: the colored keyboard overlay and the hand skeleton are

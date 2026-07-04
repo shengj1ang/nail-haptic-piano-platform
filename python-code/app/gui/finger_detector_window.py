@@ -111,7 +111,7 @@ class FingerDetectorWindow(QWidget):
         self.profile_combo.blockSignals(False)
 
         if not profiles:
-            self.status_label.setText("No profiles found under data/keyboard-profile/. Run step1_keyboard_wizard.py first.")
+            self.status_label.setText("No profiles found under data/keyboard-profile/. Run setup_keyboard_wizard.py first.")
             return
 
         target = self.cfg.active_profile if self.cfg.active_profile in profiles else profiles[0]
@@ -141,7 +141,7 @@ class FingerDetectorWindow(QWidget):
             )
         else:
             self.mapping = None
-            self.status_label.setText(f"Profile '{name}' has no midi_mapping.json - run step2_midi_mapping.py.")
+            self.status_label.setText(f"Profile '{name}' has no midi_mapping.json - run setup_midi_mapping_wizard.py.")
 
     # ------------------------------------------------------------------
     # MIDI handling

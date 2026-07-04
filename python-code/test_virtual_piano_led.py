@@ -250,11 +250,11 @@ class MidiBridge(QObject):
 
 
 class PianoWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, cfg: Config | None = None):
         super().__init__()
         self.setWindowTitle("Virtual Piano -> LED (manual test)")
 
-        self.cfg = Config.load()
+        self.cfg = cfg if cfg is not None else Config.load()
 
         # Both the LED controller and the MIDI port are optional, manually
         # (button-)triggered connections - never opened automatically on
@@ -407,8 +407,8 @@ class PianoWindow(QMainWindow):
         if not profiles:
             QMessageBox.warning(
                 self, "No profiles found",
-                "No profiles under data/keyboard-profile/. Run step1_keyboard_wizard.py and "
-                "step2_midi_mapping.py first.",
+                "No profiles under data/keyboard-profile/. Run setup_keyboard_wizard.py and "
+                "setup_midi_mapping_wizard.py first.",
             )
             return
 

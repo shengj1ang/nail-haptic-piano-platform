@@ -2,7 +2,7 @@
 
 Given a recorded video and a MIDI event log (see app.midi -
 MidiEvent / save_midi_log / load_midi_log), this recomputes the same
-"which finger pressed this key" result that demo_fingeraccuracy.py produces live, without
+"which finger pressed this key" result that test_finger_accuracy.py produces live, without
 a camera or MIDI device connected. This is the entry point for the
 "record now, analyze later" workflow: a session's MIDI notes and video get
 captured during the experiment, and finger accuracy is computed afterward.

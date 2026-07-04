@@ -1,4 +1,4 @@
-"""Canny edge detection, tuned per-profile in step1_keyboard_wizard.py.
+"""Canny edge detection, tuned per-profile in setup_keyboard_wizard.py.
 
 Automatic Hough-line keyboard/key detection used to live here too, but it
 was too fragile against real camera distortion and got replaced by manual,

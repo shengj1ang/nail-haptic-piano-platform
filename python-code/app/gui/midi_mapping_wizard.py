@@ -7,7 +7,7 @@ Two pages:
      key pressed" readout lets you test-press middle C right here and confirm
      it reads note 60 before doing anything else.
   1. Map keys - pick a profile, then step through its keys in the order
-     step1_keyboard_wizard.py numbered them, pressing whichever physical key
+     setup_keyboard_wizard.py numbered them, pressing whichever physical key
      the camera view highlights as "next". No vision/detection happens on
      this page - the camera feed is only shown so you can see which key is
      highlighted.
@@ -228,7 +228,7 @@ class MapKeysPage(QWizardPage):
         self.profile_combo.blockSignals(False)
 
         if not profiles:
-            self.status_label.setText("No profiles found under data/keyboard-profile/. Run step1_keyboard_wizard.py first.")
+            self.status_label.setText("No profiles found under data/keyboard-profile/. Run setup_keyboard_wizard.py first.")
             return
 
         target = self._wizard.cfg.active_profile if self._wizard.cfg.active_profile in profiles else profiles[0]
@@ -354,7 +354,7 @@ class MapKeysPage(QWizardPage):
 class MidiMappingWizard(QWizard):
     def __init__(self, cfg: Config):
         super().__init__()
-        self.setWindowTitle("Step 2 - MIDI Key Mapping")
+        self.setWindowTitle("MIDI Key Mapping Wizard")
         self.setOptions(QWizard.WizardOption.NoBackButtonOnLastPage)
 
         self.cfg = cfg

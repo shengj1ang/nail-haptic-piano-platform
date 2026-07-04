@@ -1,19 +1,27 @@
-"""One hub window for the whole FingerAccuracy pipeline.
+"""One hub window for the whole platform.
 
-Click a button, get the corresponding tool as a sub-window - reusing the
-exact same window classes that step1_keyboard_wizard.py, step2_midi_mapping.py,
-demo_fingeraccuracy.py, and demo_keyboard_preview.py each already wrap, so none of those
-scripts need to change (they stay usable standalone too).
+This is meant to grow into a multi-modal learning-assistant platform;
+the piano/finger-accuracy tools below are just its first module. Click a
+button, get the corresponding tool as a sub-window - reusing the exact same
+window classes each entry-point script (setup_keyboard_wizard.py,
+setup_midi_mapping_wizard.py, test_keyboard_preview.py, test_finger_accuracy.py,
+test_virtual_piano_led.py, music_recording_wizard.py, music_playback.py) already
+wraps, so none of those scripts need to change (they stay usable standalone
+too). Tools are grouped into the same three stages a teacher/researcher
+actually moves through: set up a keyboard once, test that it works, then
+record and replay songs with it.
 
 Only one tool window is open at a time: opening another one closes whichever
-is currently open first, since they all want exclusive access to the same
-camera.
+is currently open first, since several of them want exclusive access to the
+same camera.
 """
 
 import sys
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
+    QGroupBox,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -27,30 +35,118 @@ from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
 from app.gui.recording_wizard import RecordingWizard
+from music_playback import PlaybackWindow
+from test_virtual_piano_led import PianoWindow
 
-TOOLS = [
-    ("Step 1 - Keyboard Calibration Wizard", KeyboardCalibrationWizard),
-    ("Step 2 - MIDI Mapping Wizard", MidiMappingWizard),
-    ("Step 3 - Song Recording Wizard", RecordingWizard),
-    ("Main - Live Finger Detection", FingerDetectorWindow),
-    ("Demo - Keyboard Preview", KeyPreviewWindow),
+# (section heading, [(button label, window class), ...])
+SECTIONS = [
+    (
+        "1. Initial Setup",
+        [
+            ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
+            ("MIDI Mapping Wizard", MidiMappingWizard),
+        ],
+    ),
+    (
+        "2. Feature Testing",
+        [
+            ("Keyboard Region Preview", KeyPreviewWindow),
+            ("Live Finger Detection", FingerDetectorWindow),
+            ("Virtual Piano + LED Test", PianoWindow),
+        ],
+    ),
+    (
+        "3. Recording && Playback",
+        [
+            ("Song Recording Wizard", RecordingWizard),
+            ("Song Playback", PlaybackWindow),
+        ],
+    ),
 ]
+
+STYLE_SHEET = """
+QWidget#launcherRoot {
+    background: #1e1f24;
+}
+QLabel#title {
+    color: #f2f2f5;
+}
+QLabel#subtitle {
+    color: #9a9ba5;
+}
+QGroupBox {
+    color: #d8d9e0;
+    font-weight: 600;
+    font-size: 13px;
+    border: 1px solid #35363e;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 14px 10px 10px 10px;
+    background: #26272e;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #7fb2ff;
+}
+QPushButton {
+    text-align: left;
+    padding: 9px 14px;
+    border-radius: 6px;
+    border: 1px solid #3a3b44;
+    background: #2f303a;
+    color: #eceef2;
+}
+QPushButton:hover {
+    background: #3a3c48;
+    border-color: #7fb2ff;
+}
+QPushButton:pressed {
+    background: #24252c;
+}
+"""
 
 
 class LauncherWindow(QWidget):
     def __init__(self, cfg: Config):
         super().__init__()
-        self.setWindowTitle("FingerAccuracy")
+        self.setObjectName("launcherRoot")
+        self.setWindowTitle("Multi-Modal Platform")
+        self.setStyleSheet(STYLE_SHEET)
         self.cfg = cfg
         self._current = None
 
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Pick a tool:"))
+        title = QLabel("Multi-Modal Platform")
+        title.setObjectName("title")
+        title_font = title.font()
+        title_font.setPointSize(title_font.pointSize() + 8)
+        title_font.setBold(True)
+        title.setFont(title_font)
 
-        for label, window_cls in TOOLS:
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _checked=False, cls=window_cls: self._open(cls))
-            layout.addWidget(btn)
+        subtitle = QLabel("Piano finger-accuracy module - pick a tool below; only one runs at a time.")
+        subtitle.setObjectName("subtitle")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(10)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addSpacing(6)
+
+        for section_title, tools in SECTIONS:
+            box = QGroupBox(section_title)
+            box_layout = QVBoxLayout(box)
+            box_layout.setSpacing(8)
+            for label, window_cls in tools:
+                btn = QPushButton(label)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _checked=False, cls=window_cls: self._open(cls))
+                box_layout.addWidget(btn)
+            layout.addWidget(box)
+
+        layout.addStretch(1)
 
     def _open(self, window_cls) -> None:
         if self._current is not None:
@@ -77,7 +173,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     window = LauncherWindow(cfg)
-    window.resize(360, 220)
+    window.resize(420, 560)
     window.show()
     sys.exit(app.exec())
 

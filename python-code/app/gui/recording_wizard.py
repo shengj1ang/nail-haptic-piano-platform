@@ -56,12 +56,14 @@ from ..music_recording import (
     SyncInfo,
     build_fingering_entries,
     build_score_midi,
+    first_note_on_time,
     notes_only,
     raw_dir,
     sanitize_song_name,
     save_fingering,
     save_raw_midi_log,
     song_dir,
+    trim_to_first_note,
 )
 from .image_view import ImageView
 
@@ -419,6 +421,8 @@ class ReviewPage(QWizardPage):
         self._saved = False
         self._worker: AnalyzeWorker | None = None
         self._notes = []
+        self._trimmed_notes = []
+        self._duration_s = 0.0
         self._save_dir: Path | None = None
 
     def initializePage(self) -> None:
@@ -457,6 +461,11 @@ class ReviewPage(QWizardPage):
         try:
             save_raw_midi_log(record.raw_events, r_dir / RAW_MIDI_FILENAME)
 
+            # raw/ stays on the recording's original clock (frame 0 = video/MIDI
+            # capture start) since analyze_recording() below needs that to line
+            # frames up with MIDI events - it's only the *saved* score/fingering
+            # that gets the leading dead air (LED sync flash, then however long
+            # the performer took to actually start) trimmed off, below.
             self._notes = notes_only(record.raw_events)
             notes_path = r_dir / RAW_NOTES_FILENAME
             save_midi_log(self._notes, notes_path)
@@ -469,7 +478,12 @@ class ReviewPage(QWizardPage):
             )
             sync.save(r_dir / RAW_SYNC_FILENAME)
 
-            build_score_midi(record.raw_events, self._save_dir / SCORE_MIDI_FILENAME)
+            lead_in_s = first_note_on_time(record.raw_events)
+            trimmed_events = trim_to_first_note(record.raw_events)
+            self._trimmed_notes = notes_only(trimmed_events)
+            self._duration_s = max(record.duration_s - lead_in_s, 0.0)
+
+            build_score_midi(trimmed_events, self._save_dir / SCORE_MIDI_FILENAME)
         except Exception as e:
             self.save_btn.setEnabled(True)
             self._set_back_enabled(True)
@@ -511,7 +525,10 @@ class ReviewPage(QWizardPage):
         record = self._wizard.record_page
 
         try:
-            entries = build_fingering_entries(self._notes, matches)
+            # self._trimmed_notes is the same length/order as self._notes (only
+            # times are shifted), so it lines up with matches (computed against
+            # the untrimmed video/notes) note-for-note.
+            entries = build_fingering_entries(self._trimmed_notes, matches)
             save_fingering(entries, self._save_dir / FINGERING_FILENAME)
 
             meta = SongMeta(
@@ -520,7 +537,7 @@ class ReviewPage(QWizardPage):
                 profile_name=info.profile_name(),
                 port_name=info.port_name(),
                 created_at=datetime.now(timezone.utc).isoformat(),
-                duration_s=record.duration_s,
+                duration_s=self._duration_s,
                 note_count=len(self._notes),
             )
             meta.save(self._save_dir / META_FILENAME)
@@ -544,7 +561,7 @@ class ReviewPage(QWizardPage):
 class RecordingWizard(QWizard):
     def __init__(self, cfg: Config):
         super().__init__()
-        self.setWindowTitle("Step 3 - Record a Song")
+        self.setWindowTitle("Song Recording Wizard")
         self.setOptions(QWizard.WizardOption.NoBackButtonOnLastPage)
 
         self.cfg = cfg

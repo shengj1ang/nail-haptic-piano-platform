@@ -54,7 +54,7 @@ class Config:
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
     # Name of the calibration profile (data/keyboard-profile/<active_profile>/) that tools
-    # load by default - set automatically each time step1_keyboard_wizard.py saves.
+    # load by default - set automatically each time setup_keyboard_wizard.py saves.
     active_profile: str = "default"
 
     @classmethod

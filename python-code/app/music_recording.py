@@ -1,5 +1,5 @@
 """Reusable, GUI-free pieces of the "teacher records a song" pipeline
-(see app/gui/recording_wizard.py, step3_music_recording_wizard.py).
+(see app/gui/recording_wizard.py, music_recording_wizard.py).
 
 A recording session produces two kinds of files under
 data/music/<song_name>/:
@@ -67,6 +67,14 @@ def song_dir(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> Path:
 
 def raw_dir(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> Path:
     return song_dir(song_name, data_dir) / "raw"
+
+
+def list_songs(data_dir: Path = MUSIC_DATA_DIR) -> List[str]:
+    """Song names under data/music/<name>/ that have finished saving (i.e.
+    have a meta.json) - for a playback tool's song picker."""
+    if not data_dir.exists():
+        return []
+    return sorted(p.name for p in data_dir.iterdir() if (p / META_FILENAME).exists())
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +167,31 @@ def notes_only(events: List[RawMidiEvent]) -> List[MidiEvent]:
     """The note-on subset of a raw log, in app.midi's MidiEvent format
     (relative time), ready for app.offline.analyze_recording."""
     return [MidiEvent(time=e.rel_time, note=e.note) for e in events if e.type == "note_on"]
+
+
+def first_note_on_time(events: List[RawMidiEvent]) -> float:
+    """How much leading dead air (the LED sync flash, then however long the
+    performer takes to actually start) sits before the first real note -
+    see trim_to_first_note()."""
+    times = [e.rel_time for e in events if e.type == "note_on"]
+    return min(times) if times else 0.0
+
+
+def trim_to_first_note(events: List[RawMidiEvent]) -> List[RawMidiEvent]:
+    """Shift every event's rel_time so the first note_on lands at 0,
+    dropping the leading dead air before it. Only used when building the
+    saved score/fingering (so a song starts playing back the instant it's
+    pressed play, not a few seconds later) - never on raw/, which has to
+    stay on the recording's original clock to stay lined up with the video
+    (see app.offline.analyze_recording)."""
+    t0 = first_note_on_time(events)
+    if t0 <= 0:
+        return list(events)
+    return [
+        RawMidiEvent(abs_time=e.abs_time, rel_time=e.rel_time - t0, type=e.type, note=e.note, velocity=e.velocity)
+        for e in events
+        if e.rel_time >= t0
+    ]
 
 
 def build_score_midi(events: List[RawMidiEvent], path: Path, bpm: float = 120.0, ticks_per_beat: int = 480) -> None:
@@ -273,3 +306,70 @@ def save_fingering(entries: List[FingeringEntry], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump([asdict(e) for e in entries], f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Playback - turning a saved song back into a timed sequence of "this note,
+# this finger, held for this long" events, for a UI to step through.
+# ---------------------------------------------------------------------------
+
+DEFAULT_NOTE_DURATION_S = 0.4  # used when raw/midi_raw.json is missing or has no matching note_off
+
+
+@dataclass
+class PlaybackEvent:
+    time: float  # seconds from the start of the recording, same clock as fingering.json
+    duration: float  # seconds the key was actually held, if known (else DEFAULT_NOTE_DURATION_S)
+    note: int
+    note_name: str
+    key_id: Optional[int]
+    finger: Optional[str]  # "L1".."L5"/"R1".."R5", or None if unresolved
+
+
+def _note_durations(raw_events: List[RawMidiEvent]) -> Dict[int, List[float]]:
+    """note -> durations (seconds) of each note_on/note_off pair for that
+    note, in chronological order, by pairing them up FIFO per note number."""
+    pending: Dict[int, List[float]] = {}
+    durations: Dict[int, List[float]] = {}
+    for e in sorted(raw_events, key=lambda e: e.rel_time):
+        if e.type == "note_on":
+            pending.setdefault(e.note, []).append(e.rel_time)
+        elif e.type == "note_off":
+            queue = pending.get(e.note)
+            if queue:
+                start = queue.pop(0)
+                durations.setdefault(e.note, []).append(max(e.rel_time - start, 0.05))
+    return durations
+
+
+def load_playback_events(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> List[PlaybackEvent]:
+    """fingering.json plus (if present) raw/midi_raw.json's real note_on/
+    note_off timing, merged into one played-back-in-order event list."""
+    with open(song_dir(song_name, data_dir) / FINGERING_FILENAME) as f:
+        fingering = json.load(f)
+
+    raw_path = raw_dir(song_name, data_dir) / RAW_MIDI_FILENAME
+    durations_by_note = _note_durations(load_raw_midi_log(raw_path)) if raw_path.exists() else {}
+    next_duration_idx: Dict[int, int] = {}
+
+    events = []
+    for item in fingering:
+        note = int(item["note"])
+        queue = durations_by_note.get(note, [])
+        idx = next_duration_idx.get(note, 0)
+        duration = queue[idx] if idx < len(queue) else DEFAULT_NOTE_DURATION_S
+        next_duration_idx[note] = idx + 1
+
+        events.append(
+            PlaybackEvent(
+                time=float(item["time"]),
+                duration=duration,
+                note=note,
+                note_name=item["note_name"],
+                key_id=item.get("key_id"),
+                finger=item.get("finger"),
+            )
+        )
+
+    events.sort(key=lambda e: e.time)
+    return events

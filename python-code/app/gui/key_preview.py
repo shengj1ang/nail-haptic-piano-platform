@@ -2,7 +2,7 @@
 keys colored on the camera feed. No detection happens here - it just reads
 whichever profile is selected and redraws its key_map every frame.
 
-If the profile also has a midi_mapping.json (from step2_midi_mapping.py),
+If the profile also has a midi_mapping.json (from setup_midi_mapping_wizard.py),
 a checkbox lets you switch the on-screen labels from raw key numbers to
 the MIDI note name each key actually sends."""
 
@@ -76,7 +76,7 @@ class KeyPreviewWindow(QWidget):
 
         if not profiles:
             self.template = None
-            self.status_label.setText("No profiles found under data/keyboard-profile/. Run step1_keyboard_wizard.py first.")
+            self.status_label.setText("No profiles found under data/keyboard-profile/. Run setup_keyboard_wizard.py first.")
             return
 
         target = current if current in profiles else self.cfg.active_profile

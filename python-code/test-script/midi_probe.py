@@ -4,7 +4,7 @@ physical keyboard keys, in order pressed.
 
 This is a raw sanity check, not part of the calibration pipeline - the
 actual key_id -> note data other tools rely on comes from
-step1_keyboard_wizard.py + step2_midi_mapping.py (saved into a profile
+setup_keyboard_wizard.py + setup_midi_mapping_wizard.py (saved into a profile
 under data/keyboard-profile/<profile>/, and consumed by
 profile_led_mapper.py for LED mapping). Use this script instead when you
 just want a fast answer to "what note does this key send right now" -

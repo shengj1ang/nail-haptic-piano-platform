@@ -1,7 +1,7 @@
 """STEP 2 of the pipeline - MIDI Key Mapping Wizard.
 
 Press the physical keyboard's keys in the same 1, 2, 3, ... order they're
-numbered in by step1_keyboard_wizard.py, and this reads the MIDI note
+numbered in by setup_keyboard_wizard.py, and this reads the MIDI note
 number each one actually sends. Saved as midi_mapping.json inside the
 chosen profile's folder (data/keyboard-profile/<profile>/), alongside keyboard_template.json
 and keyboard_key_map.png - so a profile fully describes both "where is each

@@ -8,26 +8,36 @@ are built on.
 ## Layout
 
 ```
-app/                    UI package: camera + MIDI finger-accuracy detection
-demo_fingeraccuracy.py  entry point - live finger/key detector (see app/)
-launcher.py             entry point - hub window for the app/ pipeline
-step1_keyboard_wizard.py    entry point - app/ calibration wizard
-step2_midi_mapping.py       entry point - app/ MIDI mapping wizard
-demo_keyboard_preview.py    entry point - app/ profile preview/sanity-check
-config.json             app/ settings (auto-created), active profile
+app/                            UI package: camera + MIDI finger-accuracy detection
+launcher.py                     entry point - hub window for every tool below, grouped by stage
+
+setup_keyboard_wizard.py        entry point - app/ calibration wizard (stage 1: initial setup)
+setup_midi_mapping_wizard.py    entry point - app/ MIDI mapping wizard (stage 1: initial setup)
+
+test_keyboard_preview.py        entry point - app/ profile preview/sanity-check (stage 2: feature testing)
+test_finger_accuracy.py         entry point - live finger/key detector (stage 2: feature testing, see app/)
+test_virtual_piano_led.py       manual-test UI (PySide6): on-screen piano that lights the physical LED
+                                 strips (stage 2: feature testing)
+
+music_recording_wizard.py       entry point - records a song (video+MIDI) and saves a fingering-annotated
+                                 score under data/music/<song>/ (stage 3: recording & playback)
+music_playback.py               manual-test UI (PySide6): replays a saved song on an on-screen 88-key
+                                 piano + finger dots (stage 3: recording & playback, see app/music_recording.py)
+
+config.json                     app/ settings (auto-created), active profile
 data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
-hand_landmarker.task    MediaPipe hand landmark model, used by app/
-requirements.txt        Python deps for app/ (conda env "fingercam")
+data/music/<song>/               saved recordings (see app/music_recording.py)
+hand_landmarker.task            MediaPipe hand landmark model, used by app/
+requirements.txt                Python deps for app/ (conda env "fingercam")
 
-demo_live_piano_led_test.py   manual-test UI (PySide6): on-screen piano that lights the physical LED strips
-profile_led_mapper.py   reusable, GUI-free: profile + MIDI note -> LED positions
-note_led_map.py         this LED rig's fixed wiring (position -> LED pixels), used by profile_led_mapper.py
-note_audio.py           reusable, GUI-free: MIDI note -> audio tone playback (no profile needed)
+profile_led_mapper.py           reusable, GUI-free: profile + MIDI note -> LED positions
+note_led_map.py                 this LED rig's fixed wiring (position -> LED pixels), used by profile_led_mapper.py
+note_audio.py                   reusable, GUI-free: MIDI note -> audio tone playback (no profile needed)
 
-common/                 shared low-level modules (serial/motor/LED), used by both
-                         demo_live_piano_led_test.py and test-script/
-test-script/            older, non-UI motor/LED/latency/MIDI scripts + their output
-archive/                early FingerAccuracy prototypes, kept for reference only
+common/                         shared low-level modules (serial/motor/LED), used by both
+                                 test_virtual_piano_led.py and test-script/
+test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
+archive/                        early FingerAccuracy prototypes, kept for reference only
 ```
 
 ---
@@ -92,16 +102,21 @@ Run these from inside `python-code/`.
 
 | Script | Purpose |
 |---|---|
-| `step1_keyboard_wizard.py` | PyQt wizard - calibrate a new profile (click-based, no keyboard shortcuts). |
-| `step2_midi_mapping.py` | PyQt wizard - press keys 1..N in order, records the MIDI note each sends. |
-| `demo_fingeraccuracy.py` | The live app - keyboard overlay + hand skeleton + real-time finger/key matching. |
-| `demo_keyboard_preview.py` | Utility/demo - pick a profile from a dropdown and sanity-check it against the live camera, optionally showing MIDI note names instead of key numbers. |
-| `launcher.py` | Hub window - one button per script above, opened as a sub-window (only one open at a time, since they share the camera). |
+| `setup_keyboard_wizard.py` | PyQt wizard - calibrate a new profile (click-based, no keyboard shortcuts). |
+| `setup_midi_mapping_wizard.py` | PyQt wizard - press keys 1..N in order, records the MIDI note each sends. |
+| `test_keyboard_preview.py` | Utility/demo - pick a profile from a dropdown and sanity-check it against the live camera, optionally showing MIDI note names instead of key numbers. |
+| `test_finger_accuracy.py` | The live app - keyboard overlay + hand skeleton + real-time finger/key matching. |
+| `test_virtual_piano_led.py` | Manual-test UI - on-screen piano that lights the physical LED strips (see below). |
+| `music_recording_wizard.py` | PyQt wizard - records a song (video+MIDI), flashes the LEDs for sync, and saves a fingering-annotated score under `data/music/<song>/`. |
+| `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
+| `launcher.py` | Hub window - one button per script above, grouped into setup / testing / recording+playback; only one tool is open at a time (they share the camera). |
 
 ```bash
-python step1_keyboard_wizard.py
-python step2_midi_mapping.py
-python demo_fingeraccuracy.py
+python setup_keyboard_wizard.py
+python setup_midi_mapping_wizard.py
+python test_finger_accuracy.py
+python music_recording_wizard.py
+python music_playback.py
 ```
 
 Each script's docstring has more detail; `config.json` (auto-created on
@@ -212,7 +227,7 @@ kept only for reference.
 
 ---
 
-## profile_led_mapper.py + note_led_map.py - MIDI note -> LED, and demo_live_piano_led_test.py - manual test UI
+## profile_led_mapper.py + note_led_map.py - MIDI note -> LED, and test_virtual_piano_led.py - manual test UI
 
 This LED rig is hardware-specific and isn't meant to generalize to other
 keyboards, but the identifier it's keyed by is: `note_led_map.py` only knows
@@ -223,24 +238,24 @@ number directly, no separate key_id.
 
 `profile_led_mapper.py` is the reusable, GUI-free glue that combines that
 wiring with a calibration profile's actual `key_id -> note` mapping (from
-`data/keyboard-profile/<profile>/`, produced by `step1_keyboard_wizard.py` +
-`step2_midi_mapping.py`) to build a ready-to-use `NoteLEDMapper` -
+`data/keyboard-profile/<profile>/`, produced by `setup_keyboard_wizard.py` +
+`setup_midi_mapping_wizard.py`) to build a ready-to-use `NoteLEDMapper` -
 `build_mapper(led, profile_name)` is the one-shot entry point. Import this
 directly in any script that needs "MIDI note -> light the right LED"
 without pulling in a GUI.
 
-`demo_live_piano_led_test.py` is a thin PySide6 wrapper around the above,
+`test_virtual_piano_led.py` is a thin PySide6 wrapper around the above,
 for manual testing: pick a profile, and an on-screen 25-key piano mirrors
 it. Press and hold a virtual key (or the matching real MIDI key) and the
 corresponding LED(s) on the physical Teensy WS2812 strips light up; release
 to turn them off.
 
 ```bash
-python demo_live_piano_led_test.py
+python test_virtual_piano_led.py
 ```
 
 If the keyboard's transpose/octave setting changes, only the profile needs
-re-calibrating (`step2_midi_mapping.py`) - `note_led_map.py`'s wiring table
+re-calibrating (`setup_midi_mapping_wizard.py`) - `note_led_map.py`'s wiring table
 doesn't need to change.
 
 ---
@@ -272,7 +287,7 @@ fade on press/release to avoid clicks.
 
 ## common/ - shared serial/motor/LED modules
 
-Low-level modules shared by `demo_live_piano_led_test.py` above and the scripts in
+Low-level modules shared by `test_virtual_piano_led.py` above and the scripts in
 `test-script/` below. Not a UI on its own.
 
 | Module | Purpose |

@@ -1,4 +1,4 @@
-"""STEP 3 of the pipeline - Song Recording Wizard.
+"""Song Recording Wizard.
 
 Records a teacher's performance (video + MIDI) of a song, flashes every
 key's backlight once for video/MIDI sync right as the recording starts,

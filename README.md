@@ -18,8 +18,8 @@ root/
 ├── teensy_driver/       # Arduino / Teensy firmware
 ├── python-code/         # Python control and analysis tools
 │   ├── app/             # UI app package: calibration + MIDI finger-detection pipeline
-│   ├── demo_fingeraccuracy.py, launcher.py, step1_*.py, step2_*.py  # entry points for app/
-│   ├── demo_live_piano_led_test.py # UI app: on-screen piano / LED preview (manual test)
+│   ├── test_finger_accuracy.py, launcher.py, setup_*.py, music_*.py  # entry points for app/
+│   ├── test_virtual_piano_led.py # UI app: on-screen piano / LED preview (manual test)
 │   ├── profile_led_mapper.py # reusable, GUI-free: profile + MIDI note -> LED positions
 │   ├── note_led_map.py  # this LED rig's fixed wiring (position -> LED pixels)
 │   ├── test-script/     # Older, non-UI control/testing/analysis scripts
@@ -63,7 +63,7 @@ S
 
 ## Python Code (python-code)
 
-UI-based tools live directly under `python-code/`: the [app](python-code/app) package (calibration + MIDI detection pipeline, see [python-code/README.md](python-code/README.md)) and [demo_live_piano_led_test.py](python-code/demo_live_piano_led_test.py) (on-screen piano / LED preview).
+UI-based tools live directly under `python-code/`: the [app](python-code/app) package (calibration + MIDI detection pipeline, see [python-code/README.md](python-code/README.md)) and [test_virtual_piano_led.py](python-code/test_virtual_piano_led.py) (on-screen piano / LED preview).
 
 Two subfolders hold everything else:
 - `test-script/` — older, non-UI control, testing, and analysis scripts
