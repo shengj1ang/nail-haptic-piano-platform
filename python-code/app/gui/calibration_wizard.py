@@ -11,7 +11,7 @@ Five pages:
 This is meant to be run once per physical setup: as long as the camera and
 keyboard don't move relative to each other, data/keyboard-profile/<profile>/keyboard_template.json
 from the last run stays valid. Multiple profiles can coexist side by side -
-whichever was saved most recently becomes config.json's active_profile.
+whichever was saved most recently becomes config.json's active_keyboard_profile.
 """
 
 import re
@@ -52,7 +52,7 @@ class ProfileNamePage(QWizardPage):
         )
         self._wizard = wizard
 
-        self.name_edit = QLineEdit(wizard.cfg.active_profile or "default")
+        self.name_edit = QLineEdit(wizard.cfg.active_keyboard_profile or "default")
         self.name_edit.textChanged.connect(lambda _: self.completeChanged.emit())
 
         layout = QVBoxLayout(self)
@@ -67,7 +67,7 @@ class ProfileNamePage(QWizardPage):
         return bool(self._sanitize(self.name_edit.text()))
 
     def validatePage(self) -> bool:
-        self._wizard.state["profile_name"] = self._sanitize(self.name_edit.text())
+        self._wizard.state["keyboard_profile_name"] = self._sanitize(self.name_edit.text())
         return True
 
 
@@ -341,15 +341,17 @@ class FillKeysPage(QWizardPage):
             key_map=key_map,
         )
 
-        profile_name = self._wizard.state["profile_name"]
-        template_path = DATA_DIR / profile_name / "keyboard_template.json"
+        keyboard_profile_name = self._wizard.state["keyboard_profile_name"]
+        template_path = DATA_DIR / keyboard_profile_name / "keyboard_template.json"
         template.save(template_path)
 
-        self._wizard.cfg.active_profile = profile_name
+        self._wizard.cfg.active_keyboard_profile = keyboard_profile_name
         self._wizard.cfg.save()
 
         QMessageBox.information(
-            self, "Saved", f"Saved {len(template.keys)} keys to {template_path}\nActive profile: {profile_name}"
+            self,
+            "Saved",
+            f"Saved {len(template.keys)} keys to {template_path}\nActive profile: {keyboard_profile_name}",
         )
         return True
 

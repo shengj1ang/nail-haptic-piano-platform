@@ -35,7 +35,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import Config
-from app.music_recording import PlaybackEvent, SongMeta, load_playback_events, list_songs, song_dir, META_FILENAME
+from app.music_recording import PlaybackEvent, SongMeta, load_playback_events, song_dir, META_FILENAME
+from app.song_library import SongEntry, find_song_entry, list_song_entries
 from test_virtual_piano_led import KeyFeedback, PianoKey
 from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import NoteLEDMapper
@@ -250,34 +251,39 @@ class PlaybackWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _refresh_songs(self) -> None:
-        songs = list_songs()
+        entries = list_song_entries()
         self.song_combo.blockSignals(True)
         self.song_combo.clear()
-        self.song_combo.addItems(songs)
+        self.song_combo.addItems([entry.label for entry in entries])
         self.song_combo.blockSignals(False)
 
-        if not songs:
+        if not entries:
             self.info_label.setText(
-                "No recorded songs found under data/music/. Record one with music_recording_wizard.py first."
+                "No songs found under data/music/ or data/sequence/. Record one with music_recording_wizard.py, "
+                "or generate one with experiment_sequence_wizard.py."
             )
             return
-        self._load_song(songs[0])
+        self._load_song(entries[0].label)
 
-    def _load_song(self, name: str) -> None:
-        if not name:
+    def _load_song(self, label: str) -> None:
+        if not label:
             return
         self._stop()
 
+        entry: Optional[SongEntry] = find_song_entry(label)
+        if entry is None:
+            return
+
         try:
-            meta = SongMeta.load(song_dir(name) / META_FILENAME)
-            self.events = load_playback_events(name)
+            meta = SongMeta.load(song_dir(entry.name, entry.data_dir) / META_FILENAME)
+            self.events = load_playback_events(entry.name, data_dir=entry.data_dir)
         except Exception as exc:
             QMessageBox.warning(self, "Couldn't load song", str(exc))
             return
 
         self.total_duration = max((e.time + e.duration for e in self.events), default=0.0)
         self.info_label.setText(
-            f"{meta.title}  |  difficulty {meta.difficulty}  |  profile {meta.profile_name}  |  "
+            f"{meta.title}  |  difficulty {meta.difficulty}  |  profile {meta.keyboard_profile_name}  |  "
             f"{meta.note_count} notes  |  {self.total_duration:.1f}s"
         )
         self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")

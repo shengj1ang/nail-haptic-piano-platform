@@ -255,7 +255,7 @@ class SyncInfo:
 class SongMeta:
     title: str
     difficulty: int  # 1, 2, or 3 - a label only, not otherwise interpreted here
-    profile_name: str
+    keyboard_profile_name: str
     port_name: Optional[str]
     created_at: str  # ISO 8601
     duration_s: float
@@ -307,6 +307,12 @@ def save_fingering(entries: List[FingeringEntry], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump([asdict(e) for e in entries], f, indent=2)
+
+
+def load_fingering(path: Path) -> List[FingeringEntry]:
+    with open(path) as f:
+        data = json.load(f)
+    return [FingeringEntry(**item) for item in data]
 
 
 # ---------------------------------------------------------------------------

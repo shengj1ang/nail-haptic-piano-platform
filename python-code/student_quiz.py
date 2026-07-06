@@ -53,7 +53,7 @@ from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.keyboard.midi_mapping import MidiMapping
 from app.midi import MidiEvent, list_input_ports, save_midi_log
 from app.music_recording import META_FILENAME as SONG_META_FILENAME
-from app.music_recording import RawMidiRecorder, SongMeta, SyncInfo, list_songs, save_raw_midi_log, song_dir
+from app.music_recording import RawMidiRecorder, SongMeta, SyncInfo, save_raw_midi_log, song_dir
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.quiz import (
     META_FILENAME as QUIZ_META_FILENAME,
@@ -74,6 +74,7 @@ from app.quiz import (
     save_quiz_results,
     summarize,
 )
+from app.song_library import SongEntry, find_song_entry, list_song_entries
 from common.led_controller import LEDArrayController
 from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from note_led_map import WHITE_LEDS
@@ -118,6 +119,7 @@ class QuizWindow(QMainWindow):
         self.led_connected = False
 
         self.song_meta: Optional[SongMeta] = None
+        self.current_song_name: str = ""  # bare name (no "music/"/"sequence/" label prefix), for QuizMeta.song_name
         self.targets: list[QuizTarget] = []
         self.mapping: Optional[MidiMapping] = None
         self.led_mapper = None
@@ -229,34 +231,43 @@ class QuizWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _refresh_songs(self) -> None:
-        songs = list_songs()
+        entries = list_song_entries()
         self.song_combo.blockSignals(True)
         self.song_combo.clear()
-        self.song_combo.addItems(songs)
+        self.song_combo.addItems([entry.label for entry in entries])
         self.song_combo.blockSignals(False)
-        if songs:
-            self._load_song(songs[0])
+        if entries:
+            self._load_song(entries[0].label)
         else:
-            self.status_label.setText("No recorded songs found under data/music/. Record one first.")
+            self.status_label.setText(
+                "No songs found under data/music/ or data/sequence/. Record one first, or generate one with "
+                "experiment_sequence_wizard.py."
+            )
 
-    def _load_song(self, name: str) -> None:
-        if not name:
+    def _load_song(self, label: str) -> None:
+        if not label:
             return
+        entry: Optional[SongEntry] = find_song_entry(label)
+        if entry is None:
+            return
+
         try:
-            self.song_meta = SongMeta.load(song_dir(name) / SONG_META_FILENAME)
-            self.targets = load_quiz_targets(name)
-            self.mapping = MidiMapping.load(PROFILE_DATA_DIR / self.song_meta.profile_name / "midi_mapping.json")
+            self.song_meta = SongMeta.load(song_dir(entry.name, entry.data_dir) / SONG_META_FILENAME)
+            self.targets = load_quiz_targets(entry.name, data_dir=entry.data_dir)
+            self.mapping = MidiMapping.load(PROFILE_DATA_DIR / self.song_meta.keyboard_profile_name / "midi_mapping.json")
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load song", str(e))
             return
 
+        self.current_song_name = entry.name
+
         try:
-            self.led_mapper = profile_led_mapper.build_mapper(self.led, self.song_meta.profile_name)
+            self.led_mapper = profile_led_mapper.build_mapper(self.led, self.song_meta.keyboard_profile_name)
         except Exception:
             self.led_mapper = None  # LED cueing just won't be available for this profile
 
         self.status_label.setText(
-            f"{name}: {len(self.targets)} notes  |  profile {self.song_meta.profile_name}  |  "
+            f"{label}: {len(self.targets)} notes  |  profile {self.song_meta.keyboard_profile_name}  |  "
             f"difficulty {self.song_meta.difficulty}"
         )
 
@@ -573,8 +584,8 @@ class QuizWindow(QMainWindow):
         summary = summarize(self.results)
         meta = QuizMeta(
             quiz_name=self.quiz_name,
-            song_name=self.song_combo.currentText(),
-            profile_name=self.song_meta.profile_name,
+            song_name=self.current_song_name,
+            keyboard_profile_name=self.song_meta.keyboard_profile_name,
             port_name=self.port_combo.currentText(),
             created_at=datetime.now(timezone.utc).isoformat(),
             timeout_s=self.timeout_s,

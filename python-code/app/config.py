@@ -53,9 +53,9 @@ class Config:
     keyboard_detection: KeyboardDetectionConfig = field(default_factory=KeyboardDetectionConfig)
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
-    # Name of the calibration profile (data/keyboard-profile/<active_profile>/) that tools
-    # load by default - set automatically each time setup_keyboard_wizard.py saves.
-    active_profile: str = "default"
+    # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
+    # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
+    active_keyboard_profile: str = "default"
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> "Config":
@@ -72,7 +72,7 @@ class Config:
             keyboard_detection=KeyboardDetectionConfig(**data.get("keyboard_detection", {})),
             wizard=WizardConfig(**data.get("wizard", {})),
             midi=MidiConfig(**data.get("midi", {})),
-            active_profile=data.get("active_profile", "default"),
+            active_keyboard_profile=data.get("active_keyboard_profile", "default"),
         )
 
     def save(self, path: Path = DEFAULT_CONFIG_PATH) -> None:
@@ -81,7 +81,7 @@ class Config:
             "keyboard_detection": asdict(self.keyboard_detection),
             "wizard": asdict(self.wizard),
             "midi": asdict(self.midi),
-            "active_profile": self.active_profile,
+            "active_keyboard_profile": self.active_keyboard_profile,
         }
         with open(path, "w") as f:
             json.dump(payload, f, indent=2)

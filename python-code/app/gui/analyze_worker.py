@@ -20,11 +20,11 @@ class AnalyzeWorker(QThread):
     succeeded = Signal(list)  # List[Optional[FingerMatch]]
     failed = Signal(str)
 
-    def __init__(self, video_path: Path, notes_path: Path, profile_name: str):
+    def __init__(self, video_path: Path, notes_path: Path, keyboard_profile_name: str):
         super().__init__()
         self.video_path = video_path
         self.notes_path = notes_path
-        self.profile_name = profile_name
+        self.keyboard_profile_name = keyboard_profile_name
 
     def run(self) -> None:
         def on_progress(done: int, total: int) -> None:
@@ -35,7 +35,7 @@ class AnalyzeWorker(QThread):
 
         try:
             matches = analyze_recording(
-                self.video_path, self.notes_path, self.profile_name, progress_callback=on_progress
+                self.video_path, self.notes_path, self.keyboard_profile_name, progress_callback=on_progress
             )
         except Exception as e:
             self.failed.emit(str(e))

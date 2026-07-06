@@ -82,7 +82,7 @@ class InfoPage(QWizardPage):
     def __init__(self, wizard: "RecordingWizard"):
         super().__init__()
         self.setTitle("Step 3a - Song info")
-        self.setSubTitle("Name the song, pick a difficulty label, the keyboard profile, and the MIDI port.")
+        self.setSubTitle("Name the song, pick a difficulty label, and the MIDI port.")
         self._wizard = wizard
 
         self.title_edit = QLineEdit()
@@ -92,10 +92,12 @@ class InfoPage(QWizardPage):
         self.difficulty_combo = QComboBox()
         self.difficulty_combo.addItems(["1", "2", "3"])
 
-        self.profile_combo = QComboBox()
-        self.profile_combo.currentTextChanged.connect(self.completeChanged)
-        refresh_profiles_btn = QPushButton("Refresh")
-        refresh_profiles_btn.clicked.connect(self._refresh_profiles)
+        # No profile picker here - this always uses config.json's
+        # active_keyboard_profile (set by the Keyboard Calibration Wizard),
+        # so there's no way to accidentally record against the wrong
+        # keyboard setup. This label just says which one that is.
+        self.profile_label = QLabel("")
+        self.profile_label.setWordWrap(True)
 
         self.port_combo = QComboBox()
         self.port_combo.currentTextChanged.connect(self.completeChanged)
@@ -111,11 +113,6 @@ class InfoPage(QWizardPage):
         difficulty_row.addWidget(self.difficulty_combo)
         difficulty_row.addStretch(1)
 
-        profile_row = QHBoxLayout()
-        profile_row.addWidget(QLabel("Keyboard profile:"))
-        profile_row.addWidget(self.profile_combo, 1)
-        profile_row.addWidget(refresh_profiles_btn)
-
         port_row = QHBoxLayout()
         port_row.addWidget(QLabel("MIDI port:"))
         port_row.addWidget(self.port_combo, 1)
@@ -124,21 +121,22 @@ class InfoPage(QWizardPage):
         layout = QVBoxLayout(self)
         layout.addLayout(title_row)
         layout.addLayout(difficulty_row)
-        layout.addLayout(profile_row)
+        layout.addWidget(self.profile_label)
         layout.addLayout(port_row)
 
     def initializePage(self) -> None:
-        self._refresh_profiles()
+        self._refresh_profile_label()
         self._refresh_ports()
 
-    def _refresh_profiles(self) -> None:
-        profiles = list_profiles(PROFILE_DATA_DIR)
-        self.profile_combo.blockSignals(True)
-        self.profile_combo.clear()
-        self.profile_combo.addItems(profiles)
-        if self._wizard.cfg.active_profile in profiles:
-            self.profile_combo.setCurrentText(self._wizard.cfg.active_profile)
-        self.profile_combo.blockSignals(False)
+    def _refresh_profile_label(self) -> None:
+        active = self._wizard.cfg.active_keyboard_profile
+        if active in list_profiles(PROFILE_DATA_DIR):
+            self.profile_label.setText(f"Keyboard profile: {active} (config.json's active_keyboard_profile)")
+        else:
+            self.profile_label.setText(
+                f"Keyboard profile {active!r} (config.json's active_keyboard_profile) isn't a calibrated profile - "
+                "run the Keyboard Calibration Wizard first."
+            )
         self.completeChanged.emit()
 
     def _refresh_ports(self) -> None:
@@ -157,14 +155,15 @@ class InfoPage(QWizardPage):
     def difficulty(self) -> int:
         return int(self.difficulty_combo.currentText())
 
-    def profile_name(self) -> str:
-        return self.profile_combo.currentText()
+    def keyboard_profile_name(self) -> str:
+        return self._wizard.cfg.active_keyboard_profile
 
     def port_name(self) -> str:
         return self.port_combo.currentText()
 
     def isComplete(self) -> bool:
-        return bool(self.song_name() and self.profile_name() and self.port_name())
+        profile_ok = self.keyboard_profile_name() in list_profiles(PROFILE_DATA_DIR)
+        return bool(self.song_name() and profile_ok and self.port_name())
 
 
 class RecordPage(QWizardPage):
@@ -415,7 +414,7 @@ class ReviewPage(QWizardPage):
         record = self._wizard.record_page
         note_count = sum(1 for e in record.raw_events if e.type == "note_on")
         self.summary_label.setText(
-            f"Song: {info.song_name()!r}   Difficulty: {info.difficulty()}   Profile: {info.profile_name()}\n"
+            f"Song: {info.song_name()!r}   Difficulty: {info.difficulty()}   Profile: {info.keyboard_profile_name()}\n"
             f"Duration: {record.duration_s:.1f}s   Notes captured: {note_count}"
         )
         self._saved = False
@@ -484,7 +483,7 @@ class ReviewPage(QWizardPage):
         self.progress_bar.setRange(0, 0)  # indeterminate until the first progress update
         self.result_label.setText("Matching fingers against the video...")
 
-        self._worker = AnalyzeWorker(record.video_path, notes_path, info.profile_name())
+        self._worker = AnalyzeWorker(record.video_path, notes_path, info.keyboard_profile_name())
         self._worker.progress.connect(self._on_progress)
         self._worker.succeeded.connect(self._finish_save)
         self._worker.failed.connect(self._on_analyze_failed)
@@ -519,7 +518,7 @@ class ReviewPage(QWizardPage):
             meta = SongMeta(
                 title=info.song_name(),
                 difficulty=info.difficulty(),
-                profile_name=info.profile_name(),
+                keyboard_profile_name=info.keyboard_profile_name(),
                 port_name=info.port_name(),
                 created_at=datetime.now(timezone.utc).isoformat(),
                 duration_s=self._duration_s,

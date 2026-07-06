@@ -114,9 +114,9 @@ KEY_SHAPE_SEQUENCE = [
 ]
 
 
-def _build_visual_sequence(profile_name: str):
+def _build_visual_sequence(keyboard_profile_name: str):
     """(is_black, note) pairs in physical left-to-right order, for the given profile."""
-    white_notes, black_notes = profile_led_mapper.build_ordered_notes(profile_name)
+    white_notes, black_notes = profile_led_mapper.build_ordered_notes(keyboard_profile_name)
 
     sequence = []
     white_i = black_i = 0
@@ -426,17 +426,17 @@ class PianoWindow(QMainWindow):
             )
             return
 
-        target = self.cfg.active_profile if self.cfg.active_profile in profiles else profiles[0]
+        target = self.cfg.active_keyboard_profile if self.cfg.active_keyboard_profile in profiles else profiles[0]
         self.profile_combo.setCurrentText(target)
         self._load_profile(target)
 
-    def _load_profile(self, profile_name: str) -> None:
-        if not profile_name:
+    def _load_profile(self, keyboard_profile_name: str) -> None:
+        if not keyboard_profile_name:
             return
 
         try:
-            mapper = profile_led_mapper.build_mapper(self.led, profile_name)
-            visual_sequence = _build_visual_sequence(profile_name)
+            mapper = profile_led_mapper.build_mapper(self.led, keyboard_profile_name)
+            visual_sequence = _build_visual_sequence(keyboard_profile_name)
         except (FileNotFoundError, ValueError) as exc:
             QMessageBox.warning(self, "Couldn't load profile", str(exc))
             return
@@ -453,7 +453,7 @@ class PianoWindow(QMainWindow):
         # Just preselect this profile's usual MIDI port in the combo, if it's
         # currently available - connecting is still a manual step (see
         # _toggle_midi()), independent of which profile is loaded.
-        mapping = MidiMapping.load(DATA_DIR / profile_name / "midi_mapping.json")
+        mapping = MidiMapping.load(DATA_DIR / keyboard_profile_name / "midi_mapping.json")
         available_ports = [self.midi_port_combo.itemText(i) for i in range(self.midi_port_combo.count())]
         if mapping.port_name and mapping.port_name in available_ports:
             self.midi_port_combo.setCurrentText(mapping.port_name)

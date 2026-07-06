@@ -231,7 +231,7 @@ class MapKeysPage(QWizardPage):
             self.status_label.setText("No profiles found under data/keyboard-profile/. Run setup_keyboard_wizard.py first.")
             return
 
-        target = self._wizard.cfg.active_profile if self._wizard.cfg.active_profile in profiles else profiles[0]
+        target = self._wizard.cfg.active_keyboard_profile if self._wizard.cfg.active_keyboard_profile in profiles else profiles[0]
         self.profile_combo.setCurrentText(target)
         self._load_profile(target)
 
@@ -341,8 +341,8 @@ class MapKeysPage(QWizardPage):
             QMessageBox.warning(self, "Nothing to save", "No keys have been mapped yet.")
             return
 
-        profile_name = self.profile_combo.currentText()
-        path = DATA_DIR / profile_name / "midi_mapping.json"
+        keyboard_profile_name = self.profile_combo.currentText()
+        path = DATA_DIR / keyboard_profile_name / "midi_mapping.json"
         port_name = self._wizard.midi.port_name if self._wizard.midi else self._wizard.cfg.midi.port_name
 
         mapping = MidiMapping(port_name=port_name, key_to_note=dict(self.mapping))

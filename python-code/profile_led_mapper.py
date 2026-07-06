@@ -40,13 +40,13 @@ def _left_to_right_key_ids(template: KeyboardTemplate, kind: str) -> list[int]:
 
 
 def build_ordered_notes(
-    profile_name: str, data_dir: Path = DATA_DIR
+    keyboard_profile_name: str, data_dir: Path = DATA_DIR
 ) -> tuple[list[int | None], list[int | None]]:
     """This profile's white/black key notes, in true physical left-to-right
     order (by pixel centroid, not calibration click order). A None entry
     means that physical key has no MIDI note recorded yet (step 2 wasn't
     run/finished for it)."""
-    profile_dir = data_dir / profile_name
+    profile_dir = data_dir / keyboard_profile_name
     template = KeyboardTemplate.load(profile_dir / "keyboard_template.json")
     mapping = MidiMapping.load(profile_dir / "midi_mapping.json")
 
@@ -58,14 +58,14 @@ def build_ordered_notes(
     )
 
 
-def build_note_to_leds(profile_name: str, data_dir: Path = DATA_DIR) -> dict[int, LedPositions]:
+def build_note_to_leds(keyboard_profile_name: str, data_dir: Path = DATA_DIR) -> dict[int, LedPositions]:
     """Combine a profile's calibrated key_id -> note mapping with this rig's
     fixed LED wiring into a single note -> LED positions table."""
-    white_notes, black_notes = build_ordered_notes(profile_name, data_dir)
+    white_notes, black_notes = build_ordered_notes(keyboard_profile_name, data_dir)
 
     if len(white_notes) != len(WHITE_LEDS) or len(black_notes) != len(BLACK_LEDS):
         raise ValueError(
-            f"profile {profile_name!r} has {len(white_notes)} white / {len(black_notes)} black keys, "
+            f"profile {keyboard_profile_name!r} has {len(white_notes)} white / {len(black_notes)} black keys, "
             f"but this LED rig is wired for exactly {len(WHITE_LEDS)} white / {len(BLACK_LEDS)} black "
             "keys - it doesn't support a different key count."
         )
@@ -81,6 +81,6 @@ def build_note_to_leds(profile_name: str, data_dir: Path = DATA_DIR) -> dict[int
     return note_to_leds
 
 
-def build_mapper(led: LEDArrayController, profile_name: str, data_dir: Path = DATA_DIR) -> NoteLEDMapper:
+def build_mapper(led: LEDArrayController, keyboard_profile_name: str, data_dir: Path = DATA_DIR) -> NoteLEDMapper:
     """Convenience one-shot: load a profile and hand back a ready-to-use NoteLEDMapper."""
-    return NoteLEDMapper(led, build_note_to_leds(profile_name, data_dir))
+    return NoteLEDMapper(led, build_note_to_leds(keyboard_profile_name, data_dir))

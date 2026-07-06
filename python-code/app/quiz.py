@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .keyboard.midi_mapping import note_name
-from .music_recording import FINGERING_FILENAME, sanitize_song_name, song_dir
+from .music_recording import MUSIC_DATA_DIR, FINGERING_FILENAME, sanitize_song_name, song_dir
 
 QUIZ_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "quiz"
 
@@ -66,10 +66,12 @@ class QuizTarget:
     finger: Optional[str]
 
 
-def load_quiz_targets(song_name: str) -> List[QuizTarget]:
-    """The note/finger sequence to practice, straight from a recorded
-    song's fingering.json (see app.music_recording)."""
-    path = song_dir(song_name) / FINGERING_FILENAME
+def load_quiz_targets(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> List[QuizTarget]:
+    """The note/finger sequence to practice, straight from a song's
+    fingering.json (see app.music_recording) - a real recording
+    (data/music/) or a generated experimental sequence (data/sequence/,
+    see app.sequence_generator), depending on data_dir."""
+    path = song_dir(song_name, data_dir) / FINGERING_FILENAME
     with open(path) as f:
         entries = json.load(f)
     return [
@@ -139,7 +141,7 @@ def load_quiz_results(path: Path) -> List[QuizResult]:
 class QuizMeta:
     quiz_name: str
     song_name: str
-    profile_name: str
+    keyboard_profile_name: str
     port_name: Optional[str]
     created_at: str
     timeout_s: float

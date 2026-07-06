@@ -28,7 +28,7 @@ from .profiles import DATA_DIR
 def analyze_recording(
     video_path: Path,
     midi_log_path: Path,
-    profile_name: str,
+    keyboard_profile_name: str,
     data_dir: Path = DATA_DIR,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> List[Optional[FingerMatch]]:
@@ -39,8 +39,8 @@ def analyze_recording(
     each frame is processed - this is the slow part (one MediaPipe pass per
     frame) - so a caller can drive a progress bar. total_frames is 0 if the
     video container doesn't report a frame count."""
-    template = KeyboardTemplate.load(data_dir / profile_name / "keyboard_template.json")
-    mapping = MidiMapping.load(data_dir / profile_name / "midi_mapping.json")
+    template = KeyboardTemplate.load(data_dir / keyboard_profile_name / "keyboard_template.json")
+    mapping = MidiMapping.load(data_dir / keyboard_profile_name / "midi_mapping.json")
     events = load_midi_log(midi_log_path)
 
     cap = cv2.VideoCapture(str(video_path))

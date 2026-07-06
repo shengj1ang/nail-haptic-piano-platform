@@ -151,7 +151,7 @@ class QuizAnalysisWindow(QMainWindow):
         self.progress_bar.setRange(0, 0)
         self.results_label.setText("Matching fingers against the video...")
 
-        self._worker = AnalyzeWorker(video_path, notes_path, self.meta.profile_name)
+        self._worker = AnalyzeWorker(video_path, notes_path, self.meta.keyboard_profile_name)
         self._worker.progress.connect(self._on_progress)
         self._worker.succeeded.connect(self._finalize)
         self._worker.failed.connect(self._on_failed)

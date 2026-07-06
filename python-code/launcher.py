@@ -37,12 +37,15 @@ SECTION_COLUMNS = 2
 
 from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
+from app.gui.camera_selection_window import CameraSelectionWindow
 from app.gui.cue_window import CueStyleSelectionCancelled
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
+from app.gui.sequence_generator_window import SequenceGeneratorWindow
+from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
@@ -54,6 +57,7 @@ SECTIONS = [
     (
         "1. Initial Setup",
         [
+            ("Camera Selection Wizard", CameraSelectionWindow),
             ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
             ("MIDI Mapping Wizard", MidiMappingWizard),
         ],
@@ -68,21 +72,28 @@ SECTIONS = [
         ],
     ),
     (
-        "3. Recording && Playback",
+        "3. Experiment Sequence Design",
+        [
+            ("Experiment Sequence Generator", SequenceGeneratorWindow),
+            ("Sequence/Music Metrics", SequenceMetricsWindow),
+        ],
+    ),
+    (
+        "4. Recording && Playback",
         [
             ("Song Recording Wizard", RecordingWizard),
             ("Song Playback", PlaybackWindow),
         ],
     ),
     (
-        "4. Practice && Assessment",
+        "5. Practice && Assessment",
         [
             ("Quiz - Visual Guidance", QuizWindow),
             ("Quiz - Haptic Guidance", HapticQuizWindow),
         ],
     ),
     (
-        "5. Data Analysis",
+        "6. Data Analysis",
         [
             ("Quiz Analysis", QuizAnalysisWindow),
         ],

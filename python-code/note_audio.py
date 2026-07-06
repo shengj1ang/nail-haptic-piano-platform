@@ -73,6 +73,15 @@ TIMBRES = {
         decay_ms=350.0,
         release_ms=200.0,
     ),
+    # No harmonics at all -> _Voice.render() always produces a zero wave,
+    # regardless of its (otherwise normal) attack/decay/sustain/release
+    # envelope - silent audio feedback, without any special-casing needed
+    # elsewhere. Every timbre dropdown in the codebase just loops over
+    # TIMBRES.items(), so this shows up as a normal "Mute" choice
+    # everywhere for free. Useful for the auditory-control condition
+    # (final_report_2026/method/method.tex, "Auditory Control") where MIDI
+    # sound must be disabled but events are still logged.
+    "mute": Timbre(name="Mute", harmonics=[]),
 }
 DEFAULT_TIMBRE = "piano"
 

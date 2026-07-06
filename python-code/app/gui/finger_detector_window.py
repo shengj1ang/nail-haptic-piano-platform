@@ -114,7 +114,7 @@ class FingerDetectorWindow(QWidget):
             self.status_label.setText("No profiles found under data/keyboard-profile/. Run setup_keyboard_wizard.py first.")
             return
 
-        target = self.cfg.active_profile if self.cfg.active_profile in profiles else profiles[0]
+        target = self.cfg.active_keyboard_profile if self.cfg.active_keyboard_profile in profiles else profiles[0]
         self.profile_combo.setCurrentText(target)
         self._load_profile(target)
 
