@@ -283,7 +283,7 @@ class PlaybackWindow(QMainWindow):
 
         self.total_duration = max((e.time + e.duration for e in self.events), default=0.0)
         self.info_label.setText(
-            f"{meta.title}  |  difficulty {meta.difficulty}  |  profile {meta.keyboard_profile_name}  |  "
+            f"{meta.title}  |  difficulty {meta.difficulty}  |  "
             f"{meta.note_count} notes  |  {self.total_duration:.1f}s"
         )
         self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")

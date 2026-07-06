@@ -42,7 +42,7 @@ from ..camera import Camera
 from ..config import Config
 from ..midi import list_input_ports, save_midi_log
 from ..profiles import DATA_DIR as PROFILE_DATA_DIR
-from ..profiles import list_profiles
+from ..profiles import list_profiles, snapshot_profile
 from .analyze_worker import AnalyzeWorker
 from ..music_recording import (
     FINGERING_FILENAME,
@@ -215,6 +215,8 @@ class RecordPage(QWizardPage):
 
         self.raw_events: list = []
         self.video_start_time: float | None = None
+        self._video_fps: float = 0.0
+        self._frames_written: int = 0
         self.midi_start_time: float | None = None
         self.led_on_time: float | None = None
         self.led_off_time: float | None = None
@@ -291,6 +293,8 @@ class RecordPage(QWizardPage):
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         fps = self._wizard.cfg.camera.fps or 30
         self.video_writer = cv2.VideoWriter(str(self.video_path), fourcc, fps, (w, h))
+        self._video_fps = fps
+        self._frames_written = 0
 
         self.raw_events = []
         self.led_on_time = None
@@ -326,6 +330,26 @@ class RecordPage(QWizardPage):
         self.led_off_time = time.time()
         self.status_label.setText("Recording - play the piece now.")
 
+    def _write_video_frame(self, frame) -> None:
+        # The camera's real delivery rate can lag the fps the writer was
+        # opened with (autoexposure, USB bandwidth, ...), and this tick only
+        # runs when a frame actually arrives - so writing exactly one frame
+        # per tick would under-fill the video relative to its declared fps,
+        # making the encoded clip play back faster than the session actually
+        # took. app.offline also maps MIDI event times to frames via
+        # frame_idx = event_time * fps, so that drift silently breaks
+        # video/MIDI sync too. Duplicate the latest frame as needed so the
+        # written frame count always matches real elapsed time * fps
+        # (capped to one second of catch-up per tick, so a one-off stall -
+        # e.g. the process being paused - can't spend seconds re-encoding
+        # the same frame in a tight loop).
+        elapsed = time.time() - self.video_start_time
+        target_frames = int(elapsed * self._video_fps) + 1
+        target_frames = min(target_frames, self._frames_written + int(self._video_fps) + 1)
+        while self._frames_written < target_frames:
+            self.video_writer.write(frame)
+            self._frames_written += 1
+
     def _tick(self) -> None:
         frame = self._wizard.camera.read()
         if frame is None:
@@ -334,7 +358,7 @@ class RecordPage(QWizardPage):
 
         if self._recording:
             if self.video_writer is not None:
-                self.video_writer.write(frame)
+                self._write_video_frame(frame)
             if self.midi_recorder is not None:
                 new_events = self.midi_recorder.pop_events()
                 self.raw_events.extend(new_events)
@@ -443,6 +467,7 @@ class ReviewPage(QWizardPage):
         QApplication.processEvents()
 
         try:
+            snapshot_profile(info.keyboard_profile_name(), r_dir / "keyboard_profile")
             save_raw_midi_log(record.raw_events, r_dir / RAW_MIDI_FILENAME)
 
             # raw/ stays on the recording's original clock (frame 0 = video/MIDI
@@ -518,8 +543,6 @@ class ReviewPage(QWizardPage):
             meta = SongMeta(
                 title=info.song_name(),
                 difficulty=info.difficulty(),
-                keyboard_profile_name=info.keyboard_profile_name(),
-                port_name=info.port_name(),
                 created_at=datetime.now(timezone.utc).isoformat(),
                 duration_s=self._duration_s,
                 note_count=len(self._notes),

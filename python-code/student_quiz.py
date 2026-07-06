@@ -130,6 +130,8 @@ class QuizWindow(QMainWindow):
         self.video_path: Optional[Path] = None
         self.raw_events: list = []
         self.video_start_time: Optional[float] = None
+        self._video_fps: float = 0.0
+        self._frames_written: int = 0
         self.led_on_time: Optional[float] = None
         self.led_off_time: Optional[float] = None
 
@@ -251,10 +253,15 @@ class QuizWindow(QMainWindow):
         if entry is None:
             return
 
+        # Keyboard profile always comes from config.json's active_keyboard_profile
+        # (set by the Keyboard Calibration Wizard), never from the song itself -
+        # a song outlives any one profile, so a value frozen into its meta.json
+        # at record time would go stale the moment the keyboard is recalibrated.
+        keyboard_profile_name = self.cfg.active_keyboard_profile
         try:
             self.song_meta = SongMeta.load(song_dir(entry.name, entry.data_dir) / SONG_META_FILENAME)
             self.targets = load_quiz_targets(entry.name, data_dir=entry.data_dir)
-            self.mapping = MidiMapping.load(PROFILE_DATA_DIR / self.song_meta.keyboard_profile_name / "midi_mapping.json")
+            self.mapping = MidiMapping.load(PROFILE_DATA_DIR / keyboard_profile_name / "midi_mapping.json")
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load song", str(e))
             return
@@ -262,18 +269,18 @@ class QuizWindow(QMainWindow):
         self.current_song_name = entry.name
 
         try:
-            self.led_mapper = profile_led_mapper.build_mapper(self.led, self.song_meta.keyboard_profile_name)
+            self.led_mapper = profile_led_mapper.build_mapper(self.led, keyboard_profile_name)
         except Exception:
             self.led_mapper = None  # LED cueing just won't be available for this profile
 
         self.status_label.setText(
-            f"{label}: {len(self.targets)} notes  |  profile {self.song_meta.keyboard_profile_name}  |  "
+            f"{label}: {len(self.targets)} notes  |  profile {keyboard_profile_name}  |  "
             f"difficulty {self.song_meta.difficulty}"
         )
 
         ports = [self.port_combo.itemText(i) for i in range(self.port_combo.count())]
-        if self.song_meta.port_name in ports:
-            self.port_combo.setCurrentText(self.song_meta.port_name)
+        if self.cfg.midi.port_name in ports:
+            self.port_combo.setCurrentText(self.cfg.midi.port_name)
 
     def _refresh_ports(self) -> None:
         ports = list_input_ports()
@@ -367,6 +374,8 @@ class QuizWindow(QMainWindow):
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         fps = self.cfg.camera.fps or 30
         self.video_writer = cv2.VideoWriter(str(self.video_path), fourcc, fps, (w, h))
+        self._video_fps = fps
+        self._frames_written = 0
 
         self.quiz_name = quiz_name
         self.timeout_s = self.timeout_spin.value()
@@ -473,12 +482,32 @@ class QuizWindow(QMainWindow):
         self.phase = "gap"
         self.phase_start_wall = time.time()
 
+    def _write_video_frame(self, frame) -> None:
+        # The camera's real delivery rate can lag the fps the writer was
+        # opened with (autoexposure, USB bandwidth, ...), and this tick only
+        # runs when a frame actually arrives - so writing exactly one frame
+        # per tick would under-fill the video relative to its declared fps,
+        # making the encoded clip play back faster than the session actually
+        # took. app.offline also maps MIDI event times to frames via
+        # frame_idx = event_time * fps, so that drift silently breaks
+        # video/MIDI sync too. Duplicate the latest frame as needed so the
+        # written frame count always matches real elapsed time * fps
+        # (capped to one second of catch-up per tick, so a one-off stall -
+        # e.g. the process being paused - can't spend seconds re-encoding
+        # the same frame in a tight loop).
+        elapsed = time.time() - self.video_start_time
+        target_frames = int(elapsed * self._video_fps) + 1
+        target_frames = min(target_frames, self._frames_written + int(self._video_fps) + 1)
+        while self._frames_written < target_frames:
+            self.video_writer.write(frame)
+            self._frames_written += 1
+
     def _tick(self) -> None:
         frame = self.camera.read()
         if frame is not None:
             self.view.set_frame(frame)
             if self.video_writer is not None:
-                self.video_writer.write(frame)
+                self._write_video_frame(frame)
 
         if self.midi_recorder is not None:
             new_events = self.midi_recorder.pop_events()
@@ -585,7 +614,7 @@ class QuizWindow(QMainWindow):
         meta = QuizMeta(
             quiz_name=self.quiz_name,
             song_name=self.current_song_name,
-            keyboard_profile_name=self.song_meta.keyboard_profile_name,
+            keyboard_profile_name=self.cfg.active_keyboard_profile,
             port_name=self.port_combo.currentText(),
             created_at=datetime.now(timezone.utc).isoformat(),
             timeout_s=self.timeout_s,

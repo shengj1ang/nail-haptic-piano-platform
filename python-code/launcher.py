@@ -1,8 +1,7 @@
 """One hub window for the whole platform.
 
 This is meant to grow into a multi-modal learning-assistant platform;
-the piano/finger-accuracy tools below are just its first module. Click a
-button, get the corresponding tool as a sub-window - reusing the exact same
+Click a button, get the corresponding tool as a sub-window - reusing the exact same
 window classes each entry-point script (setup_keyboard_wizard.py,
 setup_midi_mapping_wizard.py, test_keyboard_preview.py, test_finger_accuracy.py,
 test_virtual_piano_led.py, music_recording_wizard.py, music_playback.py) already
@@ -161,7 +160,7 @@ class LauncherWindow(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
 
-        subtitle = QLabel("Piano finger-accuracy module - pick a tool below; only one runs at a time.")
+        subtitle = QLabel("Pick a tool below; only one runs at a time.")
         subtitle.setObjectName("subtitle")
 
         layout = QVBoxLayout(self)

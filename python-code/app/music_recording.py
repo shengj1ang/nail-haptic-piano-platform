@@ -253,10 +253,13 @@ class SyncInfo:
 
 @dataclass
 class SongMeta:
+    # No keyboard_profile_name/port_name here - a song outlives any one
+    # profile/port, and freezing them in at record time just goes stale the
+    # next time the keyboard is recalibrated or plugged into a different
+    # port. Whatever uses this song (student_quiz.py, music_playback.py)
+    # reads the *current* Config for that instead.
     title: str
     difficulty: int  # 1, 2, or 3 - a label only, not otherwise interpreted here
-    keyboard_profile_name: str
-    port_name: Optional[str]
     created_at: str  # ISO 8601
     duration_s: float
     note_count: int

@@ -639,8 +639,6 @@ def save_sequence_as_song(
     meta = SongMeta(
         title=name.strip() or song_name,
         difficulty=LEVEL_DIFFICULTY[level],
-        keyboard_profile_name=keyboard_profile_name,
-        port_name=mapping.port_name,
         created_at=datetime.now(timezone.utc).isoformat(),
         duration_s=duration_s,
         note_count=len(actions),
