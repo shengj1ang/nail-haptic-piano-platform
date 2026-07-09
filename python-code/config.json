@@ -8,7 +8,7 @@
     "flip_horizontal": true
   },
   "keyboard_detection": {
-    "canny_low": 50,
+    "canny_low": 18,
     "canny_high": 150,
     "hough_threshold": 80,
     "hough_min_line_length": 60,
@@ -24,5 +24,9 @@
   "midi": {
     "port_name": "SE25 MIDI1"
   },
-  "active_keyboard_profile": "white-city-lab-20260706"
+  "seeds": {
+    "sequence_generator": 254279035,
+    "pilot_schedule": 329719681
+  },
+  "active_keyboard_profile": "white-city-lab-20260708"
 }

@@ -1,13 +1,23 @@
-# Multi-Channel Vibration Control System
+# Nail-Mounted Haptic Piano Guidance — Code Repository
 
-This project implements a complete system for controlling multiple vibration motors using an Arduino-compatible board (e.g. Teensy) and Python.
+Implementation side of the MSc project "Nail-Mounted Haptic Cues for Piano
+Training and Tele-training": a multimodal piano-guidance platform combining a
+MIDI keyboard, per-key LED backlighting, nail-mounted vibrotactile actuators
+(Teensy-driven), camera-based finger-use detection, and the experiment
+software for the controlled pilot study defined in
+`../final_report_2026/method/method.tex`.
 
 It includes:
-- asynchronous multi-motor control firmware
-- Python control interface
-- real-time keyboard control
-- audio-based latency measurement
-- automatic data analysis and visualization
+- asynchronous multi-motor control firmware (Teensy) + WS2812 LED control
+- Python calibration/detection pipeline (camera + MIDI + MediaPipe) — see
+  [python-code/README.md](python-code/README.md)
+- constrained bimanual stimulus-sequence generator with difficulty
+  validation and seeded reproducibility — see
+  [python-code/SEQUENCE_GENERATOR_ALGORITHM.md](python-code/SEQUENCE_GENERATOR_ALGORITHM.md)
+- cue-response quiz tools (visual / haptic finger cues) with full-session
+  recording and offline finger-matching analysis
+- audio-based latency measurement and analysis utilities
+- planned pilot-study protocol summary: [experiments/main_user_study/README.md](experiments/main_user_study/README.md)
 
 ---
 

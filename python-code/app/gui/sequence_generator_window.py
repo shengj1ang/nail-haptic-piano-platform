@@ -32,7 +32,9 @@ stream, so the same profile + note range + Count + seed + software
 version regenerates the identical batch. A blank Seed draws a fresh one
 and writes it back into the field, and every saved sequence's meta.json
 records the seed and Count it came from (generation_seed /
-generation_count), alongside the effective note bounds.
+generation_count), alongside the effective note bounds. The "New seed"
+button draws a fresh seed up front and mirrors it into both the Seed and
+the Batch name fields, so the batch's row names carry their own seed.
 
 An optional Batch name prefixes every row's default name -
 "<batch>-<level symbol>-<id>" instead of just "<level symbol>-<id>" - so a
@@ -141,8 +143,22 @@ class SequenceGeneratorWindow(QMainWindow):
         self.seed_edit = QLineEdit()
         self.seed_edit.setPlaceholderText("blank = draw one")
 
+        seed_refresh_btn = QPushButton("New seed")
+        seed_refresh_btn.setToolTip(
+            "Draw a fresh random seed and fill it into both Seed and Batch name, "
+            "so the saved rows' names carry the seed that generated them."
+        )
+        seed_refresh_btn.clicked.connect(self._draw_new_seed)
+
         self.batch_name_edit = QLineEdit()
         self.batch_name_edit.setPlaceholderText("optional - blank means <level>-<id>")
+
+        # Prefill from config.json's stored default: reopening the window
+        # keeps working with the same seed (and the matching batch name)
+        # until "New seed" is pressed, which overwrites the stored default.
+        if self.cfg.seeds.sequence_generator is not None:
+            self.seed_edit.setText(str(self.cfg.seeds.sequence_generator))
+            self.batch_name_edit.setText(str(self.cfg.seeds.sequence_generator))
 
         profile_row = QHBoxLayout()
         profile_row.addWidget(self.profile_label, 1)
@@ -158,6 +174,7 @@ class SequenceGeneratorWindow(QMainWindow):
         range_row.addWidget(self.count_spin)
         range_row.addWidget(QLabel("Seed:"))
         range_row.addWidget(self.seed_edit)
+        range_row.addWidget(seed_refresh_btn)
 
         batch_row = QHBoxLayout()
         batch_row.addWidget(QLabel("Batch name:"))
@@ -180,8 +197,18 @@ class SequenceGeneratorWindow(QMainWindow):
         # ------------------------------------------------------------ table
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        # Excel-like columns: every border is user-draggable (Interactive).
+        # The long Fingers/Notes columns get a wide starting width and the
+        # table scrolls horizontally - Stretch mode would instead squeeze
+        # them into whatever width the window leaves over, cutting them off
+        # with no way to widen.
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        self.table.setColumnWidth(0, 180)  # Name
+        self.table.setColumnWidth(2, 480)  # Fingers
+        self.table.setColumnWidth(3, 640)  # Notes
+        self.table.setColumnWidth(len(COLUMNS) - 1, 110)  # Save button
         self.table.verticalHeader().setVisible(False)
 
         self.validation_btn = QPushButton("View validation report")
@@ -260,6 +287,18 @@ class SequenceGeneratorWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Generating
     # ------------------------------------------------------------------
+
+    def _draw_new_seed(self) -> None:
+        """Draw a fresh random seed and mirror it into both the Seed and
+        the Batch name fields, so the next run's rows are named
+        "<seed>-<level symbol>-<id>" and a saved batch carries the seed
+        that generated it in its own name. The new seed also becomes
+        config.json's stored default, so the window reopens with it."""
+        seed = random.randrange(2**31)
+        self.seed_edit.setText(str(seed))
+        self.batch_name_edit.setText(str(seed))
+        self.cfg.seeds.sequence_generator = seed
+        self.cfg.save()
 
     def _generate_all_levels(self) -> None:
         keyboard_profile_name = self.cfg.active_keyboard_profile
@@ -384,6 +423,12 @@ class SequenceGeneratorWindow(QMainWindow):
                 save_btn = QPushButton("Save as song")
                 save_btn.clicked.connect(lambda _checked=False, r=row: self._save_row(r))
                 self.table.setCellWidget(row, len(COLUMNS) - 1, save_btn)
+
+        # Fit the short item columns (Level + stats) to their content;
+        # Name/Fingers/Notes/button keep their user-adjustable widths.
+        for col in range(1, len(COLUMNS) - 1):
+            if col not in (2, 3):
+                self.table.resizeColumnToContents(col)
 
     def _show_validation_report(self) -> None:
         if self._validation_report is None:

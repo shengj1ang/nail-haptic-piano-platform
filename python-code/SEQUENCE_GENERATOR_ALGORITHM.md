@@ -1,278 +1,242 @@
 # Experiment Sequence Generator — Algorithm Reference
 
-This documents exactly what `app/sequence_generator.py` does, as implemented, so it can be used to
-update `final_report_2026/method/method.tex` ("Sequence Design and Difficulty Levels" and related
-sections). Where the implementation has diverged from the thesis text as originally written, that is
-called out explicitly under **Deviations from the original thesis text**.
+This documents exactly what `app/sequence_generator.py` does, as implemented. It is kept in
+lockstep with `final_report_2026/method/method.tex` ("Sequence Design and Difficulty Levels"
+through "Matched Sequence Families and Difficulty Validation") — as of 2026-07-09 the code and the
+thesis text describe the same design, including the two deliberate deviations that are documented
+in both places (H_hand demoted to a diagnostic; P_pred estimated translation-invariantly).
 
-Code entry points: `app/sequence_generator.py` (all logic, GUI-free), `app/gui/sequence_generator_window.py`
-(the "Experiment Sequence Generator" tool), `app/gui/sequence_metrics_window.py` (the read-only
-"Sequence/Music Metrics" viewer, which recomputes the same numbers for already-saved songs).
+Code entry points: `app/sequence_generator.py` (all generation logic, GUI-free),
+`app/stimulus_validation.py` (difficulty validation, GUI-free),
+`app/gui/sequence_generator_window.py` (the "Experiment Sequence Generator" tool),
+`app/gui/sequence_metrics_window.py` (the read-only "Sequence/Music Metrics" viewer),
+`app/gui/stimulus_validation_dialog.py` (the validation report/box-plot window).
+
+## 0. Positioning (design principle for all future changes)
+
+This is **not** a *Piano Fingering Generator*. It is a **Controlled Finger Assignment
+Generator** — equivalently, a **Controlled Finger-specific Motor Sequence Generator**.
+
+Its purpose is to produce **controlled, reproducible, quantifiable finger-specific motor
+sequences** as experimental stimuli — not to simulate how a piano teacher would assign
+fingering to a piece.
+
+Practical consequence: when weighing a change, the question is never "would a pianist finger it
+this way?" but "does this keep the stimuli controlled (constraint-driven), reproducible (seeded),
+and quantifiable (measured by D = (C_m, C_s, C_c))?". Ergonomic rules (finger-run limits, the
+cross-region plausibility checks, the same-key/same-finger rule) exist only to keep stimuli
+*physically performable and free of confounds*, not to make them musically idiomatic.
+
+(Deliberately not written into the thesis — this is an internal design principle.)
 
 ## 1. What gets generated
 
-A **sequence** is an ordered list of *actions* `a_t = (h_t, f_t, m_t)`:
+A **sequence** is an ordered list of exactly **T = 30 single-key cue events** (`SEQUENCE_LENGTH`),
+each a complete action `a_t = (h_t, f_t, m_t)`:
 
 - `h_t` — hand, `L` or `R`
 - `f_t` — finger, `1` (thumb) .. `5` (little finger)
 - `m_t` — the actual MIDI note number this action targets
 
-Sequence length is configurable (`n_actions`, default 12, allowed range 12–16 — `DEFAULT_N_ACTIONS`,
-`MIN_N_ACTIONS`, `MAX_N_ACTIONS`), matching the thesis's 12-action stimuli with the 12–16 generator
-range kept available.
+One hand, one finger, one key, one required keypress per event — no chords or two-key events.
+Every sequence must use **both hands across its 30 events** (bimanual at the sequence level,
+single-key at the event level). Difficulty levels are `alpha`, `beta`, `gamma` (α/β/γ).
 
-Every sequence belongs to one of three difficulty levels — `alpha`, `beta`, `gamma` (displayed as
-α/β/γ) — each with its own finger-transition grammar and acceptance thresholds (Section 3).
+## 2. Keyboard range: profile-derived, optionally narrowed
 
-## 2. Keyboard range: scalable, not a fixed formula
+Everything derives from the active calibration profile's own `midi_mapping.json`:
 
-The original thesis text fixed key index 1 = C4 (MIDI 60) and used `m_t = 59 + k_t`, which only holds
-for one specific physical keyboard/transpose setting. The generator instead derives everything from
-the *currently active calibration profile's own* `midi_mapping.json`:
+- `valid_notes_for_profile(profile)` — every MIDI note the calibrated keyboard can send.
+- `profile_note_range(profile)` = `(min, max)` — the `START_NOTE`/`END_NOTE` bounds.
+- White keys only: `note % 12 in {0, 2, 4, 5, 7, 9, 11}` (an experimental control choice).
 
-- `valid_notes_for_profile(profile)` — every MIDI note that appears anywhere in that profile's
-  `midi_mapping.json`, i.e. every note this specific physical keyboard can actually send.
-- `profile_note_range(profile)` = `(min(valid_notes), max(valid_notes))` — the bounds shown to the
-  user as `START_NOTE`/`END_NOTE`.
-- `white_notes_for_profile(profile)` — the same set filtered to natural (white-key) notes only.
+If the experimenter narrows the range, `k_min`, `k_max`, span `S = k_max − k_min`, and midpoint
+`k_mid = k_min + S/2` all follow the **selected** range, so hand regions and every span-normalised
+constraint describe the keyboard area actually in use. The planned pilot profile is MIDI 48–72
+(C3–C5, S = 24, k_mid = 60), giving a 15-note white-key pool.
 
-There is no abstract "key index" at all any more — an action's position *is* its real MIDI note
-number. This means `LEVEL_MAX_KEY_JUMP` (below) is measured directly in semitones, not in the
-thesis's chromatic key-index units, and the whole generator automatically works for any keyboard
-size/range as long as it has a completed calibration + MIDI mapping.
+## 3. Hand regions
 
-**Tonal restriction (unchanged from the thesis):** only white-key (natural) notes are ever used —
-no black keys, no chords. This is now a fact about a MIDI note's pitch class
-(`note % 12 in {1, 3, 6, 8, 10}` = black), not something read from the profile's calibration, so it
-doesn't depend on `keyboard_template.json` at all, only `midi_mapping.json`.
+Per level, `R_L(r) = [k_min, k_mid + rS/2]`, `R_R(r) = [k_mid − rS/2, k_max]` with overlap ratio
+`LEVEL_OVERLAP_RATIO`: α `r = 0` (strict split, no crossing), β `r = 0.15` (small shared middle
+band), γ `r = 0.30` (plus limited cross-region movement, Section 6).
 
-## 3. Difficulty grammar per level
+## 4. Difficulty representation D = (C_m, C_s, C_c)
 
-### 3.1 Finger-transition legality matrices
+No scalar difficulty score exists. `compute_stats(actions, k_min, k_max)` returns a
+`SequenceStats` with 15 scalar components (`COMPONENTS` lists them with group + validation role):
 
-`FINGER_MATRICES[level][f_prev - 1][f_curr - 1]` — `1` = allowed, `0` = disallowed, unchanged from
-the thesis:
+**C_m — motor movement cost** (semitones, on the calibrated profile):
 
-```
-F_alpha =                    F_beta =                     F_gamma =
-[1 1 0 0 0]                  [1 1 1 0 0]                  [1 1 1 1 1]
-[1 1 1 0 0]                  [1 1 1 1 0]                  [1 1 1 1 1]
-[0 1 1 1 0]                  [1 1 1 1 1]                  [1 1 1 1 1]
-[0 0 1 1 1]                  [0 1 1 1 1]                  [1 1 1 1 1]
-[0 0 0 1 1]                  [0 0 1 1 1]                  [1 1 1 1 1]
-```
+| Component | Definition | Validation role |
+|---|---|---|
+| `d_seq_mean` | mean \|m_t − m_{t−1}\| across consecutive cue events | increases with level |
+| `d_m_mean` | mean same-hand key displacement (consecutive active actions of one hand, pooled) | increases |
+| `d_m_p95` | 95th percentile same-hand key displacement (linear interpolation) | increases |
+| `d_f_mean` | mean same-hand finger-transition distance | increases |
+| `r_l`, `r_r` | per-hand used note range (max − min) | increase |
 
-### 3.2 Per-transition thresholds
+**C_s — sequence complexity:**
 
-| Level | Max finger jump | Max key jump (semitones) | Hand-switch probability target | H_norm target |
-|---|---|---|---|---|
-| alpha | 1 | 2 | 0.00 (exactly, no switching) | 0.15–0.30 |
-| beta | 2 | 7 | 0.00 (exactly, no switching) | 0.50–0.65 |
-| gamma | 4 | unbounded (segment-limited only) | 0.40–0.55 | 0.80–0.95 |
+| Component | Definition | Validation role |
+|---|---|---|
+| `h_norm` | transition-class entropy / log2 K | increases |
+| `v_trans` | distinct transition classes / (T−1) | increases |
+| `p_pred` | share of the dominant complete relative move (see below) | **decreases** |
 
-`LEVEL_MAX_KEY_JUMP` is a **deviation from the thesis's 2/4 chromatic-key-index values** (see
-Section 8): 2 semitones covers one adjacent white key (occasionally 1, at the E–F/B–C boundary), so
-alpha = 2 still means "adjacent white key only"; beta = 7 covers roughly "up to a fifth away."
+Transition class: `c_t = (I(hand switch), b(d_seq), φ)` where `φ = b(|Δfinger|)` on a same-hand
+transition and a dedicated "switch" symbol otherwise; bins `b(d)`: 0 / (0,2] / (2,5] / >5.
+`K = 16` (same-hand: 4 spatial × 3 reachable finger bins = 12; switch: 4 × 1 = 4) — level-independent.
 
-Only `gamma` ever allows a hand switch. Alpha and beta run entirely on one hand for the whole
-sequence (chosen at random per sequence).
+`p_pred` estimates P(a_{t+1} | a_t) over **complete actions**. A 30-event sequence cannot support a
+raw action→action count table (singleton contexts would make the most varied sequences score as
+maximally predictable — this was measured and was anti-monotone), so the conditional is
+parameterised translation-invariantly by the complete relative move
+`δ = (I(hand switch), Δfinger, Δnote)` pooled over the 29 transitions; `p_pred = max_δ p̂(δ)`.
+Measured medians on 48–72: α ≈ 0.14–0.21 > β ≈ 0.10 > γ ≈ 0.07 (correctly falling).
 
-## 4. Hand regions — spatial/biomechanical plausibility, scalable to any keyboard
+**C_c — bimanual coordination:**
 
-This is new relative to the original thesis text and exists specifically so cross-hand transitions
-in `gamma` land somewhere a hand could plausibly reach, rather than an arbitrary switch teleporting a
-hand to the opposite end of the keyboard — and so the whole scheme still works on a keyboard of any
-size, since everything is a *proportion* of the profile's own range, never an absolute note number.
+| Component | Definition | Validation role |
+|---|---|---|
+| `a_h` | hand alternation frequency (switches / (T−1)) | increases |
+| `h_hand` | 4-class hand-transition entropy / log2 4 | **diagnostic only** |
+| `b_h` | 1 − \|n_L − n_R\| / T | matching constraint (checked vs level floor) |
+| `o_lr` | overlap of the hands' used note ranges (see below) | increases |
+| `x_f`, `x_e` | cross-region frequency / extent vs k_mid | validated separately |
 
-Given the profile's `(k_min, k_max)` range and span `= k_max − k_min`:
+`o_lr` counts interval sizes as **semitone positions inclusive of both endpoints**, so two hands
+meeting only at k_mid give a small non-zero overlap — this is what makes β's `X_f = 0` +
+`O_LR > 0` combination satisfiable (both hands must touch the midpoint note).
 
-```
-overlap_width      = HAND_OVERLAP_RATIO * span                 # 0.15  (~10–20%, per method.tex guidance)
-non_overlap_width   = span − overlap_width
-left_exclusive      = HAND_REGION_ALPHA * non_overlap_width     # 0.33
-right_exclusive     = non_overlap_width − left_exclusive
+`h_hand` is **not** a level constraint or matching tolerance: given each level's A_h lower bound,
+B_h floor, and the 60% share rule, its achievable range is pinned to ≈[0.81, 1.0] for α/β (the
+original table bounds ≤0.60/≤0.80 were unsatisfiable), and it peaks at A_h = 0.5 (inside γ's
+range) so it cannot order the levels. It is computed, displayed, and logged as a diagnostic.
 
-L region = [k_min,               k_min + left_exclusive + overlap_width]
-R region = [k_max − right_exclusive − overlap_width,  k_max]
-```
+## 5. Level acceptance constraints
 
-- `HAND_REGION_ALPHA = 0.33` is the **left hand's share of the non-overlapping territory** — the
-  default gives the left hand the lower third and the right hand the remaining two-thirds
-  (treble/melody register), matching how a pianist's hands are typically distributed rather than an
-  exact 50/50 split.
-- `HAND_OVERLAP_RATIO = 0.15` is the width of the shared middle band, as a fraction of the full
-  range, that *either* hand may use — this is what makes a hand switch near the middle plausible.
-- The two regions always union to cover the entire `[k_min, k_max]` range exactly (no note is
-  reachable by neither hand), and overlap by exactly `overlap_width` around the middle by
-  construction (this is provable algebraically from the formula above, not just empirically).
+`LEVEL_CONSTRAINTS` (inclusive ranges; `*_s` = normalised by S; `STRICT_LOWER` marks strict `<`
+lower bounds, e.g. β's `0.08 < d̄m/S`):
 
-A hand may only ever be assigned notes from its own region. For `alpha`/`beta` this simply restricts
-the single chosen hand's available notes for the whole sequence; for `gamma`, each hand switch's
-destination note is drawn from the *new* hand's region.
+| Constraint | α | β | γ |
+|---|---|---|---|
+| `d_seq_mean_s` | ≤ 0.12 | (0.08, 0.22] | (0.15, 0.38] |
+| `d_m_mean_s` | ≤ 0.10 | (0.08, 0.20] | (0.15, 0.35] |
+| `d_m_p95_s` | ≤ 0.16 | ≤ 0.30 | ≤ 0.45 |
+| `d_f_mean` | ≤ 1.0 | ≤ 2.0 | ≤ 3.0 |
+| `r_h_s` (max of both hands) | ≤ 0.30 | ≤ 0.45 | ≤ 0.65 |
+| `h_norm` | [0.15, 0.35] | [0.40, 0.65] | [0.65, 0.90] |
+| `a_h` | [0.15, 0.35] | [0.30, 0.55] | [0.50, 0.80] |
+| `b_h` | ≥ 0.65 | ≥ 0.70 | ≥ 0.75 |
+| `o_lr` | = 0 | (0, 0.15] | [0.10, 0.30] |
+| `x_f` | = 0 | = 0 | (0, 0.20] |
+| `x_e_s` | = 0 | = 0 | ≤ 0.20 |
 
-## 5. Biomechanical cost function
+Structural rejection rules (`structural_violations`, all levels): both hands must appear; no
+repeated identical three-event chunk; no hand with more than 60% of events (note: at T = 30 this
+implies B_h ≥ 0.8, so the table's B_h floors are not binding in practice); no finger used more
+than 3 consecutive times by the same hand; a hand that presses the same key on consecutive
+occurrences (consecutive within that hand's own action subsequence) must use the same finger
+for both.
 
-```
-M_t = |f_t − f_{t-1}|                     (finger-jump penalty)
-    + 0.5 * |m_t − m_{t-1}|               (key/note-distance penalty, in semitones)
-    + 2 * I(h_t ≠ h_{t-1})                (hand-shift penalty)
-```
+## 6. Candidate construction (`_build_one_sequence`)
 
-This combines all three plausibility factors the thesis asks for (key-distance, finger-jump penalty,
-hand-shift penalty) into one scalar, unchanged in form from the original design. `mean_motor_cost`
-is its average over all `n_actions − 1` transitions in a sequence.
+1. **Hand labels first** — `_sample_hand_labels` rejection-samples a length-30 L/R sequence
+   satisfying the level's A_h range, B_h floor, and the 60% rule. Fixing the labels up front makes
+   every same-hand pair count known, enabling exact running budgets.
+2. **Note/finger walk** — for each event, enumerate legal `(note, finger)` candidates:
+   - note within the hand's region; running budgets against the level's upper bounds for
+     `d_m` (plus a per-step cap at the `d_m_p95` bound), `d_f`, `d_seq`, and per-hand range;
+   - γ cross-region ergonomics: cross candidates limited by the `x_e_s` bound, ≤ 2 consecutive
+     cross events, jumps into/out of cross-region ≤ 0.45 S, and in crossed adjacent opposite-hand
+     pairs the crossing hand must use a thumb-side finger (1–3);
+   - O_LR = 0 levels: prune candidates that would make the two hands' used ranges intersect;
+   - finger run rule (≤ 3 consecutive same finger per hand);
+   - same-key/same-finger rule: if the note equals the hand's previous note, only the same
+     finger is legal.
+   Dead end (no candidates) → discard and restart.
+3. **Proposal steering** — these shape only the *proposal* distribution; acceptance stays strictly
+   constraint-driven, so they cannot admit an out-of-range sequence. Without them, several ranges
+   (notably α's H_norm ≤ 0.35 ≈ 2–3 dominant classes over 29 transitions) are reached with
+   negligible probability by uniform sampling:
+   - `_CLASS_PERSISTENCE` (α 0.99 / β 0.80 / γ 0.0): steer back to the dominant transition class;
+   - `_MOVE_PERSISTENCE` (α 0.5 / β 0.2 / γ 0.0): steer to the dominant exact complete move
+     (this is what separates the levels on `p_pred`);
+   - `_SWITCH_LOCALITY` (α, β): anchor each hand's first note and switch-adjacent notes to the
+     midpoint / previous note, so switches don't burn the d_seq budget;
+   - `_FINGER_JUMP_WINDOW` (α {0,1} / β {1,2} / γ {2–4}, applied with p = 0.6): separates the
+     levels on `d_f_mean`;
+   - "must eventually happen" steering: γ needs ≥ 1 cross event; O_LR > 0 levels need the hands'
+     ranges to meet.
+4. **Acceptance** — `structural_violations` empty and `within_level_constraints` true.
 
-Implausible transitions are rejected in two places:
+Generating all three 9-sequence families on the 48–72 profile takes ~2 s total.
 
-1. **Per-transition, at construction time** — the finger-legality matrix, `max_finger_jump`, and
-   `max_key_jump` thresholds above are hard constraints; an illegal candidate is never produced in
-   the first place.
-2. **Per-sequence, after construction** — a candidate sequence is discarded (and generation retried)
-   unless its aggregate `H_norm` and hand-switch probability land inside the level's target ranges
-   (Section 3.2). There is no separate "reject the whole sequence for cost" step — cost is combined
-   into `H_norm`'s transition classes (Section 6) and reported as a descriptive statistic, not used
-   as an accept/reject threshold on its own.
+## 7. Matched families (`generate_matched_family`)
 
-## 6. Entropy (H_norm)
-
-Each transition `a_{t-1} → a_t` is classified into one of a small number of discrete transition
-classes:
-
-```
-class = ( I(hand switch),  |f_t − f_{t-1}|,  bin(|m_t − m_{t-1}|) )
-
-bin(d):  0 if d == 0
-         1 if d <= 2
-         2 if d <= 7
-         3 otherwise
-```
-
-`H_norm = −Σ p(c) log2 p(c) / log2(T)`, where `T = n_actions − 1` is the number of transitions and
-`p(c)` is the empirical frequency of each class within the sequence — normalized Shannon entropy,
-unchanged in form from the thesis. `bin(·)`'s edges (0/2/7) mirror `LEVEL_MAX_KEY_JUMP`'s alpha/beta
-thresholds; the thesis text does not specify exact bin edges, so this is a documented choice rather
-than a literal transcription.
-
-## 7. Sequence construction algorithm
-
-For one candidate sequence (`_build_one_sequence`):
-
-1. Split the level's usable note pool into `hand_notes["L"]` / `hand_notes["R"]` via the hand
-   regions (Section 4).
-2. If `gamma`, sample a **target hand-switch count** once for the whole sequence: draw a fraction
-   uniformly from the level's hand-switch range (0.40–0.55) and multiply by `n_actions − 1`, rounded
-   to the nearest integer. Alpha/beta implicitly target exactly 0.
-3. Pick a starting hand (only from hands that have any usable notes), a random starting finger
-   (1–5), and a random starting note from that hand's pool.
-4. For each subsequent action, enumerate every `(finger, hand, note)` triple that is simultaneously:
-   - finger-legal per the level's matrix and within `max_finger_jump` of the previous finger;
-   - hand-switch-budget-consistent (a switch is only offered while switches remain in the target
-     count; a non-switch is only offered while there is still enough room left in the sequence to
-     spend the remaining owed switches);
-   - drawn from the (possibly new, if switching) hand's own region-filtered note pool, and within
-     `max_key_jump` semitones of the previous note (if the level bounds it at all).
-   One candidate is picked uniformly at random from this legal set. If the set is empty, the whole
-   sequence attempt fails (returns `None`) and generation retries from scratch.
-5. Reject the sequence if any 3-action chunk `(hand, finger, note)` repeats verbatim elsewhere in it
-   (`has_repeated_trigram`) — prevents obviously-looped stimuli.
-6. Accept only if the finished sequence's `H_norm` and hand-switch probability land inside the
-   level's target ranges (`_within_level_targets`); otherwise retry.
-
-`generate_single()` wraps this in a retry loop (default up to 500 attempts) for one sequence.
-
-## 8. Matched groups (replacing the thesis's fixed "X/Y/Z" triples)
-
-The thesis's original design fixed exactly 3 sequences per level (X, Y, Z), matched pairwise within
-tolerance. The generator now supports a **configurable group size per level** (`count`, default 9,
-range 1–50 — `DEFAULT_FAMILY_COUNT`, `MIN_FAMILY_COUNT`, `MAX_FAMILY_COUNT`), since a fixed-3 pool
-was a thesis-specific choice, not an algorithmic requirement.
-
-Matching tolerances (unchanged from the thesis): two sequences are considered "matched" if all three
-differ by no more than:
+Pool of individually valid, deduplicated candidates (default `max(count × 25, 40)`), then a
+compatibility graph under the pairwise tolerances (`FAMILY_TOLERANCES`, matching the thesis table):
 
 | Statistic | Tolerance |
 |---|---|
-| H_norm | ± 0.05 |
-| Hand-switch probability | ± 0.05 |
-| Mean motor cost | ± 0.25 |
+| `h_norm` | ± 0.05 |
+| `d_m_mean_s` | ± 0.04 |
+| `a_h` | ± 0.08 |
+| `b_h` | ± 0.10 |
+| `o_lr` | ± 0.05 |
 
-**Algorithm** (`generate_matched_family`):
+A greedy clique heuristic finds a mutually compatible group of `count` (default 9, range 1–50).
+On failure the error asks the experimenter to widen the note range, relax the tolerances, rerun,
+or request a smaller pool. `generate_all_matched_families` runs all three levels off one shared
+RNG and reports per-level successes/failures separately.
 
-1. Generate a pool of individually-accepted candidate sequences (deduplicated) — pool size defaults
-   to `max(count × 30, 40)`, generation capped at `max(4000, pool_size × 20)` raw attempts. The ×30
-   multiplier was tuned empirically against `gamma` (the hardest level to match, since its key jumps
-   are the least constrained) so that `count = 9` succeeds reliably (~10/10 in repeated testing).
-2. Build a compatibility graph over the pool: an edge between two candidates exists iff they satisfy
-   all three tolerances above pairwise.
-3. Find the largest clique (mutually-compatible group) up to size `count`, via a greedy heuristic —
-   expand from each node via its highest-mutual-degree common neighbour, keep the best clique found
-   across all starting nodes (`_largest_matched_group`). Exact maximum-clique search is NP-hard, so
-   this is a standard approximate heuristic rather than an exhaustive search — exhaustive search
-   over every combination of `count` candidates was the original (thesis-era) approach and only
-   stays computationally feasible for `count ≤ ~3`.
-4. If the clique found is smaller than `count`, raise an error (reported to the user; the tool still
-   shows whichever difficulty levels *did* succeed rather than failing the whole batch — see
-   `generate_all_matched_families`).
+## 8. Difficulty validation (`app/stimulus_validation.py`)
 
-`generate_all_matched_families()` simply runs the above once per level (alpha, beta, gamma) and
-collects successes/failures separately, since a full stimulus set always needs all three levels.
+`validate_level_pools({level: [(actions, stats), ...]})` implements method.tex's validation; it
+runs automatically in the generator window after every generation (before pools are locked) and
+from the metrics viewer's "Validate Stimulus Set" button (same functions, saved sequences):
 
-## 9. Naming
+- per component: median, IQR, full range per level;
+- monotonic = level medians follow the intended direction **and** < 10% of adjacent-level pairwise
+  comparisons (all α×β plus all β×γ) violate it; `p_pred` checked falling;
+- `b_h` checked per-sequence against the level floor (not for a trend); `h_hand` reported only;
+- cross-region separately: `x_f = x_e = 0` for every α/β sequence, γ within its table limits;
+- structural rules re-checked per sequence;
+- conclusion: valid / partially valid / invalid / insufficient data.
 
-Each sequence in a level's group is numbered `1..count` (not `X/Y/Z` letters). The default name
-shown in the generator's table is:
+On the 48–72 profile, 4 of 5 random seeds produced fully "valid" pools; marginal failures (e.g.
+R_L at 11.1% violations) are what the validation step exists to catch — regenerate.
 
-```
-<level symbol>-<id>              e.g. α-1, α-2, ..., γ-9      (no batch name set)
-<batch name>-<level symbol>-<id> e.g. Pilot01-α-1             (batch name set)
-```
+## 9. Seeded, reproducible generation
 
-The batch name is an optional free-text field in the GUI; when blank, naming falls back to the
-plain `<level>-<id>` form. Names are still editable per-row before saving.
+The GUI has a **Seed** field: an integer seeds `random.Random(seed)`; blank draws a fresh seed and
+writes it back into the field, so every run is reproducible after the fact. Reproduction requires
+the **same profile + note range + Count + seed + software version** — the seed only fixes the
+random stream; the settings decide how the stream is consumed (e.g. Count changes the pool size,
+which shifts every later draw, including the other levels').
 
-## 10. Output format and file layout
+## 10. Output format and provenance
 
-A saved sequence is written to `data/sequence/<name>/{meta.json, fingering.json}` —
-**the identical layout** `app.music_recording` produces from a real teacher recording under
-`data/music/<name>/`, just under a separate top-level folder so the two are easy to tell apart. This
-is why a generated sequence needs no special handling anywhere else: `music_playback.py`,
-`student_quiz.py`, and `student_quiz_haptic.py` all load a "song" via `app.song_library`, which lists
-both folders and labels each entry `"music/<name>"` or `"sequence/<name>"` — neither tool knows or
-cares which one produced any given entry.
+Saved to `data/sequence/<name>/{meta.json, fingering.json}` — the identical layout
+`app.music_recording` produces for real recordings under `data/music/<name>/`, so
+`music_playback.py`, `student_quiz.py`, and `student_quiz_haptic.py` load generated sequences via
+`app.song_library` with no special-casing. Events are spaced `INTER_NOTE_INTERVAL_S = 1.15 s`
+(0.4 s nominal hold + the 750 ms inter-cue blank from the thesis's Trial Structure).
 
-- `fingering.json` entries are spaced `INTER_NOTE_INTERVAL_S = DEFAULT_NOTE_DURATION_S (0.4s) + 0.75s
-  = 1.15s` apart — the fixed 750 ms inter-trial blank interval from the thesis's "Trial Structure",
-  plus a nominal note-hold length — purely so `music_playback.py`'s demo transport has a plausible
-  schedule to step through; `student_quiz.py` never reads this field (it waits for a real MIDI
-  response instead).
-- `key_id` per note is resolved via the active profile's `midi_mapping.json`
-  (`MidiMapping.key_for_note`).
-- `meta.json`'s `difficulty` field is `1`/`2`/`3` for `alpha`/`beta`/`gamma` (`LEVEL_DIFFICULTY`) —
-  the same field a real recording's `meta.json` uses, just assigned by the generator instead of a
-  teacher.
+`meta.json` extras on generated sequences (absent/None on real recordings; old files still load):
+`start_note`, `end_note` (the effective generation bounds — used to recompute span-normalised
+components identically later), `generation_seed`, `generation_count` (reproduction provenance).
+`difficulty` stays 1/2/3 for α/β/γ.
 
-## 11. Recomputing metrics for already-saved songs
+Default names: `<level symbol>-<id>` (α-1 … γ-9), or `<batch>-<level symbol>-<id>` with a batch
+name; editable per row before saving. The generator window shows the five matching statistics
+plus `H_hand (diag)`.
 
-`app/gui/sequence_metrics_window.py` ("Sequence/Music Metrics") recomputes `H_norm`, mean motor
-cost, and hand-switch probability for **any already-saved song**, real recording or generated
-sequence alike, using the exact same functions:
+## 11. Metrics viewer
 
-- `sequence_from_fingering(entries)` turns a saved `fingering.json` back into the same
-  `Action`-based sequence type used during generation (skipping notes with no resolved finger — only
-  possible on a real recording where the camera pipeline couldn't confidently match one).
-- `evaluate_song(name, data_dir)` = `compute_stats(sequence_from_fingering(load_fingering(...)))`.
-
-Because this reuses `compute_stats()` verbatim, a number shown in the metrics viewer means exactly
-the same thing as the identically-named number shown while generating — they are not two
-implementations of the same idea, they are the same code path.
-
-## 12. Deviations from the original thesis text — summary for the rewrite
-
-| Thesis text (as originally written) | Current implementation |
-|---|---|
-| Key index 1 = C4 fixed; `m_t = 59 + k_t` | Range derived per-profile from `midi_mapping.json`; no abstract key index, actions carry real MIDI notes directly |
-| `LEVEL_MAX_KEY_JUMP` in chromatic key-index units (2 / 4) | Same *numbers* repurposed as semitone units (2 / 7 for alpha/beta; gamma unbounded) — not equivalent, needs a fresh table in the thesis |
-| No explicit hand-region concept | Proportional left/right hand regions (`HAND_REGION_ALPHA = 0.33`, `HAND_OVERLAP_RATIO = 0.15`), scalable to any keyboard size, constraining which notes a hand may use and keeping `gamma` cross-hand switches spatially plausible |
-| Fixed 3 sequences per level (X, Y, Z) | Configurable group size per level (`count`, default 9), found via a greedy clique search rather than exhaustive triple-checking |
-| No batch/naming scheme beyond "L\<level\>-X/Y/Z" | `<level symbol>-<id>` or `<batch name>-<level symbol>-<id>`, `id` numeric 1..count |
-| — | A read-only metrics viewer that recomputes the same statistics for saved songs (recorded or generated) using identical code, for direct before/after or across-condition comparison |
+`app/gui/sequence_metrics_window.py` recomputes **all 15 components** for every saved song (music
+and sequence alike) with the exact same `compute_stats` code path. Note bounds resolve in order:
+saved `meta.json` bounds → active profile's range → the sequence's own min/max. Unresolved-finger
+notes (possible only on real recordings) are excluded; the Resolved column shows how many notes
+went into the numbers.

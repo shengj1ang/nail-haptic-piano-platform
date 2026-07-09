@@ -25,8 +25,9 @@ constrained component falls inside that level's ranges (method.tex Table
 "Bimanual sequence grammar and quantitative difficulty constraints",
 LEVEL_CONSTRAINTS below) and it passes the structural rejection rules: no
 repeated identical three-event chunk, no hand with more than 60% of
-events, and no finger used for more than three consecutive occurrences by
-the same hand.
+events, no finger used for more than three consecutive occurrences by
+the same hand, and a hand that presses the same key on consecutive
+occurrences must use the same finger for both.
 
 The valid note pool comes from the active calibrated profile's own
 midi_mapping.json (START_NOTE = min(V), END_NOTE = max(V), optionally
@@ -665,7 +666,8 @@ def structural_violations(actions: Sequence) -> List[str]:
     action sequence (fresh candidate or a saved stimulus re-checked by
     the validation): both hands present, no repeated three-event chunk,
     no hand over 60% of events, no finger used more than three
-    consecutive times by the same hand."""
+    consecutive times by the same hand, and a hand that repeats its
+    previous note must keep the same finger."""
     problems = []
     hands = {a.hand for a in actions}
     if hands != {"L", "R"}:
@@ -687,6 +689,16 @@ def structural_violations(actions: Sequence) -> List[str]:
             prev_finger = f
             if run > MAX_CONSECUTIVE_SAME_FINGER:
                 problems.append(f"{hand} hand uses finger {f} more than {MAX_CONSECUTIVE_SAME_FINGER} times in a row")
+                break
+
+    for hand in ("L", "R"):
+        hand_actions = [a for a in actions if a.hand == hand]
+        for prev, curr in zip(hand_actions, hand_actions[1:]):
+            if curr.note == prev.note and curr.finger != prev.finger:
+                problems.append(
+                    f"{hand} hand repeats note {curr.note} with a different finger "
+                    f"({prev.finger} then {curr.finger})"
+                )
                 break
     return problems
 
@@ -875,6 +887,11 @@ def _build_one_sequence(
             for finger in range(1, 6):
                 run_finger, run_len = finger_run[hand]
                 if finger == run_finger and run_len + 1 > MAX_CONSECUTIVE_SAME_FINGER:
+                    continue
+                # A hand that repeats its previous note must keep the same
+                # finger (structural_violations enforces the same rule on
+                # finished/saved sequences).
+                if prev_same is not None and note == prev_same.note and finger != prev_same.finger:
                     continue
                 if prev_same is not None:
                     df = abs(finger - prev_same.finger)

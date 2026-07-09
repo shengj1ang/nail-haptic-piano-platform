@@ -41,6 +41,7 @@ from app.gui.cue_window import CueStyleSelectionCancelled
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
+from app.gui.pilot_schedule_window import PilotScheduleWindow
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
@@ -92,10 +93,22 @@ SECTIONS = [
         ],
     ),
     (
-        "6. Data Analysis",
+        "6. Controlled Pilot Study",
+        [
+            ("Participant Trial Schedule", PilotScheduleWindow),
+        ],
+    ),
+    (
+        "7. Data Analysis",
         [
             ("Quiz Analysis", QuizAnalysisWindow),
         ],
+    ),
+    (
+        # Placeholder - tele-training tools land here next (method.tex
+        # "Tele-training Guidance Modes").
+        "8. Tele-training",
+        [],
     ),
 ]
 
@@ -184,6 +197,10 @@ class LauncherWindow(QWidget):
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn.clicked.connect(lambda _checked=False, cls=window_cls: self._open(cls))
                 box_layout.addWidget(btn)
+            if not tools:
+                hint = QLabel("(coming soon)")
+                hint.setObjectName("subtitle")
+                box_layout.addWidget(hint)
             box_layout.addStretch(1)
             grid.addWidget(box, i // SECTION_COLUMNS, i % SECTION_COLUMNS)
 
@@ -219,7 +236,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     window = LauncherWindow(cfg)
-    window.resize(760, 480)
+    window.resize(760, 640)  # 8 sections in a 2-column grid need the extra height
     window.show()
     sys.exit(app.exec())
 

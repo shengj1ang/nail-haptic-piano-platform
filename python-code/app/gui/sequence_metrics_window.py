@@ -158,8 +158,17 @@ class SequenceMetricsWindow(QMainWindow):
 
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        # Excel-like columns: every border is user-draggable (Interactive).
+        # The long Fingers/Notes columns get a wide starting width and the
+        # table scrolls horizontally - Stretch mode would instead squeeze
+        # them into whatever width the window leaves over, cutting them off
+        # with no way to widen.
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        self.table.setColumnWidth(0, 200)  # Entry
+        self.table.setColumnWidth(3, 480)  # Fingers
+        self.table.setColumnWidth(4, 640)  # Notes
         self.table.verticalHeader().setVisible(False)
 
         self.validate_btn = QPushButton("Validate Stimulus Set (α / β / γ, currently visible rows)")
@@ -258,6 +267,12 @@ class SequenceMetricsWindow(QMainWindow):
             self._set_cell(row, 0, row_data.entry.label)
             for col, text in enumerate(row_data.cells, start=1):
                 self._set_cell(row, col, text)
+
+        # Fit the short columns (Level/Resolved + components) to their
+        # content; Entry/Fingers/Notes keep their user-adjustable widths.
+        for col in range(1, len(COLUMNS)):
+            if col not in (3, 4):
+                self.table.resizeColumnToContents(col)
 
     def _set_cell(self, row: int, col: int, text: str) -> None:
         item = QTableWidgetItem(text)

@@ -8,9 +8,10 @@ are built on.
 ## Layout
 
 ```
-app/                            UI package: camera + MIDI finger-accuracy detection
+app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
 launcher.py                     entry point - hub window for every tool below, grouped by stage
 
+setup_camera_wizard.py          entry point - camera selection/orientation (stage 1: initial setup)
 setup_keyboard_wizard.py        entry point - app/ calibration wizard (stage 1: initial setup)
 setup_midi_mapping_wizard.py    entry point - app/ MIDI mapping wizard (stage 1: initial setup)
 
@@ -18,15 +19,30 @@ test_keyboard_preview.py        entry point - app/ profile preview/sanity-check 
 test_finger_accuracy.py         entry point - live finger/key detector (stage 2: feature testing, see app/)
 test_virtual_piano_led.py       manual-test UI (PySide6): on-screen piano that lights the physical LED
                                  strips (stage 2: feature testing)
+test_haptic_vibrator.py         manual-test UI: per-finger vibration motor check (stage 2: feature testing)
 
 music_recording_wizard.py       entry point - records a song (video+MIDI) and saves a fingering-annotated
                                  score under data/music/<song>/ (stage 3: recording & playback)
 music_playback.py               manual-test UI (PySide6): replays a saved song on an on-screen 88-key
                                  piano + finger dots (stage 3: recording & playback, see app/music_recording.py)
 
+experiment_sequence_wizard.py   entry point - generates the controlled bimanual stimulus sequences for
+                                 the pilot study (30-event, difficulty alpha/beta/gamma, seeded, with
+                                 built-in difficulty validation) and saves them under data/sequence/ -
+                                 see SEQUENCE_GENERATOR_ALGORITHM.md (stage 4: experiment)
+student_quiz.py                 entry point - cue-response quiz with VISUAL finger cue (stage 4: experiment)
+student_quiz_haptic.py          entry point - same quiz with HAPTIC finger cue (stage 4: experiment)
+quiz_analysis.py                entry point - offline finger-matching analysis of a saved quiz session
+
 config.json                     app/ settings (auto-created), active profile
 data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
-data/music/<song>/               saved recordings (see app/music_recording.py)
+data/music/<song>/               saved teacher recordings (see app/music_recording.py)
+data/sequence/<name>/            generated stimulus sequences (same meta.json/fingering.json layout as
+                                 data/music/, see app/sequence_generator.py)
+data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results)
+data/ControlledPilotStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
+                                 schedule + live progress (see app/pilot_study.py); the experiment
+                                 runner resumes from this file after a crash
 hand_landmarker.task            MediaPipe hand landmark model, used by app/
 requirements.txt                Python deps for app/ (conda env "fingercam")
 
@@ -109,7 +125,12 @@ Run these from inside `python-code/`.
 | `test_virtual_piano_led.py` | Manual-test UI - on-screen piano that lights the physical LED strips (see below). |
 | `music_recording_wizard.py` | PyQt wizard - records a song (video+MIDI), flashes the LEDs for sync, and saves a fingering-annotated score under `data/music/<song>/`. |
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
-| `launcher.py` | Hub window - one button per script above, grouped into setup / testing / recording+playback; only one tool is open at a time (they share the camera). |
+| `experiment_sequence_wizard.py` | Stimulus generator for the controlled pilot study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
+| `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
+| `quiz_analysis.py` | Offline analysis of a saved quiz session - camera-based finger matching, note/finger/action accuracy, timing. |
+| `test_haptic_vibrator.py` | Manual test - drive each finger's vibration motor individually. |
+| `setup_camera_wizard.py` | Camera selection/orientation wizard. |
+| `launcher.py` | Hub window - one button per script above, grouped by stage; only one tool is open at a time (they share the camera). |
 
 ```bash
 python setup_keyboard_wizard.py
@@ -212,13 +233,25 @@ app/
   finger_matching.py           # match_note_to_finger, FingerMatch - the core matching logic
   offline.py                   # analyze_recording - recorded video + MIDI log -> matches
   profiles.py                  # list_profiles - discover data/keyboard-profile/<name>/ folders
+  music_recording.py           # song save/load (meta.json/fingering.json), raw capture, sync marks
+  song_library.py              # combined data/music/ + data/sequence/ listing for song pickers
+  sequence_generator.py        # stimulus generation: D = (C_m,C_s,C_c) metrics, level constraints,
+                               #   matched families, seeded RNG (see SEQUENCE_GENERATOR_ALGORITHM.md)
+  stimulus_validation.py       # difficulty validation of the alpha/beta/gamma level pools
+  pilot_study.py               # controlled pilot study: 27-trial randomised schedules (3 conditions x
+                               #   3 levels x 3 sequences, method.tex "Trial Structure"), saved to
+                               #   data/ControlledPilotStudy/<participant>/TrialStructure.json with
+                               #   per-trial status for crash-resume
+  quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
+  haptic_cue.py                # per-finger vibration cue driver used by the haptic quiz
   keyboard/
     template.py                # KeyBox, KeyboardTemplate - the pixel-exact key map
     wizard.py                  # KeyFillWizard - paint-bucket key segmentation
     midi_mapping.py            # MidiMapping - key_id <-> MIDI note
     visualize.py                # color/label helpers for drawing a key_map
     detector.py                 # Canny edge detection used by the calibration wizard
-  gui/                          # PyQt windows/pages for the scripts above
+  gui/                          # PyQt windows/pages for the scripts above (incl. the sequence
+                                #   generator window, metrics viewer, validation dialog, cue window)
 ```
 
 `archive/` holds earlier, now-superseded prototypes of this same detector

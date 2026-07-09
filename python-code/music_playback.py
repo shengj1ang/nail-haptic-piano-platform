@@ -18,6 +18,7 @@ PianoKey.set_midi_active().
 
 import sys
 import time
+from bisect import bisect_left
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -187,6 +189,23 @@ class PlaybackWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop)
 
+        # Seek bar in milliseconds. Dragging the handle seeks on release;
+        # clicking the groove page-steps and seeks immediately. While the
+        # user holds the handle, _tick stops writing to it so the two don't
+        # fight; _sync_slider() marks programmatic updates so
+        # _on_slider_value_changed only reacts to the user.
+        self.seek_slider = QSlider(Qt.Orientation.Horizontal)
+        self.seek_slider.setRange(0, 0)
+        self.seek_slider.setEnabled(False)
+        self.seek_slider.setSingleStep(100)  # arrow keys: 0.1s
+        self.seek_slider.setPageStep(1000)  # groove click: 1s
+        self._slider_down = False
+        self._slider_updating = False
+        self.seek_slider.sliderPressed.connect(self._on_slider_pressed)
+        self.seek_slider.sliderMoved.connect(self._on_slider_moved)
+        self.seek_slider.sliderReleased.connect(self._on_slider_released)
+        self.seek_slider.valueChanged.connect(self._on_slider_value_changed)
+
         self.info_label = QLabel("No song loaded.")
         self.progress_label = QLabel("")
         self.audio_status = QLabel(audio_status_text)
@@ -205,7 +224,8 @@ class PlaybackWindow(QMainWindow):
         transport_row = QHBoxLayout()
         transport_row.addWidget(self.play_btn)
         transport_row.addWidget(self.stop_btn)
-        transport_row.addWidget(self.progress_label, 1)
+        transport_row.addWidget(self.seek_slider, 1)
+        transport_row.addWidget(self.progress_label)
 
         audio_row = QHBoxLayout()
         audio_row.addWidget(self.audio_status, 1)
@@ -230,6 +250,7 @@ class PlaybackWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.events: list[PlaybackEvent] = []
+        self._event_times: list[float] = []  # events[i].time, for bisecting a seek target
         self.total_duration = 0.0
 
         self._timer = QTimer(self)
@@ -282,12 +303,16 @@ class PlaybackWindow(QMainWindow):
             return
 
         self.total_duration = max((e.time + e.duration for e in self.events), default=0.0)
+        self._event_times = [e.time for e in self.events]
         self.info_label.setText(
             f"{meta.title}  |  difficulty {meta.difficulty}  |  "
             f"{meta.note_count} notes  |  {self.total_duration:.1f}s"
         )
         self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")
         self.play_btn.setEnabled(bool(self.events))
+        self.seek_slider.setRange(0, int(self.total_duration * 1000))
+        self.seek_slider.setEnabled(bool(self.events))
+        self._sync_slider(0)
 
     # ------------------------------------------------------------------
     # Transport
@@ -331,6 +356,7 @@ class PlaybackWindow(QMainWindow):
                 key.set_midi_active(False)
         self.hands.clear_all()
         self._active_events = []
+        self._sync_slider(0)
         if self.events:
             self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")
 
@@ -339,12 +365,65 @@ class PlaybackWindow(QMainWindow):
             return self._pause_offset + (time.time() - self._play_start_wall_time)
         return self._pause_offset
 
+    # ------------------------------------------------------------------
+    # Seeking
+    # ------------------------------------------------------------------
+
+    def _sync_slider(self, ms: int) -> None:
+        """Programmatic slider update - flagged so _on_slider_value_changed
+        doesn't mistake it for a user seek."""
+        self._slider_updating = True
+        self.seek_slider.setValue(ms)
+        self._slider_updating = False
+
+    def _on_slider_pressed(self) -> None:
+        self._slider_down = True
+
+    def _on_slider_moved(self, value: int) -> None:
+        # Live preview of the target time while dragging; the actual seek
+        # happens once, on release.
+        self.progress_label.setText(f"{value / 1000.0:.1f}s / {self.total_duration:.1f}s")
+
+    def _on_slider_released(self) -> None:
+        self._slider_down = False
+        self._seek(self.seek_slider.value() / 1000.0)
+
+    def _on_slider_value_changed(self, value: int) -> None:
+        # A groove click (page step) or arrow key changes the value without
+        # any press/release pair - seek immediately in that case.
+        if self._slider_updating or self._slider_down:
+            return
+        self._seek(value / 1000.0)
+
+    def _seek(self, target_s: float) -> None:
+        """Jump playback to target_s seconds - while playing or paused.
+        Notes whose onset lies before the target are skipped rather than
+        re-triggered mid-note; the next event at or after the target fires
+        normally. Seeking also skips whatever remains of the lead-in."""
+        if not self.events:
+            return
+        target_s = min(max(target_s, 0.0), self.total_duration)
+
+        for ev in self._active_events:
+            self._set_note_active(ev, False)
+        self._active_events = []
+
+        self._next_event_idx = bisect_left(self._event_times, target_s)
+        self._pause_offset = target_s
+        self._play_start_wall_time = time.time()
+        self.stop_btn.setEnabled(True)  # position is no longer 0 - Stop now has something to reset
+
+        self.progress_label.setText(f"{target_s:.1f}s / {self.total_duration:.1f}s")
+        self._sync_slider(int(target_s * 1000))
+
     def _tick(self) -> None:
         elapsed = self._elapsed()
         if elapsed < 0:
             self.progress_label.setText(f"Starting in {-elapsed:.1f}s...")
         else:
             self.progress_label.setText(f"{elapsed:.1f}s / {self.total_duration:.1f}s")
+        if not self._slider_down:
+            self._sync_slider(int(max(elapsed, 0.0) * 1000))
 
         while self._next_event_idx < len(self.events) and self.events[self._next_event_idx].time <= elapsed:
             ev = self.events[self._next_event_idx]

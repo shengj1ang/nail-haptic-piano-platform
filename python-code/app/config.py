@@ -48,11 +48,23 @@ class MidiConfig:
 
 
 @dataclass
+class SeedConfig:
+    """Default RNG seeds, one per tool. Each tool's window prefills its
+    seed field from here on open (so reopening a tool keeps working with
+    the same seed), and its "New seed" button overwrites the stored value -
+    drawing a fresh seed is the only action that changes the default."""
+
+    sequence_generator: Optional[int] = None  # Experiment Sequence Generator
+    pilot_schedule: Optional[int] = None  # Controlled Pilot Study schedule
+
+
+@dataclass
 class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     keyboard_detection: KeyboardDetectionConfig = field(default_factory=KeyboardDetectionConfig)
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
+    seeds: SeedConfig = field(default_factory=SeedConfig)
     # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
     # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
     active_keyboard_profile: str = "default"
@@ -72,6 +84,7 @@ class Config:
             keyboard_detection=KeyboardDetectionConfig(**data.get("keyboard_detection", {})),
             wizard=WizardConfig(**data.get("wizard", {})),
             midi=MidiConfig(**data.get("midi", {})),
+            seeds=SeedConfig(**data.get("seeds", {})),
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
         )
 
@@ -81,6 +94,7 @@ class Config:
             "keyboard_detection": asdict(self.keyboard_detection),
             "wizard": asdict(self.wizard),
             "midi": asdict(self.midi),
+            "seeds": asdict(self.seeds),
             "active_keyboard_profile": self.active_keyboard_profile,
         }
         with open(path, "w") as f:
