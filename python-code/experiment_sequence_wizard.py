@@ -1,12 +1,16 @@
 """Experiment Sequence Generator.
 
-Builds the constrained motor-sequence stimuli used by the controlled
-pilot study (final_report_2026/method/method.tex, "Sequence Design and
-Difficulty Levels") and saves them as a "song" under data/music/ - the
-same layout music_recording_wizard.py produces from a real recording, so
-a generated sequence is immediately playable in music_playback.py and
-usable as a quiz in student_quiz.py / student_quiz_haptic.py. See
-app/sequence_generator.py for the generation logic and
+Builds the constrained bimanual motor-sequence stimuli used by the
+controlled pilot study (final_report_2026/method/method.tex, "Sequence
+Design and Difficulty Levels"): 30 single-key cue events per sequence,
+difficulty levels alpha/beta/gamma defined by measurable constraints on
+D = (C_m, C_s, C_c), matched families per level, and built-in difficulty
+validation. Saves each sequence as a "song" under data/sequence/ - the
+same layout music_recording_wizard.py produces from a real recording
+under data/music/, so a generated sequence is immediately playable in
+music_playback.py and usable as a quiz in student_quiz.py /
+student_quiz_haptic.py. See app/sequence_generator.py for the generation
+logic, app/stimulus_validation.py for the difficulty validation, and
 app/gui/sequence_generator_window.py for this window.
 """
 

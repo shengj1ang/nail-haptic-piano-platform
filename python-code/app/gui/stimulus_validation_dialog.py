@@ -1,17 +1,29 @@
-"""Report/plot window for app.stimulus_validation.validate_stimulus_set()
-- see app/gui/sequence_metrics_window.py's "Validate Stimulus Set" button.
+"""Report/plot window for app.stimulus_validation.validate_level_pools()
+- opened by the Experiment Sequence Generator right after generating
+fresh level pools, and by the Sequence Metrics window's "Validate
+Stimulus Set" button for saved sequences.
 
 _BoxPlotWidget draws a simple min/Q1-median-Q3/max box-and-whisker row per
-difficulty level with plain QPainter calls (no charting dependency), so
-the level separation the text report describes can be seen directly
-rather than only read as numbers.
+difficulty level with plain QPainter calls (no charting dependency), one
+widget per scalar component of D = (C_m, C_s, C_c), inside a scroll area -
+so the monotonic (or deliberately non-monotonic) level separation the text
+report describes can be seen directly rather than only read as numbers.
 """
 
 from typing import Dict, Optional
 
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
-from PySide6.QtWidgets import QDialog, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ..stimulus_validation import LEVEL_DISPLAY, LEVELS, GroupSummary, ValidationReport, format_report
 
@@ -25,6 +37,14 @@ _LEVEL_COLOR = {
     "alpha": QColor(140, 190, 255),
     "beta": QColor(255, 200, 110),
     "gamma": QColor(255, 140, 140),
+}
+
+_DIRECTION_NOTE = {
+    "increase": "expected to rise α → γ",
+    "decrease": "expected to fall α → γ",
+    "matching": "matching constraint - no ordering required",
+    "diagnostic": "descriptive diagnostic - reported only",
+    "cross": "cross-region metric - validated against level limits",
 }
 
 
@@ -100,8 +120,8 @@ class _BoxPlotWidget(QWidget):
 class StimulusValidationDialog(QDialog):
     def __init__(self, report: ValidationReport, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("Stimulus Set Validation")
-        self.resize(950, 820)
+        self.setWindowTitle("Difficulty Validation (D = C_m, C_s, C_c)")
+        self.resize(1000, 860)
 
         conclusion_label = QLabel(f"Conclusion: {report.conclusion.upper()}")
         conclusion_font = conclusion_label.font()
@@ -109,20 +129,46 @@ class StimulusValidationDialog(QDialog):
         conclusion_font.setBold(True)
         conclusion_label.setFont(conclusion_font)
 
-        cost_plot = _BoxPlotWidget("Motor cost by level", report.cost.groups)
-        entropy_plot = _BoxPlotWidget("H_norm by level", report.entropy.groups)
+        # One box plot per scalar component, grouped C_m / C_s / C_c, in a
+        # scroll area - the component list comes from the report itself so
+        # this stays in lockstep with app.sequence_generator.COMPONENTS.
+        plots_host = QWidget()
+        plots_layout = QVBoxLayout(plots_host)
+        current_group = None
+        for c in report.components:
+            if c.group != current_group:
+                current_group = c.group
+                header = QLabel(c.group)
+                header_font = header.font()
+                header_font.setBold(True)
+                header.setFont(header_font)
+                plots_layout.addWidget(header)
+            status = ""
+            if c.monotonic is not None:
+                status = " - MONOTONIC" if c.monotonic else " - NOT MONOTONIC"
+            title = f"{c.label} ({_DIRECTION_NOTE[c.direction]}){status}"
+            plots_layout.addWidget(_BoxPlotWidget(title, c.groups))
+        plots_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(plots_host)
 
         report_text = QTextEdit()
         report_text.setReadOnly(True)
         report_text.setFont(QFont("Menlo, Consolas, monospace"))
         report_text.setPlainText(format_report(report))
 
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(scroll)
+        splitter.addWidget(report_text)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
 
         layout = QVBoxLayout(self)
         layout.addWidget(conclusion_label)
-        layout.addWidget(cost_plot)
-        layout.addWidget(entropy_plot)
-        layout.addWidget(report_text, 1)
+        layout.addWidget(splitter, 1)
         layout.addWidget(close_btn)

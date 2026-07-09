@@ -263,6 +263,21 @@ class SongMeta:
     created_at: str  # ISO 8601
     duration_s: float
     note_count: int
+    # Effective generation note bounds, present only on generated
+    # sequences (app.sequence_generator.save_sequence_as_song): the
+    # k_min/k_max the span-normalised difficulty components were computed
+    # against, so the metrics viewer can recompute them identically.
+    # Real recordings (app/gui/recording_wizard.py) leave these None.
+    start_note: Optional[int] = None
+    end_note: Optional[int] = None
+    # Stimulus-generation provenance, present only on generated sequences:
+    # rerunning the generator with the same calibrated profile, the same
+    # start/end notes, the same per-level count, the same seed, and the
+    # same software version reproduces the batch this sequence came from
+    # exactly. The seed alone is not enough - it only fixes the random
+    # stream; the settings decide how that stream is consumed.
+    generation_seed: Optional[int] = None
+    generation_count: Optional[int] = None
 
     def save(self, path: Path) -> None:
         path = Path(path)

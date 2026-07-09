@@ -1,38 +1,54 @@
 """Experiment Sequence Generator.
 
-Builds the constrained motor-sequence stimuli described in
+Builds the constrained bimanual motor-sequence stimuli described in
 final_report_2026/method/method.tex ("Sequence Design and Difficulty
-Levels"): click Generate and get a fresh matched group of sequences for
-*every* difficulty level (alpha, beta, gamma) at once - there is no level
-picker, since a stimulus set always needs all three. Each level's group
-size is set by the Count field (default 9); every sequence in a level's
-group is named "<level symbol>-<id>" (id = 1..count), e.g. "α-1".."α-9".
-Save any row as a "song" under data/sequence/<name>/{meta.json,
+Levels"): click Generate and get a fresh matched family of 30-event
+sequences for *every* difficulty level (alpha, beta, gamma) at once -
+there is no level picker, since a stimulus set always needs all three.
+Each level's family size is set by the Count field (default 9); every
+sequence in a level's family is named "<level symbol>-<id>" (id =
+1..count), e.g. "α-1".."α-9".
+
+The table shows the five family-matching statistics from method.tex's
+"Pairwise matching tolerances" table (H_norm, d̄m/S, A_h, B_h, O_LR) plus
+H_hand as a descriptive diagnostic; the full component set of
+D = (C_m, C_s, C_c) for saved sequences lives in the Sequence Metrics
+window, which recomputes them with the exact same functions. After every generation run the difficulty
+validation from method.tex (per-component median/IQR/range, monotonic
+medians with <10% adjacent-pair violations, separate cross-region and
+structural checks) runs automatically over the fresh pools; the "View
+validation report" button opens the full report, which should be checked
+before the pools are locked for the pilot study.
+
+There's no profile picker - this always generates against config.json's
+active_keyboard_profile (set by the Keyboard Calibration Wizard), so
+there's no way to accidentally generate a sequence for the wrong physical
+keyboard. START_NOTE/END_NOTE are actual MIDI note numbers, bounded by
+whatever that profile's own midi_mapping.json covers (method.tex:
+START_NOTE = min(V), END_NOTE = max(V), optionally narrowed).
+
+Generation is seeded for reproducibility: the Seed field fixes the random
+stream, so the same profile + note range + Count + seed + software
+version regenerates the identical batch. A blank Seed draws a fresh one
+and writes it back into the field, and every saved sequence's meta.json
+records the seed and Count it came from (generation_seed /
+generation_count), alongside the effective note bounds.
+
+An optional Batch name prefixes every row's default name -
+"<batch>-<level symbol>-<id>" instead of just "<level symbol>-<id>" - so a
+whole generation run can be told apart from another one later. "Save All"
+saves every row in one go, but first checks every target name for
+conflicts (against data/sequence/ and against each other) and saves
+nothing at all if even one conflict is found, rather than saving some and
+not others. Saved rows land under data/sequence/<name>/{meta.json,
 fingering.json} - the same layout a real recording produces under
-data/music/ (app.music_recording), just kept in its own top-level folder
-so the two are easy to tell apart. That means a saved sequence shows up -
-labelled "sequence/<name>", next to real recordings labelled "music/<name>"
-- in music_playback.py's and student_quiz(_haptic).py's song pickers via
-app.song_library, without either tool needing to know or care which
-produced any given entry.
-
-There's no profile picker either - this always generates against
-config.json's active_keyboard_profile (set by the Keyboard Calibration
-Wizard), so there's no way to accidentally generate a sequence for the
-wrong physical keyboard. START_NOTE/END_NOTE are actual MIDI note numbers,
-bounded by whatever that profile's own midi_mapping.json covers (every
-note that appears anywhere in that file is valid; the min/max of those is
-the profile's range - see app.sequence_generator.profile_note_range).
-
-An optional Batch name prefixes every row's default name - "<batch>-<level
-symbol>-<id>" instead of just "<level symbol>-<id>" - so a whole
-generation run can be told apart from another one later. "Save All" saves
-every row in one go, but first checks every target name for conflicts
-(against data/sequence/ and against each other) and saves nothing at all
-if even one conflict is found, rather than saving some and not others.
+data/music/ (app.music_recording) - so they show up, labelled
+"sequence/<name>", in music_playback.py's and student_quiz(_haptic).py's
+song pickers via app.song_library.
 """
 
-from typing import Dict, Optional, Tuple
+import random
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -58,15 +74,13 @@ from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..profiles import list_profiles_with_midi_mapping
 from ..sequence_generator import (
     DEFAULT_FAMILY_COUNT,
-    DEFAULT_N_ACTIONS,
     LEVEL_LABEL,
     LEVEL_SYMBOL,
     LEVELS,
     MAX_FAMILY_COUNT,
-    MAX_N_ACTIONS,
     MIN_FAMILY_COUNT,
-    MIN_N_ACTIONS,
     SEQUENCE_DATA_DIR,
+    SEQUENCE_LENGTH,
     Sequence,
     SequenceStats,
     format_sequence_for_display,
@@ -74,8 +88,24 @@ from ..sequence_generator import (
     profile_note_range,
     save_sequence_as_song,
 )
+from ..stimulus_validation import ValidationReport, validate_level_pools
+from .stimulus_validation_dialog import StimulusValidationDialog
 
-COLUMNS = ["Name", "Level", "Fingers", "Notes", "H_norm", "Mean cost", "Hand-switch", ""]
+# The five family-matching statistics from method.tex Table "Pairwise
+# matching tolerances", plus H_hand - shown as a descriptive diagnostic
+# only (it is neither a level constraint nor a matching tolerance; see
+# app.sequence_generator.LEVEL_CONSTRAINTS) - as (header,
+# SequenceStats.metric key) pairs.
+DISPLAY_STATS = (
+    ("H_norm", "h_norm"),
+    ("d̄m/S", "d_m_mean_s"),
+    ("A_h", "a_h"),
+    ("B_h", "b_h"),
+    ("O_LR", "o_lr"),
+    ("H_hand (diag)", "h_hand"),
+)
+
+COLUMNS = ["Name", "Level", "Fingers", "Notes"] + [header for header, _ in DISPLAY_STATS] + [""]
 
 
 class SequenceGeneratorWindow(QMainWindow):
@@ -86,6 +116,10 @@ class SequenceGeneratorWindow(QMainWindow):
         self.resize(1500, 900)  # the results table has up to 3 levels x Count rows - needs real room
 
         self._rows: Dict[int, Tuple[Sequence, str]] = {}  # table row -> (actions, level)
+        self._generated_bounds: Optional[Tuple[int, int]] = None  # START/END notes of the last run
+        self._generated_seed: Optional[int] = None  # RNG seed of the last run
+        self._generated_count: Optional[int] = None  # per-level Count of the last run
+        self._validation_report: Optional[ValidationReport] = None
 
         # ------------------------------------------------------------ setup
         self.profile_label = QLabel("")
@@ -96,13 +130,16 @@ class SequenceGeneratorWindow(QMainWindow):
         self.start_spin = QSpinBox()
         self.end_spin = QSpinBox()
 
-        self.n_actions_spin = QSpinBox()
-        self.n_actions_spin.setRange(MIN_N_ACTIONS, MAX_N_ACTIONS)
-        self.n_actions_spin.setValue(DEFAULT_N_ACTIONS)
-
         self.count_spin = QSpinBox()
         self.count_spin.setRange(MIN_FAMILY_COUNT, MAX_FAMILY_COUNT)
         self.count_spin.setValue(DEFAULT_FAMILY_COUNT)
+
+        # Reproducibility: the same seed with the same profile, note
+        # range, Count, and software version regenerates the exact same
+        # batch. Left blank, a fresh seed is drawn and written back into
+        # this field, so every run is reproducible after the fact.
+        self.seed_edit = QLineEdit()
+        self.seed_edit.setPlaceholderText("blank = draw one")
 
         self.batch_name_edit = QLineEdit()
         self.batch_name_edit.setPlaceholderText("optional - blank means <level>-<id>")
@@ -116,10 +153,11 @@ class SequenceGeneratorWindow(QMainWindow):
         range_row.addWidget(self.start_spin)
         range_row.addWidget(QLabel("END_NOTE:"))
         range_row.addWidget(self.end_spin)
-        range_row.addWidget(QLabel("Actions:"))
-        range_row.addWidget(self.n_actions_spin)
+        range_row.addWidget(QLabel(f"Events per sequence: {SEQUENCE_LENGTH} (fixed)"))
         range_row.addWidget(QLabel("Count (per level):"))
         range_row.addWidget(self.count_spin)
+        range_row.addWidget(QLabel("Seed:"))
+        range_row.addWidget(self.seed_edit)
 
         batch_row = QHBoxLayout()
         batch_row.addWidget(QLabel("Batch name:"))
@@ -146,8 +184,16 @@ class SequenceGeneratorWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
 
+        self.validation_btn = QPushButton("View validation report")
+        self.validation_btn.setEnabled(False)
+        self.validation_btn.clicked.connect(self._show_validation_report)
+
         self.save_all_btn = QPushButton("Save All")
         self.save_all_btn.clicked.connect(self._save_all)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addWidget(self.validation_btn)
+        buttons_row.addWidget(self.save_all_btn, 1)
 
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -156,7 +202,7 @@ class SequenceGeneratorWindow(QMainWindow):
         layout = QVBoxLayout(central)
         layout.addWidget(setup_box)
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.save_all_btn)
+        layout.addLayout(buttons_row)
         layout.addWidget(self.status_label)
         self.setCentralWidget(central)
 
@@ -205,7 +251,8 @@ class SequenceGeneratorWindow(QMainWindow):
         if has_range:
             self.range_hint_label.setText(
                 f"Covers MIDI notes {lo} ({midi_note_name(lo)}) - {hi} ({midi_note_name(hi)}). START_NOTE/END_NOTE "
-                "must fall within this range; only the white-key notes in between are used."
+                "must fall within this range; only the white-key notes in between are used. The hand regions and "
+                "span-normalised constraints are computed from the selected range."
             )
         else:
             self.range_hint_label.setText("")
@@ -227,25 +274,61 @@ class SequenceGeneratorWindow(QMainWindow):
 
         start_note = self.start_spin.value()
         end_note = self.end_spin.value()
-        n_actions = self.n_actions_spin.value()
         count = self.count_spin.value()
 
         if start_note > end_note:
             QMessageBox.warning(self, "Invalid range", "START_NOTE must be <= END_NOTE.")
             return
 
-        self.status_label.setText("Generating matched families for all three levels - this may take a moment...")
+        seed_text = self.seed_edit.text().strip()
+        if seed_text:
+            try:
+                seed = int(seed_text)
+            except ValueError:
+                QMessageBox.warning(self, "Invalid seed", "Seed must be an integer, or blank to draw a fresh one.")
+                return
+        else:
+            # Draw a fresh seed and write it back into the field, so a run
+            # started without an explicit seed is still reproducible.
+            seed = random.randrange(2**31)
+            self.seed_edit.setText(str(seed))
+
+        self.status_label.setText(
+            "Generating matched families for all three levels - Level α needs the most attempts, this can take "
+            "tens of seconds..."
+        )
         self.generate_btn.setEnabled(False)
+        self.generate_btn.repaint()
         try:
             families, errors = generate_all_matched_families(
-                keyboard_profile_name, start_note=start_note, end_note=end_note, n_actions=n_actions, count=count
+                keyboard_profile_name,
+                start_note=start_note,
+                end_note=end_note,
+                count=count,
+                rng=random.Random(seed),
             )
         finally:
             self.generate_btn.setEnabled(True)
 
+        self._generated_bounds = (start_note, end_note)
+        self._generated_seed = seed
+        self._generated_count = count
         self._populate_table(families)
 
+        # method.tex step 4: validate the freshly generated pools before
+        # they can be locked for the pilot study.
+        pools = {level: list(family.values()) for level, family in families.items()}
+        self._validation_report = validate_level_pools(pools) if pools else None
+        self.validation_btn.setEnabled(self._validation_report is not None)
+        validation_note = ""
+        if self._validation_report is not None:
+            validation_note = f" Difficulty validation: {self._validation_report.conclusion.upper()} (see report)."
+
         ok_levels = ", ".join(LEVEL_LABEL[level] for level in LEVELS if level in families)
+        settings_note = (
+            f" over notes {start_note}-{end_note}, count {count}, seed {seed} on profile "
+            f"'{keyboard_profile_name}' (same profile + range + count + seed reproduces this batch)"
+        )
         if errors:
             failed = "; ".join(f"{LEVEL_LABEL[level]}: {msg}" for level, msg in errors.items())
             QMessageBox.warning(
@@ -254,13 +337,12 @@ class SequenceGeneratorWindow(QMainWindow):
                 f"Generated: {ok_levels or 'none'}.\n\nFailed:\n{failed}",
             )
             self.status_label.setText(
-                f"Generated {ok_levels or 'no levels'} over notes {start_note}-{end_note} on profile "
-                f"'{keyboard_profile_name}' - see the warning dialog for what failed."
+                f"Generated {ok_levels or 'no levels'}{settings_note} - see the warning dialog for what "
+                f"failed.{validation_note}"
             )
         else:
             self.status_label.setText(
-                f"Generated all three levels ({ok_levels}) over notes {start_note}-{end_note} on profile "
-                f"'{keyboard_profile_name}'."
+                f"Generated all three levels ({ok_levels}){settings_note}.{validation_note}"
             )
 
     def _populate_table(self, families: Dict[str, Dict[int, Tuple[Sequence, SequenceStats]]]) -> None:
@@ -294,14 +376,20 @@ class SequenceGeneratorWindow(QMainWindow):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     self.table.setItem(row, col, item)
 
-                for col, value in zip((4, 5, 6), (stats.h_norm, stats.mean_motor_cost, stats.hand_switch_prob)):
-                    item = QTableWidgetItem(f"{value:.3f}")
+                for offset, (_header, key) in enumerate(DISPLAY_STATS):
+                    item = QTableWidgetItem(f"{stats.metric(key):.3f}")
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table.setItem(row, col, item)
+                    self.table.setItem(row, 4 + offset, item)
 
                 save_btn = QPushButton("Save as song")
                 save_btn.clicked.connect(lambda _checked=False, r=row: self._save_row(r))
                 self.table.setCellWidget(row, len(COLUMNS) - 1, save_btn)
+
+    def _show_validation_report(self) -> None:
+        if self._validation_report is None:
+            return
+        dialog = StimulusValidationDialog(self._validation_report, self)
+        dialog.exec()
 
     # ------------------------------------------------------------------
     # Saving
@@ -311,16 +399,28 @@ class SequenceGeneratorWindow(QMainWindow):
         name_edit = self.table.cellWidget(row, 0)
         return name_edit.text().strip() if isinstance(name_edit, QLineEdit) else ""
 
+    def _save_row_to_disk(self, row: int, name: str) -> None:
+        actions, level = self._rows[row]
+        start_note, end_note = self._generated_bounds if self._generated_bounds else (None, None)
+        save_sequence_as_song(
+            name,
+            actions,
+            level,
+            self.cfg.active_keyboard_profile,
+            start_note=start_note,
+            end_note=end_note,
+            generation_seed=self._generated_seed,
+            generation_count=self._generated_count,
+        )
+
     def _save_row(self, row: int) -> None:
         if row not in self._rows:
             return
-        actions, level = self._rows[row]
         name = self._row_name(row)
         if not name:
             QMessageBox.warning(self, "Name needed", "Give this sequence a name before saving.")
             return
 
-        keyboard_profile_name = self.cfg.active_keyboard_profile
         if name in set(list_songs(SEQUENCE_DATA_DIR)):
             reply = QMessageBox.question(
                 self,
@@ -331,12 +431,12 @@ class SequenceGeneratorWindow(QMainWindow):
                 return
 
         try:
-            saved_dir = save_sequence_as_song(name, actions, level, keyboard_profile_name)
+            self._save_row_to_disk(row, name)
         except Exception as exc:
             QMessageBox.warning(self, "Couldn't save sequence", str(exc))
             return
 
-        self.status_label.setText(f"Saved '{name}' to {saved_dir} - it will now show up as a song in every tool.")
+        self.status_label.setText(f"Saved '{name}' to data/sequence/ - it will now show up as a song in every tool.")
 
     def _save_all(self) -> None:
         if not self._rows:
@@ -359,7 +459,7 @@ class SequenceGeneratorWindow(QMainWindow):
         # and silently skipping/overwriting others.
         existing = set(list_songs(SEQUENCE_DATA_DIR))
         seen: Dict[str, int] = {}
-        conflicts = []
+        conflicts: List[str] = []
         for row in rows:
             name = self._row_name(row)
             if name in existing:
@@ -376,13 +476,11 @@ class SequenceGeneratorWindow(QMainWindow):
             )
             return
 
-        keyboard_profile_name = self.cfg.active_keyboard_profile
         saved = []
         for row in rows:
             name = self._row_name(row)
-            actions, level = self._rows[row]
             try:
-                save_sequence_as_song(name, actions, level, keyboard_profile_name)
+                self._save_row_to_disk(row, name)
                 saved.append(name)
             except Exception as exc:
                 QMessageBox.warning(
