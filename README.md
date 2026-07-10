@@ -26,7 +26,8 @@ It includes:
 
 root/
 ├── teensy_driver/       # Arduino / Teensy firmware
-├── python-code/         # Python control and analysis tools
+├── python-code/         # Python control platform and analysis tools
+├── 3d-model/            # 3D SolidWorks model for the case of the hardware
 │   ├── app/             # UI app package: calibration + MIDI finger-detection pipeline
 │   ├── test_finger_accuracy.py, launcher.py, setup_*.py, music_*.py  # entry points for app/
 │   ├── test_virtual_piano_led.py # UI app: on-screen piano / LED preview (manual test)
