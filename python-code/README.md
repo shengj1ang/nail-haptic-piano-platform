@@ -54,6 +54,9 @@ common/                         shared low-level modules (serial/motor/LED), use
                                  test_virtual_piano_led.py and test-script/
 test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
 archive/                        early FingerAccuracy prototypes, kept for reference only
+runtime                         Python Environment in Windows, python 3.11.9, do not use or read or change this diretory when in development
+venv.bat                        Do not read/write this file
+launcher.bat                    Do not read/write this file
 ```
 
 ---
