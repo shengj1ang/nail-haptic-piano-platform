@@ -470,11 +470,12 @@ class ReviewPage(QWizardPage):
             snapshot_profile(info.keyboard_profile_name(), r_dir / "keyboard_profile")
             save_raw_midi_log(record.raw_events, r_dir / RAW_MIDI_FILENAME)
 
-            # raw/ stays on the recording's original clock (frame 0 = video/MIDI
-            # capture start) since analyze_recording() below needs that to line
-            # frames up with MIDI events - it's only the *saved* score/fingering
-            # that gets the leading dead air (LED sync flash, then however long
-            # the performer took to actually start) trimmed off, below.
+            # raw/ stays on the recording's original clocks - notes on the MIDI
+            # recorder's, frames on the video's, with sync.json recording both
+            # start moments so analyze_recording() below can line them up. It's
+            # only the *saved* score/fingering that gets the leading dead air
+            # (LED sync flash, then however long the performer took to actually
+            # start) trimmed off, below.
             self._notes = notes_only(record.raw_events)
             notes_path = r_dir / RAW_NOTES_FILENAME
             save_midi_log(self._notes, notes_path)
@@ -508,7 +509,9 @@ class ReviewPage(QWizardPage):
         self.progress_bar.setRange(0, 0)  # indeterminate until the first progress update
         self.result_label.setText("Matching fingers against the video...")
 
-        self._worker = AnalyzeWorker(record.video_path, notes_path, info.keyboard_profile_name())
+        self._worker = AnalyzeWorker(
+            record.video_path, notes_path, info.keyboard_profile_name(), sync_path=r_dir / RAW_SYNC_FILENAME
+        )
         self._worker.progress.connect(self._on_progress)
         self._worker.succeeded.connect(self._finish_save)
         self._worker.failed.connect(self._on_analyze_failed)

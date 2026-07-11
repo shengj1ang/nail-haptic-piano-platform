@@ -208,6 +208,16 @@ class FingerDetectorWindow(QWidget):
 
         cv2.circle(frame, match.point, 16, MATCH_COLOR, 3)
 
+    @staticmethod
+    def _runner_up_text(match) -> str:
+        # Surface a close second candidate, so an ambiguous detection (two
+        # fingertips splitting the softmax mass) is visible at a glance.
+        others = [(p, f) for f, p in match.probabilities.items() if f != match.finger]
+        if not others:
+            return ""
+        p, finger = max(others)
+        return f", then {finger} p={p:.2f}" if p >= 0.15 else ""
+
     def _on_notes(self, notes) -> None:
         if self.template is None or self.mapping is None:
             for note in notes:
@@ -228,7 +238,11 @@ class FingerDetectorWindow(QWidget):
             else:
                 self.recent_matches.append((match, now))
                 where = "inside key" if match.inside else f"~{match.distance_px:.0f}px from key"
-                text = f"Key {match.key_id + 1} / note {note} ({note_name(note)}) -> {match.finger} ({where})"
+                runner_up = self._runner_up_text(match)
+                text = (
+                    f"Key {match.key_id + 1} / note {note} ({note_name(note)}) -> "
+                    f"{match.finger} p={match.probability:.2f} ({where}){runner_up}"
+                )
             self.status_label.setText(text)
             self.log_list.insertItem(0, text)
 

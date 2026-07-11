@@ -32,11 +32,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import Config
+from ..finger_matching import FINGER_PROBABILITY_THRESHOLD, is_finger_correct
 from ..quiz import (
     META_FILENAME,
+    RAW_HANDS_FILENAME,
     RAW_NOTES_FILENAME,
+    RAW_SYNC_FILENAME,
     RAW_VIDEO_FILENAME,
     RESULTS_FILENAME,
+    REVIEW_VIDEO_FILENAME,
     QuizMeta,
     list_quizzes,
     load_quiz_results,
@@ -45,7 +49,7 @@ from ..quiz import (
     save_quiz_results,
     summarize,
 )
-from .analyze_worker import AnalyzeWorker
+from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
 
 
 class QuizAnalysisWindow(QMainWindow):
@@ -86,6 +90,7 @@ class QuizAnalysisWindow(QMainWindow):
         self.meta: Optional[QuizMeta] = None
         self.results: list = []
         self._worker: Optional[AnalyzeWorker] = None
+        self._review_worker: Optional[ReviewVideoWorker] = None
 
         self._refresh_quizzes(select=initial_quiz_name)
         if initial_quiz_name and self.meta is not None:
@@ -139,6 +144,7 @@ class QuizAnalysisWindow(QMainWindow):
         name = self.meta.quiz_name
         video_path = quiz_raw_dir(name) / RAW_VIDEO_FILENAME
         notes_path = quiz_raw_dir(name) / RAW_NOTES_FILENAME
+        sync_path = quiz_raw_dir(name) / RAW_SYNC_FILENAME
 
         pressed = [r for r in self.results if not r.timed_out]
         if not pressed:
@@ -151,7 +157,13 @@ class QuizAnalysisWindow(QMainWindow):
         self.progress_bar.setRange(0, 0)
         self.results_label.setText("Matching fingers against the video...")
 
-        self._worker = AnalyzeWorker(video_path, notes_path, self.meta.keyboard_profile_name)
+        self._worker = AnalyzeWorker(
+            video_path,
+            notes_path,
+            self.meta.keyboard_profile_name,
+            sync_path=sync_path,
+            hands_out_path=quiz_raw_dir(name) / RAW_HANDS_FILENAME,
+        )
         self._worker.progress.connect(self._on_progress)
         self._worker.succeeded.connect(self._finalize)
         self._worker.failed.connect(self._on_failed)
@@ -175,9 +187,12 @@ class QuizAnalysisWindow(QMainWindow):
         pressed = [r for r in self.results if not r.timed_out]
         for result, match in zip(pressed, matches):
             result.actual_finger = match.finger if match else None
-            result.finger_correct = (
-                (result.actual_finger == result.target_finger) if (match and result.target_finger) else None
+            result.finger_probabilities = match.probabilities if match else None
+            result.target_finger_probability = (
+                match.probabilities.get(result.target_finger, 0.0) if (match and result.target_finger) else None
             )
+            result.finger_correct = is_finger_correct(match, result.target_finger)
+            result.actual_finger_point = list(match.point) if match else None
 
         name = self.meta.quiz_name
         save_quiz_results(self.results, quiz_dir(name) / RESULTS_FILENAME)
@@ -191,16 +206,68 @@ class QuizAnalysisWindow(QMainWindow):
         self.meta.analyzed = True
         self.meta.save(quiz_dir(name) / META_FILENAME)
 
+        self._show_summary()
+        self._start_review_render()
+
+    # ------------------------------------------------------------------
+
+    def _start_review_render(self) -> None:
+        """Re-encode the raw video with the per-note verdicts drawn on top
+        (see app.review_video), for manual auditing of the scoring."""
+        name = self.meta.quiz_name
+        video_path = quiz_raw_dir(name) / RAW_VIDEO_FILENAME
+        if not video_path.exists():
+            self._end_busy()
+            return
+
+        self.analyze_btn.setEnabled(False)
+        self.quiz_combo.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.results_label.setText(self.results_label.text() + "\nRendering review video...")
+
+        self._review_worker = ReviewVideoWorker(
+            video_path,
+            quiz_dir(name) / REVIEW_VIDEO_FILENAME,
+            self.results,
+            self.meta.keyboard_profile_name,
+            sync_path=quiz_raw_dir(name) / RAW_SYNC_FILENAME,
+            hands_path=quiz_raw_dir(name) / RAW_HANDS_FILENAME,
+        )
+        self._review_worker.progress.connect(self._on_review_progress)
+        self._review_worker.succeeded.connect(self._on_review_done)
+        self._review_worker.failed.connect(self._on_review_failed)
+        self._review_worker.start()
+
+    def _on_review_progress(self, done: int, total: int) -> None:
+        if total > 0:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(done)
+
+    def _on_review_done(self, out_path: str) -> None:
+        self._end_busy()
+        self._show_summary()
+        self.results_label.setText(self.results_label.text() + f"\nReview video: {out_path}")
+
+    def _on_review_failed(self, message: str) -> None:
+        self._end_busy()
+        self._show_summary()
+        self.results_label.setText(self.results_label.text() + f"\nReview video failed: {message}")
+
+    def _end_busy(self) -> None:
         self.progress_bar.setVisible(False)
         self.analyze_btn.setEnabled(True)
         self.analyze_btn.setText("Re-analyze")
         self.quiz_combo.setEnabled(True)
-        self._show_summary()
 
     def _show_summary(self) -> None:
         meta = self.meta
         timing_text = f"{meta.mean_timing_error_s * 1000:.0f} ms" if meta.mean_timing_error_s is not None else "n/a"
-        finger_text = f"{meta.finger_accuracy * 100:.0f}%" if meta.finger_accuracy is not None else "n/a"
+        finger_text = (
+            f"{meta.finger_accuracy * 100:.0f}% (target finger's probability ≥ {FINGER_PROBABILITY_THRESHOLD:.2f})"
+            if meta.finger_accuracy is not None
+            else "n/a"
+        )
         self.results_label.setText(
             f"Note Accuracy: {meta.note_accuracy * 100:.0f}% ({meta.hits}/{meta.note_count}, {meta.misses} missed)\n"
             f"Mean Timing Error: {timing_text}\n"

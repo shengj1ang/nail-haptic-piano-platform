@@ -48,6 +48,22 @@ class MidiConfig:
 
 
 @dataclass
+class FingerMatchingConfig:
+    """Softmax scoring of "which fingertip pressed this key" (see
+    app.finger_matching, where these are read at import time). One shared
+    setting for every consumer - the live detector, the offline quiz
+    analysis and the review video all show/judge the same numbers."""
+
+    # How many pixels of extra distance-to-key it takes for a fingertip's
+    # softmax weight to drop by a factor of e. Smaller = the distribution
+    # concentrates harder on the closest fingertip.
+    softmax_temperature_px: float = 25.0
+    # A note's finger judgment passes if the *target* finger holds at least
+    # this share of the softmax mass (not "argmax must equal target").
+    probability_threshold: float = 0.4
+
+
+@dataclass
 class SeedConfig:
     """Default RNG seeds, one per tool. Each tool's window prefills its
     seed field from here on open (so reopening a tool keeps working with
@@ -64,6 +80,7 @@ class Config:
     keyboard_detection: KeyboardDetectionConfig = field(default_factory=KeyboardDetectionConfig)
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
+    finger_matching: FingerMatchingConfig = field(default_factory=FingerMatchingConfig)
     seeds: SeedConfig = field(default_factory=SeedConfig)
     # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
     # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
@@ -84,6 +101,7 @@ class Config:
             keyboard_detection=KeyboardDetectionConfig(**data.get("keyboard_detection", {})),
             wizard=WizardConfig(**data.get("wizard", {})),
             midi=MidiConfig(**data.get("midi", {})),
+            finger_matching=FingerMatchingConfig(**data.get("finger_matching", {})),
             seeds=SeedConfig(**data.get("seeds", {})),
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
         )
@@ -94,6 +112,7 @@ class Config:
             "keyboard_detection": asdict(self.keyboard_detection),
             "wizard": asdict(self.wizard),
             "midi": asdict(self.midi),
+            "finger_matching": asdict(self.finger_matching),
             "seeds": asdict(self.seeds),
             "active_keyboard_profile": self.active_keyboard_profile,
         }

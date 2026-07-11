@@ -35,8 +35,10 @@ RAW_VIDEO_FILENAME = "performance.mp4"
 RAW_MIDI_FILENAME = "midi_raw.json"
 RAW_NOTES_FILENAME = "notes.json"
 RAW_SYNC_FILENAME = "sync.json"
+RAW_HANDS_FILENAME = "hands.json"  # per-frame hand landmarks, saved by analyze_recording
 RESULTS_FILENAME = "results.json"
 META_FILENAME = "meta.json"
+REVIEW_VIDEO_FILENAME = "review.mp4"
 
 # Same filesystem-safety rules as a recorded song's title - different
 # context, identical requirement (turn free text into a safe folder name).
@@ -120,8 +122,16 @@ class QuizResult:
     keypress_time: Optional[float] = None
     timing_error_s: Optional[float] = None  # keypress_time - cue_onset_time
     note_correct: bool = False
-    actual_finger: Optional[str] = None  # filled in after analyze_recording
-    finger_correct: Optional[bool] = None
+    actual_finger: Optional[str] = None  # most probable finger, filled in after analyze_recording
+    finger_correct: Optional[bool] = None  # target finger's probability cleared the threshold (see app.finger_matching.is_finger_correct)
+    # Full softmax distribution over every visible fingertip, and the target
+    # finger's share of it - kept so a past quiz can be re-judged under a
+    # different FINGER_PROBABILITY_THRESHOLD without re-running the video.
+    finger_probabilities: Optional[Dict[str, float]] = None
+    target_finger_probability: Optional[float] = None
+    # Pixel position of the detected fingertip at the keypress moment, so the
+    # review video (app.review_video) can mark it without re-running MediaPipe.
+    actual_finger_point: Optional[List[int]] = None
 
 
 def save_quiz_results(results: List[QuizResult], path: Path) -> None:
@@ -174,8 +184,10 @@ class QuizMeta:
 def summarize(results: List[QuizResult]) -> Dict[str, Optional[float]]:
     """The three headline numbers: Note Accuracy (target key vs actual
     key), mean Timing Error (keypress time - cue onset time), and Finger
-    Accuracy (target finger vs detected finger) - the last one only over
-    attempts where both are actually known."""
+    Accuracy (the share of attempts whose finger_correct judgment passed -
+    i.e. the target finger held enough softmax probability mass, see
+    app.finger_matching.is_finger_correct) - the last one only over
+    attempts where both target and detected finger are actually known."""
     total = len(results)
     hits = sum(1 for r in results if r.note_correct)
     misses = sum(1 for r in results if r.timed_out)

@@ -584,6 +584,13 @@ class QuizWindow(QMainWindow):
         self._unlock_inputs()
 
     def _finish_quiz(self) -> None:
+        # Grabbed before _release_session() drops the recorder - the MIDI
+        # clock starts when the recorder is constructed, a moment before
+        # video_start_time (audio/camera/writer setup sits in between), and
+        # offline analysis needs that gap from sync.json to line MIDI events
+        # up with the right video frames.
+        midi_start_time = self.midi_recorder.start_time if self.midi_recorder else self.video_start_time
+
         self._release_session()
         self.phase = "idle"
         self.cue.show_message("Recording complete - see the analysis window for finger accuracy.")
@@ -594,7 +601,7 @@ class QuizWindow(QMainWindow):
 
         sync = SyncInfo(
             video_start_time=self.video_start_time,
-            midi_start_time=self.midi_recorder.start_time if self.midi_recorder else self.video_start_time,
+            midi_start_time=midi_start_time,
             led_on_time=self.led_on_time or 0.0,
             led_off_time=self.led_off_time or 0.0,
         )
