@@ -10,10 +10,11 @@ Two cue styles are supported (see CUE_STYLES):
 - "images": one of the eleven hand-photo assets under app/assets/image/
   (HAND.jpg for idle, L1-L5/R1-R5 with that finger highlighted).
 
-choose_cue_style() is a blocking dialog that asks which one to use - call
-it once, before building the quiz window (and the cue window it opens),
-since the cue window may get dragged onto a second monitor and there's no
-good reason to support switching styles mid-quiz.
+Which style to use is chosen ahead of time in the launcher's Visual
+Guidance Cue Selection window (app.gui.cue_selection_window) and stored
+in config.json as Config.visual_cue_style - the quiz reads it from there
+on launch, so there's no per-session prompt and no reason to support
+switching styles mid-quiz.
 
 Everything is drawn from scratch in paintEvent, sized off the widget's
 current width/height rather than fixed pixel constants, so it scales
@@ -29,15 +30,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QLabel,
-    QMainWindow,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QMainWindow, QWidget
 
 from ..quiz import CueOutput
 
@@ -58,49 +51,12 @@ IMAGE_BG_COLOR = QColor(255, 255, 255)
 IMAGE_TEXT_COLOR = QColor(0, 0, 0)
 
 # key -> human-readable label, in the order they should be offered to pick
-# from (see choose_cue_style() below).
+# from (see app.gui.cue_selection_window, which presents these).
 CUE_STYLES = {
     "circles": "Circles (dots)",
     "images": "Hand images",
 }
 DEFAULT_CUE_STYLE = "circles"
-
-
-class CueStyleSelectionCancelled(Exception):
-    """Raised by choose_cue_style() when the dialog is closed (the window's
-    close button, Escape, ...) instead of confirmed with Ok - callers must
-    not proceed to build a quiz/cue window in that case."""
-
-
-def choose_cue_style(parent: Optional[QWidget] = None) -> str:
-    """Blocking "which cue style?" dialog - call this once, before
-    constructing the quiz window, to pick which of CUE_STYLES the cue
-    window should use for the whole session.
-
-    Raises CueStyleSelectionCancelled if the dialog is dismissed without
-    picking Ok, since there's no sane default to silently fall back to."""
-    dialog = QDialog(parent)
-    dialog.setWindowTitle("Visual Cue Style")
-    dialog.setModal(True)
-
-    layout = QVBoxLayout(dialog)
-    layout.addWidget(QLabel("How should the target finger be shown on the cue screen?"))
-
-    combo = QComboBox()
-    for key, name in CUE_STYLES.items():
-        combo.addItem(name, key)
-    combo.setCurrentIndex(max(combo.findData(DEFAULT_CUE_STYLE), 0))
-    layout.addWidget(combo)
-
-    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-    buttons.accepted.connect(dialog.accept)
-    layout.addWidget(buttons)
-
-    result = dialog.exec()
-    if result != QDialog.DialogCode.Accepted:
-        raise CueStyleSelectionCancelled()
-    return combo.currentData()
-
 
 IMAGE_DIR = Path(__file__).resolve().parent.parent / "assets" / "image"
 # One highlighted-hand photo per finger, plus a no-finger idle photo -

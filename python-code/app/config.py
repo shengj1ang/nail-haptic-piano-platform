@@ -85,6 +85,10 @@ class Config:
     # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
     # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
     active_keyboard_profile: str = "default"
+    # Which cue style Quiz - Visual Guidance shows on the cue screen:
+    # "circles" (dot view) or "images" (hand view) - see app.gui.cue_window's
+    # CUE_STYLES. Set by the launcher's Visual Guidance Cue Selection window.
+    visual_cue_style: str = "circles"
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> "Config":
@@ -104,6 +108,7 @@ class Config:
             finger_matching=FingerMatchingConfig(**data.get("finger_matching", {})),
             seeds=SeedConfig(**data.get("seeds", {})),
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
+            visual_cue_style=data.get("visual_cue_style", "circles"),
         )
 
     def save(self, path: Path = DEFAULT_CONFIG_PATH) -> None:
@@ -115,6 +120,7 @@ class Config:
             "finger_matching": asdict(self.finger_matching),
             "seeds": asdict(self.seeds),
             "active_keyboard_profile": self.active_keyboard_profile,
+            "visual_cue_style": self.visual_cue_style,
         }
         with open(path, "w") as f:
             json.dump(payload, f, indent=2)

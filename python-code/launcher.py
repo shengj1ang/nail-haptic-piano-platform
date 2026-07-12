@@ -37,7 +37,7 @@ SECTION_COLUMNS = 2
 from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.camera_selection_window import CameraSelectionWindow
-from app.gui.cue_window import CueStyleSelectionCancelled
+from app.gui.cue_selection_window import CueSelectionWindow
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
@@ -60,6 +60,7 @@ SECTIONS = [
             ("Camera Selection Wizard", CameraSelectionWindow),
             ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
             ("MIDI Mapping Wizard", MidiMappingWizard),
+            ("Visual Guidance Cue Selection", CueSelectionWindow),
         ],
     ),
     (
@@ -173,7 +174,7 @@ class LauncherWindow(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
 
-        subtitle = QLabel("Pick a tool below; only one runs at a time.")
+        subtitle = QLabel("• Platform built based on the ideas from dissertation \"Nail-Mounted Haptic Cues for Piano Training and Tele-training\"\n• Pick a tool below; only one runs at a time.")
         subtitle.setObjectName("subtitle")
 
         layout = QVBoxLayout(self)
@@ -214,10 +215,6 @@ class LauncherWindow(QWidget):
 
         try:
             window = window_cls(self.cfg)
-        except CueStyleSelectionCancelled:
-            # User closed the "pick a cue style" dialog instead of
-            # confirming one - not an error, just don't open anything.
-            return
         except Exception as e:
             QMessageBox.warning(self, "Couldn't open tool", str(e))
             return

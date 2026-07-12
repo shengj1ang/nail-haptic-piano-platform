@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 import profile_led_mapper
 from app.camera import Camera
 from app.config import Config
-from app.gui.cue_window import CueStyleSelectionCancelled, ScreenCueOutput, choose_cue_style
+from app.gui.cue_window import CUE_STYLES, DEFAULT_CUE_STYLE, ScreenCueOutput
 from app.haptic_cue import HapticCueOutput
 from app.gui.image_view import ImageView
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
@@ -97,11 +97,14 @@ class QuizWindow(QMainWindow):
         self.setWindowTitle(f"Student Quiz - {label} Guidance")
         self.cfg = cfg
 
-        # Asked first, before the camera/cue window are opened, so closing
-        # this dialog instead of confirming a style (see main()/launcher.py,
-        # which let CueStyleSelectionCancelled propagate out of here) leaves
-        # nothing half-built to clean up.
-        cue_style = choose_cue_style(self) if guidance_type == "visual" else None
+        # The cue style is chosen ahead of time in the launcher's "Visual
+        # Guidance Cue Selection" window and persisted in config.json -
+        # read it from there instead of asking again on every quiz launch.
+        # An unknown stored value (hand-edited config, older config file)
+        # falls back to the default rather than erroring.
+        cue_style = None
+        if guidance_type == "visual":
+            cue_style = cfg.visual_cue_style if cfg.visual_cue_style in CUE_STYLES else DEFAULT_CUE_STYLE
 
         self.camera = Camera(cfg.camera)
 
@@ -669,10 +672,7 @@ def main() -> None:
     cfg = Config.load()
 
     app = QApplication(sys.argv)
-    try:
-        window = QuizWindow(cfg)
-    except CueStyleSelectionCancelled:
-        return
+    window = QuizWindow(cfg)
     window.resize(1000, 780)
     window.show()
     sys.exit(app.exec())
