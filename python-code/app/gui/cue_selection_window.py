@@ -1,8 +1,8 @@
 """Visual Guidance Cue Selection window.
 
 Quiz - Visual Guidance can show its finger cue as either ten dots
-("circles", demonstrated by DOT.gif) or highlighted hand photos
-("images", demonstrated by HAND.gif) - see app.gui.cue_window.CUE_STYLES.
+("dot", demonstrated by DOT.gif) or highlighted hand photos
+("hand", demonstrated by HAND.gif) - see app.gui.cue_window.CUE_STYLES.
 
 This window is the one place that choice is made: it plays both demo GIFs
 stacked vertically, and clicking either a GIF or its radio button selects
@@ -34,8 +34,8 @@ from .cue_window import CUE_STYLES, IMAGE_DIR
 # at the same width it would tower over everything - it gets a smaller width
 # to keep the two options at a similar visual weight.
 STYLE_PREVIEWS = {
-    "circles": ("DOT.gif", 560, "Ten dots, one per finger - the target finger's dot lights up."),
-    "images": ("HAND.gif", 360, "Hand photos - the target finger is highlighted on the photo."),
+    "dot": ("DOT.gif", 560, "Ten dots, one per finger - the target finger's dot lights up."),
+    "hand": ("HAND.gif", 360, "Hand photos - the target finger is highlighted on the photo."),
 }
 
 WINDOW_WIDTH = 640
@@ -140,7 +140,7 @@ class CueSelectionWindow(QMainWindow):
         # the save inside _select_style (rewriting the value we just read
         # would be pointless), without blocking the radio's signals - the
         # QButtonGroup needs those to keep exclusivity working.
-        stored = cfg.visual_cue_style if cfg.visual_cue_style in STYLE_PREVIEWS else "circles"
+        stored = cfg.visual_cue_style if cfg.visual_cue_style in STYLE_PREVIEWS else "dot"
         for option in self._options:
             if option.style_key == stored:
                 option.radio.setChecked(True)

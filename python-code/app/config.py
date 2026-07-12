@@ -86,9 +86,10 @@ class Config:
     # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
     active_keyboard_profile: str = "default"
     # Which cue style Quiz - Visual Guidance shows on the cue screen:
-    # "circles" (dot view) or "images" (hand view) - see app.gui.cue_window's
-    # CUE_STYLES. Set by the launcher's Visual Guidance Cue Selection window.
-    visual_cue_style: str = "circles"
+    # "dot" (ten circles) or "hand" (highlighted hand photos) - see
+    # app.gui.cue_window's CUE_STYLES. Set by the launcher's Visual
+    # Guidance Cue Selection window.
+    visual_cue_style: str = "dot"
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> "Config":
@@ -108,7 +109,7 @@ class Config:
             finger_matching=FingerMatchingConfig(**data.get("finger_matching", {})),
             seeds=SeedConfig(**data.get("seeds", {})),
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
-            visual_cue_style=data.get("visual_cue_style", "circles"),
+            visual_cue_style=data.get("visual_cue_style", "dot"),
         )
 
     def save(self, path: Path = DEFAULT_CONFIG_PATH) -> None:

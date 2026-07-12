@@ -5,9 +5,9 @@ line (countdown, note name, ...).
 
 Two cue styles are supported (see CUE_STYLES):
 
-- "circles": ten dots standing in for two hands, same convention as
+- "dot": ten dots standing in for two hands, same convention as
   music_playback.py's HandsWidget.
-- "images": one of the eleven hand-photo assets under app/assets/image/
+- "hand": one of the eleven hand-photo assets under app/assets/image/
   (HAND.jpg for idle, L1-L5/R1-R5 with that finger highlighted).
 
 Which style to use is chosen ahead of time in the launcher's Visual
@@ -44,19 +44,19 @@ IDLE_COLOR = QColor(70, 70, 78)
 ACTIVE_COLOR = QColor(255, 140, 0)
 TEXT_COLOR = QColor(240, 240, 245)
 
-# The "images" style's hand photos are white-background line art, so the
-# dark circles-style background/text would clash - use a white/black pair
-# just for that style instead.
+# The "hand" style's photos are white-background line art, so the dark
+# dot-style background/text would clash - use a white/black pair just
+# for that style instead.
 IMAGE_BG_COLOR = QColor(255, 255, 255)
 IMAGE_TEXT_COLOR = QColor(0, 0, 0)
 
 # key -> human-readable label, in the order they should be offered to pick
 # from (see app.gui.cue_selection_window, which presents these).
 CUE_STYLES = {
-    "circles": "Circles (dots)",
-    "images": "Hand images",
+    "dot": "Dot view (circles)",
+    "hand": "Hand view (photos)",
 }
-DEFAULT_CUE_STYLE = "circles"
+DEFAULT_CUE_STYLE = "dot"
 
 IMAGE_DIR = Path(__file__).resolve().parent.parent / "assets" / "image"
 # One highlighted-hand photo per finger, plus a no-finger idle photo -
@@ -99,9 +99,9 @@ class FingerCueWidget(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:
-        is_images = self.style == "images"
-        bg_color = IMAGE_BG_COLOR if is_images else BG_COLOR
-        text_color = IMAGE_TEXT_COLOR if is_images else TEXT_COLOR
+        is_hand = self.style == "hand"
+        bg_color = IMAGE_BG_COLOR if is_hand else BG_COLOR
+        text_color = IMAGE_TEXT_COLOR if is_hand else TEXT_COLOR
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -118,7 +118,7 @@ class FingerCueWidget(QWidget):
             painter.setPen(QPen(text_color))
             painter.drawText(0, 0, w, int(h * 0.32), Qt.AlignmentFlag.AlignCenter, self.message)
 
-        if self.style == "images":
+        if self.style == "hand":
             self._paint_image(painter, w, h)
         else:
             self._paint_circles(painter, w, h)
