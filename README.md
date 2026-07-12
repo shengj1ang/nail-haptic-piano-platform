@@ -1,4 +1,4 @@
-# Nail-Mounted Haptic Piano Guidance — Code Repository
+# Nail-Mounted Haptic Cues for Piano Training and Tele-training — Code Repository 
 
 Implementation side of the MSc project "Nail-Mounted Haptic Cues for Piano
 Training and Tele-training": a multimodal piano-guidance platform combining a
