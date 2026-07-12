@@ -1,0 +1,34 @@
+Exception ignored from cffi callback <function _StreamBase.__init__.<locals>.callback_ptr at 0x000001A74F920860>:
+Traceback (most recent call last):
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 878, in callback_ptr
+    return _wrap_callback(callback, data, frames, time, status)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 2777, in _wrap_callback
+    callback(*args)
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\note_audio.py", line 203, in _callback
+    for note, voice in self._voices.items():
+RuntimeError: dictionary changed size during iteration
+
+
+Exception ignored from cffi callback <function _StreamBase.__init__.<locals>.callback_ptr at 0x000001A74EC71D00>:
+Traceback (most recent call last):
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 878, in callback_ptr
+    return _wrap_callback(callback, data, frames, time, status)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 2777, in _wrap_callback
+    callback(*args)
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\note_audio.py", line 203, in _callback
+    for note, voice in self._voices.items():
+RuntimeError: dictionary changed size during iteration
+
+Exception ignored from cffi callback <function _StreamBase.__init__.<locals>.callback_ptr at 0x000001A74EC71DA0>:
+Traceback (most recent call last):
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 878, in callback_ptr
+    return _wrap_callback(callback, data, frames, time, status)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\runtime\Python311\Lib\site-packages\sounddevice.py", line 2777, in _wrap_callback
+    callback(*args)
+  File "C:\Users\Admin\Documents\GitHub\individual_project_2026\python-code\note_audio.py", line 203, in _callback
+    for note, voice in self._voices.items():
+RuntimeError: dictionary changed size during iteration
+note 62 has no LED mapping
