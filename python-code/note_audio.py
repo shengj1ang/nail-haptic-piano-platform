@@ -22,6 +22,7 @@ test-script/measure_latency.py) for continuous tones, mixing multiple
 simultaneous notes together.
 """
 
+import threading
 from dataclasses import dataclass
 from typing import List
 
@@ -159,6 +160,11 @@ class NoteAudioPlayer:
         self.volume = volume
         self.timbre_name = timbre if timbre in TIMBRES else DEFAULT_TIMBRE
         self._voices: dict[int, _Voice] = {}
+        # play_key/stop_key run on the GUI/MIDI thread while _callback runs
+        # on sounddevice's audio thread; without this lock the callback's
+        # iteration races the dict mutations ("dictionary changed size
+        # during iteration" under fast repeated key presses).
+        self._voices_lock = threading.Lock()
         self._stream = sd.OutputStream(
             samplerate=sample_rate, channels=1, dtype="float32", callback=self._callback
         )
@@ -174,24 +180,27 @@ class NoteAudioPlayer:
 
     def play_key(self, note: int) -> bool:
         """Start (or re-trigger) the tone for MIDI `note`."""
-        voice = self._voices.get(note)
-        if voice is None:
-            self._voices[note] = _Voice(note_to_frequency(note), TIMBRES[self.timbre_name], self.sample_rate)
-        else:
-            voice.releasing = False
+        with self._voices_lock:
+            voice = self._voices.get(note)
+            if voice is None:
+                self._voices[note] = _Voice(note_to_frequency(note), TIMBRES[self.timbre_name], self.sample_rate)
+            else:
+                voice.releasing = False
         return True
 
     def stop_key(self, note: int) -> bool:
         """Fade out the tone for MIDI `note`. Returns False if it wasn't playing."""
-        voice = self._voices.get(note)
-        if voice is None:
-            return False
-        voice.releasing = True
+        with self._voices_lock:
+            voice = self._voices.get(note)
+            if voice is None:
+                return False
+            voice.releasing = True
         return True
 
     def stop_all(self) -> None:
-        for voice in self._voices.values():
-            voice.releasing = True
+        with self._voices_lock:
+            for voice in self._voices.values():
+                voice.releasing = True
 
     def close(self) -> None:
         self._stream.stop()
@@ -199,14 +208,15 @@ class NoteAudioPlayer:
 
     def _callback(self, outdata, frames, time_info, status):
         buffer = np.zeros(frames, dtype=np.float32)
-        finished = []
-        for note, voice in self._voices.items():
-            chunk, done = voice.render(frames, self.sample_rate)
-            buffer += chunk * self.volume
-            if done:
-                finished.append(note)
-        for note in finished:
-            del self._voices[note]
+        with self._voices_lock:
+            finished = []
+            for note, voice in self._voices.items():
+                chunk, done = voice.render(frames, self.sample_rate)
+                buffer += chunk * self.volume
+                if done:
+                    finished.append(note)
+            for note in finished:
+                del self._voices[note]
 
         np.clip(buffer, -1.0, 1.0, out=buffer)
         outdata[:, 0] = buffer
