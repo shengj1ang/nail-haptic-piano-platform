@@ -16,8 +16,10 @@ same camera.
 """
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -33,6 +35,8 @@ from PySide6.QtWidgets import (
 # columns wide, instead of one long vertical stack that runs off the
 # screen once there are more than a handful of sections/buttons.
 SECTION_COLUMNS = 2
+
+APP_ICON = Path(__file__).resolve().parent / "app" / "assets" / "image" / "icon.png"
 
 from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
@@ -232,6 +236,7 @@ def main() -> None:
     cfg = Config.load()
 
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(APP_ICON)))  # on macOS this also sets the Dock icon
     window = LauncherWindow(cfg)
     window.resize(760, 640)  # 8 sections in a 2-column grid need the extra height
     window.show()
