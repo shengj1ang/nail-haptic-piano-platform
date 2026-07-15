@@ -116,15 +116,16 @@ def main():
             if not raw:
                 continue
 
-            # Expected format: ACC,x,y,z
+            # Expected format (firmware >= v2.5.0): ACC,id,x,y,z
+            # This plot follows sensor 0 only.
             parts = raw.split(",")
-            if len(parts) != 4 or parts[0] != "ACC":
+            if len(parts) != 5 or parts[0] != "ACC" or parts[1] != "0":
                 continue
 
             try:
-                x = int(parts[1])
-                y = int(parts[2])
-                z = int(parts[3])
+                x = int(parts[2])
+                y = int(parts[3])
+                z = int(parts[4])
             except ValueError:
                 continue
 

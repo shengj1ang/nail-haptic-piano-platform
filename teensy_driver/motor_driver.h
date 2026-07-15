@@ -8,5 +8,6 @@ void updateMotors();
 void stopAll();
 void handlePulse(char* p);
 void handleImmediate(char* p);
+void handleFrequency(char* p);
 
 #endif

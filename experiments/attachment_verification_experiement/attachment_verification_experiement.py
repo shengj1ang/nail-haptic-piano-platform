@@ -107,12 +107,15 @@ def send_serial_command(ser: serial.Serial, cmd: str, wait_s: float = 0.12) -> N
     time.sleep(wait_s)
 
 
-def parse_acc_line(raw: str) -> Optional[Tuple[int, int, int]]:
+def parse_acc_line(raw: str, sensor_id: int = 0) -> Optional[Tuple[int, int, int]]:
+    # Firmware >= v2.5.0 streams "ACC,<id>,x,y,z"; keep only the requested sensor.
     parts = raw.split(",")
-    if len(parts) != 4 or parts[0] != "ACC":
+    if len(parts) != 5 or parts[0] != "ACC":
         return None
     try:
-        return int(parts[1]), int(parts[2]), int(parts[3])
+        if int(parts[1]) != sensor_id:
+            return None
+        return int(parts[2]), int(parts[3]), int(parts[4])
     except ValueError:
         return None
 

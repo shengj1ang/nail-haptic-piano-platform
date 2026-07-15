@@ -3,7 +3,8 @@
 #include "LED_array.h"
 #include "accel_driver.h"
 
-#define FW_VERSION "v2.1.0"
+#define FW_NAME "haptic-piano"
+#define FW_VERSION "v2.5.0"
 
 // ===== serial buffer =====
 static char lineBuf[128];
@@ -43,9 +44,12 @@ static bool readLine() {
   return false;
 }
 
-// Return firmware version
+// Return firmware identity: "E <name> <version>". The device name makes
+// the reply distinctive enough to double as a host-side auto-detect probe.
 static void handleEcho() {
   Serial.print("E ");
+  Serial.print(FW_NAME);
+  Serial.print(' ');
   Serial.println(FW_VERSION);
 }
 
@@ -76,6 +80,10 @@ void loop() {
         handlePulse(p);
       } else if (cmd == 'S') {
         handleImmediate(p);
+
+      // F idx freq (set PWM frequency on motor pin idx 0-15, -1 = all)
+      } else if (cmd == 'F') {
+        handleFrequency(p);
 
       // ===== accelerometer =====
       // A HELP | A WHOAMI | A READ | A START [interval_ms] | A STOP | A RATE interval_ms | A STATUS

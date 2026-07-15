@@ -1,14 +1,19 @@
 #include "accel_driver.h"
 
-// Confirmed working mapping from brute-force search:
-// CS=36, SCK=33, MOSI=34, MISO=35
-static const uint8_t PIN_CS   = 36;
+// Confirmed working bus mapping from brute-force search:
+// SCK=33, MOSI=34, MISO=35 (shared), CS=36 (per sensor)
 static const uint8_t PIN_SCK  = 33;
 static const uint8_t PIN_MOSI = 34;
 static const uint8_t PIN_MISO = 35;
 
+// Chip-select pins, one per LIS3DH on the shared SPI bus. Only one sensor
+// is fitted today - to add more, wire each new sensor's CS to a free GPIO
+// (e.g. 37, 38), append the pin here and re-flash; detection, streaming
+// and every 'A' command pick up the extra sensors automatically.
+static const uint8_t CS_PINS[] = {36};
+static const uint8_t NUM_ACCEL = sizeof(CS_PINS) / sizeof(CS_PINS[0]);
+
 // LIS3DH registers
-static const uint8_t REG_STATUS_AUX = 0x07;
 static const uint8_t REG_WHO_AM_I   = 0x0F;
 static const uint8_t REG_CTRL1      = 0x20;
 static const uint8_t REG_CTRL4      = 0x23;
@@ -16,7 +21,7 @@ static const uint8_t REG_OUT_X_L    = 0x28;
 static const uint8_t LIS3DH_ID      = 0x33;
 
 struct AccelState {
-  bool detected = false;
+  bool detected[NUM_ACCEL] = {};
   bool streamEnabled = false;
   uint32_t intervalMs = 10;
   uint32_t nextStreamMs = 0;
@@ -25,8 +30,12 @@ struct AccelState {
 
 static AccelState g_accel;
 
+// Half-phase delay for the bit-banged bus. 100 ns per phase (~2.5 MHz
+// clock) stays well inside the LIS3DH's 10 MHz SPI limit while leaving
+// margin for jumper wiring. The old delayMicroseconds(3) here made one
+// XYZ read block the main loop for ~0.8 ms.
 static inline void spiDelayShort() {
-  delayMicroseconds(3);
+  delayNanoseconds(100);
 }
 
 // Bit-banged SPI MODE3 (CPOL=1, CPHA=1)
@@ -34,45 +43,45 @@ static uint8_t spiTransfer(uint8_t data) {
   uint8_t rx = 0;
 
   for (int i = 7; i >= 0; --i) {
-    digitalWrite(PIN_SCK, HIGH);
+    digitalWriteFast(PIN_SCK, HIGH);
     spiDelayShort();
 
-    digitalWrite(PIN_MOSI, (data >> i) & 0x01);
+    digitalWriteFast(PIN_MOSI, (data >> i) & 0x01);
     spiDelayShort();
 
-    digitalWrite(PIN_SCK, LOW);
+    digitalWriteFast(PIN_SCK, LOW);
     spiDelayShort();
 
     rx <<= 1;
-    if (digitalRead(PIN_MISO)) {
+    if (digitalReadFast(PIN_MISO)) {
       rx |= 1;
     }
 
     spiDelayShort();
   }
 
-  digitalWrite(PIN_SCK, HIGH);
+  digitalWriteFast(PIN_SCK, HIGH);
   spiDelayShort();
   return rx;
 }
 
-static void writeReg(uint8_t reg, uint8_t value) {
-  digitalWrite(PIN_CS, LOW);
+static void writeReg(uint8_t sensor, uint8_t reg, uint8_t value) {
+  digitalWriteFast(CS_PINS[sensor], LOW);
   spiTransfer(reg & 0x7F);
   spiTransfer(value);
-  digitalWrite(PIN_CS, HIGH);
+  digitalWriteFast(CS_PINS[sensor], HIGH);
 }
 
-static uint8_t readReg(uint8_t reg) {
-  digitalWrite(PIN_CS, LOW);
+static uint8_t readReg(uint8_t sensor, uint8_t reg) {
+  digitalWriteFast(CS_PINS[sensor], LOW);
   spiTransfer(0x80 | reg);
   uint8_t value = spiTransfer(0x00);
-  digitalWrite(PIN_CS, HIGH);
+  digitalWriteFast(CS_PINS[sensor], HIGH);
   return value;
 }
 
-static void readAccelRaw(int16_t &x, int16_t &y, int16_t &z) {
-  digitalWrite(PIN_CS, LOW);
+static void readAccelRaw(uint8_t sensor, int16_t &x, int16_t &y, int16_t &z) {
+  digitalWriteFast(CS_PINS[sensor], LOW);
   spiTransfer(0xC0 | REG_OUT_X_L); // read + auto-increment
 
   uint8_t xL = spiTransfer(0x00);
@@ -82,7 +91,7 @@ static void readAccelRaw(int16_t &x, int16_t &y, int16_t &z) {
   uint8_t zL = spiTransfer(0x00);
   uint8_t zH = spiTransfer(0x00);
 
-  digitalWrite(PIN_CS, HIGH);
+  digitalWriteFast(CS_PINS[sensor], HIGH);
 
   x = (int16_t)((xH << 8) | xL) >> 4;
   y = (int16_t)((yH << 8) | yL) >> 4;
@@ -93,15 +102,17 @@ static bool canWriteLine(size_t n) {
   return Serial.availableForWrite() >= (int)n;
 }
 
-static void printSampleLine(int16_t x, int16_t y, int16_t z) {
-  // Format: ACC,x,y,z
-  // Typical length < 24 chars, so 32 bytes is a safe minimum.
-  if (!canWriteLine(32)) {
+// Unified stream format "ACC,<id>,x,y,z" for every sensor, where <id> is
+// the sensor's index in CS_PINS. Host-side parsers key on the id field.
+static void printSampleLine(uint8_t sensor, int16_t x, int16_t y, int16_t z) {
+  if (!canWriteLine(40)) {
     g_accel.droppedFrames++;
     return;
   }
 
   Serial.print("ACC,");
+  Serial.print(sensor);
+  Serial.print(',');
   Serial.print(x);
   Serial.print(',');
   Serial.print(y);
@@ -109,11 +120,21 @@ static void printSampleLine(int16_t x, int16_t y, int16_t z) {
   Serial.println(z);
 }
 
+static uint8_t detectedCount() {
+  uint8_t n = 0;
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+    if (g_accel.detected[s]) n++;
+  }
+  return n;
+}
+
 static void printStatusLine() {
-  if (!canWriteLine(64)) return;
+  if (!canWriteLine(80)) return;
 
   Serial.print("ACC STATUS detected=");
-  Serial.print(g_accel.detected ? 1 : 0);
+  Serial.print(detectedCount());
+  Serial.print('/');
+  Serial.print(NUM_ACCEL);
   Serial.print(" stream=");
   Serial.print(g_accel.streamEnabled ? 1 : 0);
   Serial.print(" interval_ms=");
@@ -122,45 +143,60 @@ static void printStatusLine() {
   Serial.println(g_accel.droppedFrames);
 }
 
-static void configureLIS3DH() {
+static void configureLIS3DH(uint8_t sensor) {
   // 400 Hz data rate + XYZ enable
-  writeReg(REG_CTRL1, 0x77);
-  // High-resolution mode, +/-2g, BDU off
-  writeReg(REG_CTRL4, 0x88);
+  writeReg(sensor, REG_CTRL1, 0x77);
+  // High-resolution mode, +/-2g, BDU on (0x88 sets bit7: the X/Y/Z output
+  // registers only update between reads, preventing high/low byte tearing)
+  writeReg(sensor, REG_CTRL4, 0x88);
+}
+
+// Probe one sensor; (re)configure it if it answers.
+static bool detectSensor(uint8_t sensor) {
+  uint8_t whoami = readReg(sensor, REG_WHO_AM_I);
+  g_accel.detected[sensor] = (whoami == LIS3DH_ID);
+  if (g_accel.detected[sensor]) configureLIS3DH(sensor);
+  return g_accel.detected[sensor];
 }
 
 void accelInit() {
-  pinMode(PIN_CS, OUTPUT);
   pinMode(PIN_SCK, OUTPUT);
   pinMode(PIN_MOSI, OUTPUT);
   pinMode(PIN_MISO, INPUT_PULLUP);
 
-  digitalWrite(PIN_CS, HIGH);
   digitalWrite(PIN_SCK, HIGH);
   digitalWrite(PIN_MOSI, LOW);
 
+  // All CS lines high (deselected) before any bus traffic, so a probe of
+  // one sensor can't be answered by another.
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+    pinMode(CS_PINS[s], OUTPUT);
+    digitalWrite(CS_PINS[s], HIGH);
+  }
+
   delay(10);
 
-  uint8_t whoami = readReg(REG_WHO_AM_I);
-  g_accel.detected = (whoami == LIS3DH_ID);
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+    uint8_t whoami = readReg(s, REG_WHO_AM_I);
+    g_accel.detected[s] = (whoami == LIS3DH_ID);
+    if (g_accel.detected[s]) configureLIS3DH(s);
 
-  if (g_accel.detected) {
-    configureLIS3DH();
+    if (canWriteLine(48)) {
+      Serial.print("ACC INIT ");
+      Serial.print(s);
+      Serial.print(" WHOAMI=0x");
+      Serial.println(whoami, HEX);
+    }
   }
 
   g_accel.streamEnabled = false;
   g_accel.intervalMs = 10;
   g_accel.nextStreamMs = millis() + g_accel.intervalMs;
   g_accel.droppedFrames = 0;
-
-  if (canWriteLine(48)) {
-    Serial.print("ACC INIT WHOAMI=0x");
-    Serial.println(whoami, HEX);
-  }
 }
 
 void updateAccelerometer() {
-  if (!g_accel.detected || !g_accel.streamEnabled) return;
+  if (!g_accel.streamEnabled) return;
 
   uint32_t now = millis();
   if ((int32_t)(now - g_accel.nextStreamMs) < 0) return;
@@ -170,9 +206,13 @@ void updateAccelerometer() {
     g_accel.nextStreamMs += g_accel.intervalMs;
   } while ((int32_t)(now - g_accel.nextStreamMs) >= 0);
 
-  int16_t x, y, z;
-  readAccelRaw(x, y, z);
-  printSampleLine(x, y, z);
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+    if (!g_accel.detected[s]) continue;
+
+    int16_t x, y, z;
+    readAccelRaw(s, x, y, z);
+    printSampleLine(s, x, y, z);
+  }
 }
 
 static char* skipSpacesLocal(char* p) {
@@ -198,38 +238,40 @@ void handleAccelCommand(char* p) {
 
   if (!*p || startsWithToken(p, "HELP")) {
     if (canWriteLine(128)) {
-      Serial.println("ACC CMDS: A HELP | A WHOAMI | A READ | A START [ms] | A STOP | A RATE ms");
+      Serial.println("ACC CMDS: A HELP | A WHOAMI | A READ | A START [ms] | A STOP | A RATE ms | A STATUS");
     }
     return;
   }
 
   if (startsWithToken(p, "WHOAMI")) {
-    uint8_t whoami = readReg(REG_WHO_AM_I);
-    g_accel.detected = (whoami == LIS3DH_ID);
-    if (g_accel.detected) configureLIS3DH();
+    for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+      uint8_t whoami = readReg(s, REG_WHO_AM_I);
+      g_accel.detected[s] = (whoami == LIS3DH_ID);
+      if (g_accel.detected[s]) configureLIS3DH(s);
 
-    if (canWriteLine(48)) {
-      Serial.print("ACC WHOAMI 0x");
-      Serial.println(whoami, HEX);
+      if (canWriteLine(48)) {
+        Serial.print("ACC WHOAMI ");
+        Serial.print(s);
+        Serial.print(" 0x");
+        Serial.println(whoami, HEX);
+      }
     }
     return;
   }
 
   if (startsWithToken(p, "READ")) {
-    if (!g_accel.detected) {
-      uint8_t whoami = readReg(REG_WHO_AM_I);
-      g_accel.detected = (whoami == LIS3DH_ID);
-      if (g_accel.detected) configureLIS3DH();
+    bool any = false;
+
+    for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+      if (!g_accel.detected[s] && !detectSensor(s)) continue;
+
+      any = true;
+      int16_t x, y, z;
+      readAccelRaw(s, x, y, z);
+      printSampleLine(s, x, y, z);
     }
 
-    if (!g_accel.detected) {
-      if (canWriteLine(24)) Serial.println("ACC ERROR NOT_FOUND");
-      return;
-    }
-
-    int16_t x, y, z;
-    readAccelRaw(x, y, z);
-    printSampleLine(x, y, z);
+    if (!any && canWriteLine(24)) Serial.println("ACC ERROR NOT_FOUND");
     return;
   }
 
@@ -244,13 +286,11 @@ void handleAccelCommand(char* p) {
       }
     }
 
-    if (!g_accel.detected) {
-      uint8_t whoami = readReg(REG_WHO_AM_I);
-      g_accel.detected = (whoami == LIS3DH_ID);
-      if (g_accel.detected) configureLIS3DH();
+    for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+      if (!g_accel.detected[s]) detectSensor(s);
     }
 
-    if (!g_accel.detected) {
+    if (detectedCount() == 0) {
       if (canWriteLine(24)) Serial.println("ACC ERROR NOT_FOUND");
       return;
     }
