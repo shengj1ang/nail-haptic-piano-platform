@@ -1,12 +1,16 @@
 #include "motor_driver.h"
 
-static const uint8_t PWM_PINS[16] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
-static const uint8_t NUM_PWM = 16;
+// Motor channels: 0-9 finger motors, 10/11 ERM/LRA test channels that
+// double as spares. Pin 12 is deliberately NOT claimed - it is reserved
+// for SPI - and pin 13 carries the onboard LED.
+static const uint8_t PWM_PINS[] = {0,1,2,3,4,5,6,7,8,9,10,11};
+static const uint8_t NUM_PWM = sizeof(PWM_PINS) / sizeof(PWM_PINS[0]);
 static const uint32_t DEFAULT_PWM_FREQ = 300;
 
 // 'F' command frequency limits, clamped to a range that makes sense for
-// vibration motors. All 16 pins are addressable, same as P/S, so a motor
-// moved onto a spare pin stays fully controllable without re-flashing.
+// vibration motors. Every motor pin is addressable, same as P/S, so a
+// motor moved onto a spare channel stays fully controllable without
+// re-flashing.
 static const uint32_t FREQ_MIN = 50;
 static const uint32_t FREQ_MAX = 20000;
 
@@ -35,8 +39,8 @@ static void writeMotor(uint8_t idx, uint8_t amp) {
 }
 
 // On Teensy 4.1, pins on the same FlexPWM submodule always share one PWM
-// frequency. Within motor pins 0-15 the coupled pairs are: 2&3 (FlexPWM4.2),
-// 6&9 (FlexPWM2.2), 7&8 (FlexPWM1.3). Pins 10-15 sit on individual
+// frequency. Within motor pins 0-11 the coupled pairs are: 2&3 (FlexPWM4.2),
+// 6&9 (FlexPWM2.2), 7&8 (FlexPWM1.3). Pins 10 and 11 sit on individual
 // QuadTimer channels and are fully independent.
 static int8_t sharedPartner(uint8_t idx) {
   switch (idx) {
@@ -176,7 +180,7 @@ void handleImmediate(char* p) {
   }
 }
 
-// Parse command: F idx freq   (idx 0-15, or -1 for all motor pins)
+// Parse command: F idx freq   (idx 0-11, or -1 for all motor pins)
 void handleFrequency(char* p) {
   long idx, freq;
 

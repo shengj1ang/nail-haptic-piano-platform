@@ -4,7 +4,7 @@
 #include "accel_driver.h"
 
 #define FW_NAME "haptic-piano"
-#define FW_VERSION "v2.5.0"
+#define FW_VERSION "v2.6.0"
 
 // ===== serial buffer =====
 static char lineBuf[128];
@@ -81,7 +81,7 @@ void loop() {
       } else if (cmd == 'S') {
         handleImmediate(p);
 
-      // F idx freq (set PWM frequency on motor pin idx 0-15, -1 = all)
+      // F idx freq (set PWM frequency on motor pin idx 0-11, -1 = all)
       } else if (cmd == 'F') {
         handleFrequency(p);
 

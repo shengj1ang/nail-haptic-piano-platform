@@ -21,9 +21,10 @@ Everything connected today, in one table:
 | Teensy pin | Function | Notes |
 |------|------|------|
 | 0–9 | Finger vibration motors (PWM) | Host-side default mapping: L5→0, L4→1, L3→2, L2→3, L1→4, R1→5, R2→6, R3→7, R4→8, R5→9 (`app/haptic_cue.py`) |
-| 10 | ERM test channel (PWM) | used in the actuator-comparison experiments |
-| 11 | LRA test channel (PWM) | used in the actuator-comparison experiments |
-| 12–15 | Spare motor channels (PWM) | initialized and fully addressable, nothing wired; pin 13 also drives the onboard orange LED (glows with PWM duty — free visual debug, or pick another spare if unwanted) |
+| 10 | ERM test channel + spare motor channel (PWM) | used in the actuator-comparison experiments; doubles as the spare if a finger port fails |
+| 11 | LRA test channel + spare motor channel (PWM) | used in the actuator-comparison experiments; doubles as the spare if a finger port fails |
+| 12 | Reserved for SPI | not initialized by the firmware (pin 12 is SPI0 MISO) |
+| 13 | Free | not initialized by the firmware; carries the onboard orange LED (and SPI0 SCK) |
 | 24 | WS2812 LED strip 0 data | 60 LEDs (`NUM_LEDS_0`) |
 | 29 | WS2812 LED strip 1 data | 60 LEDs (`NUM_LEDS_1`) |
 | 33 | Accel SPI SCK | shared bus |
@@ -33,7 +34,7 @@ Everything connected today, in one table:
 | 37, 38 | Reserved: CS for accel sensors 1, 2 | free GPIO until used |
 | USB | Serial link to host | 115200 nominal (native USB — the baud value is ignored; actual throughput is USB speed) |
 
-All 16 motor pins (0–15) are initialized and fully addressable by every motor command (`P`/`S`/`F`). The pins beyond the ten fingers are a **deliberate redundancy design**, not spare leftovers: the firmware is not hard-limited to ten fingers (room for secondary development), and if a port is damaged the motor can be moved to another pin and remapped host-side — no firmware re-flash needed.
+All 12 motor pins (0–11) are initialized and fully addressable by every motor command (`P`/`S`/`F`). The two channels beyond the ten fingers (10/11) are a **deliberate redundancy design**: the firmware is not hard-limited to ten fingers (room for secondary development), and if a finger port is damaged the motor can be moved to 10 or 11 and remapped host-side — no firmware re-flash needed. Pins 12–15 are intentionally left out of the motor set (12 reserved for SPI, 13 carries the onboard LED).
 
 LED electrical setup (recommended):
 
@@ -44,7 +45,7 @@ LED electrical setup (recommended):
 First contact checklist:
 
 1. Flash `teensy_driver.ino`, open the serial port (any baud).
-2. Send `E` → expect `E haptic-piano v2.5.0`.
+2. Send `E` → expect `E haptic-piano v2.6.0`.
 3. Send `A WHOAMI` → expect `ACC WHOAMI 0 0x33` (0x33 = LIS3DH found).
 4. Send `S 1 100` → motor 0 vibrates; `X` stops everything.
 5. Send `L 0 0 255 0 0 128` then `U` → first pixel of strip 0 lights red.
@@ -112,10 +113,10 @@ COMMAND arguments...
 | Command | Description |
 |------|------|
 | `X` | stop all motors immediately |
-| `E` | echo firmware identity, e.g. `E haptic-piano v2.5.0` (name + version) |
+| `E` | echo firmware identity, e.g. `E haptic-piano v2.6.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
-| `S mask amp` | set motors by bitmask: every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
-| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–15); `idx = -1` sets all 16 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: 300 Hz) |
+| `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
+| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: 300 Hz) |
 
 Notes:
 
@@ -161,7 +162,6 @@ Pins on the same FlexPWM submodule always share one PWM frequency: changing one 
 | 7, 8 | FlexPWM1.3 | each other (and 25, unused) |
 | 10 | QuadTimer1.0 | — (independent) |
 | 11 | QuadTimer1.2 | — (independent) |
-| 12–15 | QuadTimer1.1 / 2.0 / 3.2 / 3.3 | — (independent) |
 
 Practical consequences:
 
@@ -267,7 +267,7 @@ The practical rate floor is the sensor itself, not the bus: the LIS3DH is config
 
 Two further upgrade paths, deliberately not taken yet:
 
-- **Hardware SPI peripheral**: rewire the sensor onto hardware SPI pins and use `SPI.transfer()` at 8 MHz for a few-µs sample read. Note the main SPI0 pins (11/12/13) are taken by motor PWM outputs, so this means the SPI1 set (MOSI1 = 26, SCK1 = 27, MISO1 = 39).
+- **Hardware SPI peripheral**: rewire the sensor onto hardware SPI pins and use `SPI.transfer()` at 8 MHz for a few-µs sample read. Pin 12 (SPI0 MISO) and pin 13 (SPI0 SCK) are kept free for this, but SPI0's MOSI is pin 11 — currently the LRA channel — so the conflict-free option is the SPI1 set (MOSI1 = 26, SCK1 = 27, MISO1 = 39).
 - **DMA acquisition**: zero CPU cost, but overkill at the current sample rates — only worth it for multi-sensor kHz-range streaming.
 
 ---
