@@ -36,11 +36,17 @@ Everything connected today, in one table:
 
 All 12 motor pins (0–11) are initialized and fully addressable by every motor command (`P`/`S`/`F`). The two channels beyond the ten fingers (10/11) are a **deliberate redundancy design**: the firmware is not hard-limited to ten fingers (room for secondary development), and if a finger port is damaged the motor can be moved to 10 or 11 and remapped host-side — no firmware re-flash needed. Pins 12–15 are intentionally left out of the motor set (12 reserved for SPI, 13 carries the onboard LED).
 
-LED electrical setup (recommended):
+### Power
 
-- 330Ω resistor on each LED data line
-- 1000µF capacitor on LED power
-- Shared ground between LED power and Teensy
+| Rail | Powers | Source | Notes |
+|------|------|------|------|
+| 10 V | Motor power (drive side of the driver board) | External supply through a boost module | this is the rail the PWM chops, so effective motor voltage = `amp/255 × 10 V`; full duty (`amp = 255`) puts the full 10 V on a motor — keep `amp` within values validated for your motors. Check the boost module's current rating against all motors running at once |
+| 5 V | WS2812 LED strips | External 5 V supply | 2×60 LEDs can draw up to ~7 A at full white — never from USB; put a 1000 µF capacitor across the strip power input and a 330 Ω resistor in each data line |
+| 3.3 V | Motor driver board logic (chip supply) + LIS3DH accelerometer(s) | Teensy `3.3V` pin | matches the Teensy's 3.3 V PWM/SPI signal levels; the LIS3DH is a 3.3 V part and Teensy 4.1 pins are **not 5 V tolerant** |
+| GND | everything | common | tie **all** grounds together (Teensy, boost module output, LED supply, driver board, sensors); without a shared ground the data signals have no return path and nothing works reliably |
+| — | Teensy itself | USB | peripherals take their power directly from the external supplies and never back-feed the Teensy. If you do want to power the Teensy from VIN externally while USB is also plugged in, cut the VIN–VUSB pad first (standard Teensy practice) |
+
+Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additional sensor adds only its own CS wire, the other five are taps onto the shared bus/rails.
 
 First contact checklist:
 
