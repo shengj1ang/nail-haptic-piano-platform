@@ -111,11 +111,10 @@ class QuizWindow(QMainWindow):
         # The cue is shown through this interface only - this is the one
         # place that knows whether "which finger" is conveyed on screen or
         # by a vibration motor; everything below just calls show_target()/
-        # show_message()/clear().
-        if guidance_type == "haptic":
-            self.cue = HapticCueOutput()
-        else:
-            self.cue = ScreenCueOutput(cue_style)
+        # show_message()/clear(). Subclasses override _make_cue() to supply
+        # a different CueOutput (the pilot study's experiment runner routes
+        # all three feedback conditions through one shared cue window).
+        self.cue = self._make_cue(guidance_type, cue_style)
         self.cue.show_message("Pick a song and press Start.")
 
         self.led = LEDArrayController()
@@ -230,6 +229,11 @@ class QuizWindow(QMainWindow):
 
         self._refresh_ports()
         self._refresh_songs()
+
+    def _make_cue(self, guidance_type: str, cue_style: Optional[str]):
+        if guidance_type == "haptic":
+            return HapticCueOutput()
+        return ScreenCueOutput(cue_style)
 
     # ------------------------------------------------------------------
     # Song / port / LED setup
@@ -649,7 +653,12 @@ class QuizWindow(QMainWindow):
 
         # Finger-matching is identical regardless of how the cue was shown,
         # so it lives in its own reusable window instead of here - see
-        # app/gui/quiz_analysis_window.py.
+        # app/gui/quiz_analysis_window.py. Overridable: the pilot study's
+        # experiment runner suppresses the popup mid-session and batches
+        # analysis afterwards instead.
+        self._open_analysis_window()
+
+    def _open_analysis_window(self) -> None:
         self._analysis_window = QuizAnalysisWindow(self.cfg, initial_quiz_name=self.quiz_name)
         self._analysis_window.show()
 

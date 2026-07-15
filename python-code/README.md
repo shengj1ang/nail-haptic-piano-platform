@@ -41,8 +41,9 @@ data/sequence/<name>/            generated stimulus sequences (same meta.json/fi
                                  data/music/, see app/sequence_generator.py)
 data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results)
 data/ControlledPilotStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
-                                 schedule + live progress (see app/pilot_study.py); the experiment
-                                 runner resumes from this file after a crash
+                                 schedule + live progress (see app/pilot_study.py); the Formal
+                                 Experiment Session (launcher section 6, no standalone script)
+                                 updates and resumes from this file after a crash
 hand_landmarker.task            MediaPipe hand landmark model, used by app/
 requirements.txt                Python deps for app/ (conda env "fingercam")
 
@@ -131,6 +132,7 @@ Run these from inside `python-code/`.
 | `experiment_sequence_wizard.py` | Stimulus generator for the controlled pilot study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
 | `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
 | `quiz_analysis.py` | Offline analysis of a saved quiz session - camera-based finger matching, note/finger/action accuracy, timing. |
+| launcher section 6 (no standalone scripts) | The controlled pilot study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Controlled pilot study](#controlled-pilot-study-launcher-section-6). |
 | `test_haptic_vibrator.py` | Manual test - drive each finger's vibration motor individually. |
 | `setup_camera_wizard.py` | Camera selection/orientation wizard. |
 | `launcher.py` | Hub window - one button per script above, grouped by stage; only one tool is open at a time (they share the camera). |
@@ -147,6 +149,56 @@ Each script's docstring has more detail; `config.json` (auto-created on
 first run) holds the camera index/flip settings, Canny thresholds, the
 MIDI port, and which profile is "active" (used by default when a script
 doesn't ask you to pick one).
+
+### Controlled pilot study (launcher section 6)
+
+The formal experiment tools have no standalone entry scripts - open them
+from `launcher.py`, section "6. Controlled Pilot Study":
+
+1. **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) -
+   enter the participant's metadata, lock them to one generated stimulus
+   batch under `data/sequence/`, and generate + save the randomised
+   27-trial schedule (3 conditions x 3 levels x 3 unique sequences per
+   cell, seeded shuffle, 2-min rests after trials 9 and 18) to
+   `data/ControlledPilotStudy/<participant>/TrialStructure.json`.
+
+2. **Formal Experiment Session** (`app/gui/experiment_session_window.py`) -
+   opens three windows at once:
+
+   - **Session controller** - load a saved participant and see every
+     trial's live status. Each row has a tick box plus its own Start
+     button; shortcut buttons select the remaining trials of one
+     condition ("Select remaining Visual (B)" etc.). "Run selected trials
+     in order" walks the ticked trials smallest-index-first, pausing for
+     a manual Continue between trials (with the 2-min rest countdown
+     after trials 9/18). Every status change is written straight back to
+     `TrialStructure.json`, so a crashed session reloads with its exact
+     progress and resumes from the first non-completed trial.
+   - **Trial runner** (`app/gui/experiment_runner_window.py`) - the quiz
+     window re-purposed for scheduled trials: connect the LED strip and
+     pick the MIDI port/timbre/timeout here once. Every trial records an
+     ordinary quiz under `data/quiz/`, named
+     `<participant>-T<index>-<condition><level>` (a rerun appends `-r2`,
+     `-r3`, ... so no attempt's data is overwritten), which means the
+     existing analysis tools (Quiz Analysis, review video) work on pilot
+     trials unchanged. The per-trial analysis popup is suppressed
+     mid-session; batch the analysis afterwards from launcher section 7.
+   - **Participant-facing cue screen** (`app/gui/experiment_cue.py`) -
+     created once per session, so it can be dragged/fullscreened onto the
+     external display one time instead of reopening every trial.
+     Condition B draws the visual finger cue on it; conditions A and C
+     show only a status line, so no visual finger cue leaks into them.
+
+   The three feedback conditions (`app/pilot_study.py`): **A** key-light
+   only, **B** visual finger cue (dot/hand style from `config.json`'s
+   `visual_cue_style`), **C** vibrotactile finger cue (per-finger motors,
+   `app/haptic_cue.py`, rig connected lazily on the first C trial).
+
+   Trials always run with `config.json`'s `active_keyboard_profile` (MIDI
+   mapping + LED layout, same as every quiz); the `keyboard_profile`
+   stored inside `TrialStructure.json` is *not* used at run time - it only
+   records which profile limited the sequence generator's key range when
+   the schedule was made.
 
 ### Profile folder layout
 
@@ -246,7 +298,9 @@ app/
                                #   data/ControlledPilotStudy/<participant>/TrialStructure.json with
                                #   per-trial status for crash-resume
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
-  haptic_cue.py                # per-finger vibration cue driver used by the haptic quiz
+                               #   and the pilot study's trial runner
+  haptic_cue.py                # per-finger vibration cue driver used by the haptic quiz and the
+                               #   pilot study's condition C trials
   keyboard/
     template.py                # KeyBox, KeyboardTemplate - the pixel-exact key map
     wizard.py                  # KeyFillWizard - paint-bucket key segmentation
@@ -254,7 +308,9 @@ app/
     visualize.py                # color/label helpers for drawing a key_map
     detector.py                 # Canny edge detection used by the calibration wizard
   gui/                          # PyQt windows/pages for the scripts above (incl. the sequence
-                                #   generator window, metrics viewer, validation dialog, cue window)
+                                #   generator window, metrics viewer, validation dialog, cue window,
+                                #   and the pilot-study windows: participant schedule, formal-session
+                                #   controller, trial runner, participant-facing experiment cue screen)
 ```
 
 `archive/` holds earlier, now-superseded prototypes of this same detector

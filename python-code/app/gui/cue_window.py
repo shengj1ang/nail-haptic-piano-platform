@@ -85,11 +85,24 @@ class FingerCueWidget(QWidget):
         self.active_finger: Optional[str] = None
         self.message = "Waiting..."
         self.style = style
+        self.status_only = False
         self.setMinimumSize(320, 160)
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
         self.active_finger = finger
         self.message = message
+        self.status_only = False
+        self.update()
+
+    def set_status(self, message: str) -> None:
+        """Status-only mode: the whole surface becomes one centered
+        (multi-line) message, with no finger graphics at all. The pilot
+        study's persistent cue screen uses this during key-only and haptic
+        trials, where drawing the dots/hand photos would leak a visual cue
+        into a condition that must not have one."""
+        self.active_finger = None
+        self.message = message
+        self.status_only = True
         self.update()
 
     def set_style(self, style: str) -> None:
@@ -108,6 +121,23 @@ class FingerCueWidget(QWidget):
         painter.fillRect(self.rect(), bg_color)
 
         w, h = self.width(), self.height()
+
+        if self.status_only:
+            msg_font = painter.font()
+            msg_font.setPointSizeF(max(h * 0.08, 12))
+            msg_font.setBold(True)
+            painter.setFont(msg_font)
+            painter.setPen(QPen(text_color))
+            # Word-wrap inside a margin - status lines can be full sentences
+            # ("Drag this window onto the participant-facing display...")
+            # and must never run off the window edge.
+            margin_x, margin_y = int(w * 0.05), int(h * 0.05)
+            painter.drawText(
+                self.rect().adjusted(margin_x, margin_y, -margin_x, -margin_y),
+                int(Qt.AlignmentFlag.AlignCenter) | int(Qt.TextFlag.TextWordWrap),
+                self.message,
+            )
+            return
 
         # Status/message line across the top third.
         if self.message:
@@ -183,6 +213,9 @@ class CueWindow(QMainWindow):
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
         self.widget.set_target(finger, message)
+
+    def set_status(self, message: str) -> None:
+        self.widget.set_status(message)
 
     def set_style(self, style: str) -> None:
         self.widget.set_style(style)

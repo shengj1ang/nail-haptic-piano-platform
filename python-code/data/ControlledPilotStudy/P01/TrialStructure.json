@@ -31,9 +31,13 @@
       "level_symbol": "β",
       "sequence": "1799551287-β-1",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-15T16:46:16.118152+00:00",
+      "completed_at": "2026-07-15T16:47:07.534213+00:00",
+      "quiz_name": "P01-T01-Bβ",
+      "quiz_attempts": [
+        "P01-T01-Bβ"
+      ]
     },
     {
       "index": 2,
@@ -43,9 +47,13 @@
       "level_symbol": "α",
       "sequence": "1799551287-α-6",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-15T16:55:30.518484+00:00",
+      "completed_at": "2026-07-15T16:56:15.220354+00:00",
+      "quiz_name": "P01-T02-Cα",
+      "quiz_attempts": [
+        "P01-T02-Cα"
+      ]
     },
     {
       "index": 3,
@@ -67,9 +75,13 @@
       "level_symbol": "β",
       "sequence": "1799551287-β-5",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-15T16:47:43.936064+00:00",
+      "completed_at": "2026-07-15T16:48:30.700432+00:00",
+      "quiz_name": "P01-T04-Bβ",
+      "quiz_attempts": [
+        "P01-T04-Bβ"
+      ]
     },
     {
       "index": 5,
@@ -151,9 +163,13 @@
       "level_symbol": "β",
       "sequence": "1799551287-β-4",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-15T16:56:38.168108+00:00",
+      "completed_at": "2026-07-15T16:57:22.598188+00:00",
+      "quiz_name": "P01-T11-Cβ",
+      "quiz_attempts": [
+        "P01-T11-Cβ"
+      ]
     },
     {
       "index": 12,
@@ -175,9 +191,13 @@
       "level_symbol": "γ",
       "sequence": "1799551287-γ-3",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-15T17:05:20.978444+00:00",
+      "completed_at": "2026-07-15T17:06:12.748007+00:00",
+      "quiz_name": "P01-T13-Bγ",
+      "quiz_attempts": [
+        "P01-T13-Bγ"
+      ]
     },
     {
       "index": 14,
@@ -349,9 +369,9 @@
     }
   ],
   "progress": {
-    "completed": 0,
+    "completed": 5,
     "total": 27,
-    "next_trial_index": 1,
+    "next_trial_index": 3,
     "finished": false
   }
 }

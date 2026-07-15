@@ -42,6 +42,7 @@ from app.config import Config
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.camera_selection_window import CameraSelectionWindow
 from app.gui.cue_selection_window import CueSelectionWindow
+from app.gui.experiment_session_window import ExperimentSessionWindow
 from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
@@ -101,6 +102,9 @@ SECTIONS = [
         "6. Controlled Pilot Study",
         [
             ("Participant Trial Schedule", PilotScheduleWindow),
+            # Opens three windows together: the session controller, the
+            # trial runner, and the persistent participant-facing cue screen.
+            ("Formal Experiment Session", ExperimentSessionWindow),
         ],
     ),
     (
