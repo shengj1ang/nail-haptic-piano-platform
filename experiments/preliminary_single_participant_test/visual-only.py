@@ -28,7 +28,7 @@ LED_MAP: Dict[int, Tuple[int, int]] = {
 }
 
 FINGER_PORTS = [0, 1, 2, 3, 4]
-AMP = 80
+AMP = 64
 
 MIDI_PORT_CANDIDATES = ["SE25 MIDI1", "SE25 MIDI2"]
 

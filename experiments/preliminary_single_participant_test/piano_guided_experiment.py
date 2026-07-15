@@ -21,7 +21,7 @@ LED_MAP: Dict[int, Tuple[int, int]] = {
 # 用 5 个震动口对应右手五指。这里采用“相对位置”而不是“绝对音高 -> 手指”。
 # 也就是每一步先决定一个 5 键窗口，再把窗口里的第 0..4 个键映射给震动 0..4。
 FINGER_PORTS = [0, 1, 2, 3, 4]
-AMP = 80
+AMP = 64
 
 MIDI_PORT_CANDIDATES = ["SE25 MIDI1", "SE25 MIDI2"]
 

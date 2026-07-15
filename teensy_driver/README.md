@@ -51,9 +51,9 @@ Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additi
 First contact checklist:
 
 1. Flash `teensy_driver.ino`, open the serial port (any baud).
-2. Send `E` → expect `E haptic-piano v2.6.0`.
+2. Send `E` → expect `E haptic-piano v2.7.0`.
 3. Send `A WHOAMI` → expect `ACC WHOAMI 0 0x33` (0x33 = LIS3DH found).
-4. Send `S 1 100` → motor 0 vibrates; `X` stops everything.
+4. Send `S 1 64` → motor 0 vibrates at the project-default intensity; `X` stops everything.
 5. Send `L 0 0 255 0 0 128` then `U` → first pixel of strip 0 lights red.
 
 ---
@@ -119,10 +119,10 @@ COMMAND arguments...
 | Command | Description |
 |------|------|
 | `X` | stop all motors immediately |
-| `E` | echo firmware identity, e.g. `E haptic-piano v2.6.0` (name + version) |
+| `E` | echo firmware identity, e.g. `E haptic-piano v2.7.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
 | `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
-| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: 300 Hz) |
+| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `experiments/lra_frequency_sweep`) |
 
 Notes:
 
@@ -138,7 +138,7 @@ The PWM signal has two independent parameters, and they play very different role
 - **Frequency (`F` command)** is a *calibration setting*, not an intensity control. It is set once to match the actuator (see below) and then left alone.
 
 **ERM (eccentric rotating mass — pin 10, and the finger motors).**
-An ERM is a DC motor: its inertia low-pass-filters the PWM, so it only responds to the *average* voltage (`duty × supply`). Intensity rises monotonically with `amp` over the full 0–255 range. The PWM frequency barely matters — anything from ~100 Hz up to the low kHz works; 300 Hz is fine. Do not try to control ERM intensity with `F`.
+An ERM is a DC motor: its inertia low-pass-filters the PWM, so it only responds to the *average* voltage (`duty × supply`). Intensity rises monotonically with `amp` over the full 0–255 range. The PWM frequency barely matters — anything from ~100 Hz up to the low kHz works, so the 224 Hz boot default (chosen for the LRA) is equally fine for ERMs. Do not try to control ERM intensity with `F`.
 
 **LRA (linear resonant actuator — pin 11).**
 An LRA is a spring–mass resonator and behaves completely differently:
@@ -172,7 +172,7 @@ Pins on the same FlexPWM submodule always share one PWM frequency: changing one 
 Practical consequences:
 
 - The ERM (pin 10) and LRA (pin 11) are on independent timers, so retuning the LRA never affects any other motor.
-- The finger-motor pairs 2/3, 6/9 and 7/8 change frequency together. This is harmless in practice: all finger motors are the same actuator type and run at the shared 300 Hz default.
+- The finger-motor pairs 2/3, 6/9 and 7/8 change frequency together. This is harmless in practice: all finger motors are the same actuator type and run at the shared 224 Hz default.
 
 ### LED commands
 

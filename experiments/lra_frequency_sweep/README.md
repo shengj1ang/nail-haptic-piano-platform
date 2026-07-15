@@ -1,0 +1,224 @@
+# LRA Resonance and Intensity Calibration
+
+Two linked calibration experiments that determine the **optimal drive
+configuration of the LRA** used by the haptic-piano system:
+
+1. **Frequency sweep** (`lra_frequency_sweep.py`) — find the mounted
+   resonant frequency f₀, the frequency at which the LRA vibrates the
+   strongest.
+2. **Amplitude sweep** (`lra_amplitude_sweep.py`) — at f₀, find the PWM
+   amplitude (`amp`) whose measured acceleration lands in the target
+   "clearly perceptible, not annoying" band.
+
+Outcome adopted by the project: **f₀ = 224 Hz** (firmware boot default
+since v2.7.0) and **`amp = 64`** (default intensity in all Python
+code). Every later experiment that delivers haptic cues rests on these
+two constants, which is why the calibration is documented in full
+below.
+
+---
+
+## 1. Introduction
+
+An LRA (linear resonant actuator) is a spring–mass resonator: it only
+produces strong vibration when driven with an AC signal at its resonant
+frequency f₀, and its response falls off steeply within a few Hz of the
+peak (high Q). Two facts make a one-off calibration necessary:
+
+- **The datasheet f₀ is only nominal.** The resonance of the *mounted*
+  actuator shifts by several Hz with the attachment method, the mass it
+  drives, and temperature, so f₀ must be measured on the assembled rig.
+- **Drive strength is nonlinear in the PWM duty.** With this rig's
+  unipolar (single-transistor) drive on a 10 V rail, the LRA responds
+  to the AC fundamental of the PWM square wave, whose amplitude is
+  proportional to `sin(π·amp/255)` — it peaks at `amp = 128` and falls
+  back to zero at 255. `amp` values are therefore only meaningful in
+  the monotonic 0–128 range, and the mapping from `amp` to perceived
+  strength has to be measured, not assumed.
+
+The calibration answers two questions: *at what frequency should the
+LRA be driven* (Experiment 1), and *at what amplitude, given that
+frequency, is the cue clearly perceptible without being unpleasantly
+strong* (Experiment 2). Getting both right matters for every later
+user study: an off-resonance drive wastes most of the actuator's output
+and confounds intensity comparisons, and an over-strong default was in
+fact reported as subjectively uncomfortable during piloting.
+
+## 2. Method
+
+### 2.1 Apparatus
+
+| Item | Value |
+|------|------|
+| Actuator | Coin LRA, wired to motor **port 0**, stuck to the desk with Blu-Tack (adhesive putty) |
+| Sensor | LIS3DH accelerometer, sensor 0 (CS pin 36), coupled to the LRA through the same Blu-Tack mount; ±2 g high-resolution mode (1 count = 1 mg) |
+| Drive | Teensy 4.1 PWM through the motor driver board, 10 V motor rail; `haptic-piano` firmware **v2.6.0+** (`F` frequency command, `ACC,id,x,y,z` stream) |
+| Sampling | `A START 3` (3 ms interval; the LIS3DH ODR is 400 Hz) |
+
+The rig sits untouched on the desk for the whole run — hand-holding it
+adds motion noise to both the baseline and the vibration windows.
+
+### 2.2 Experiment 1 — frequency sweep
+
+Amplitude fixed at `amp = 128` (the maximum AC fundamental, so the
+resonance peak has the best signal-to-noise ratio). Two passes:
+
+1. **Coarse**: 100 → 350 Hz in 5 Hz steps.
+2. **Fine**: coarse peak ±10 Hz in 1 Hz steps.
+
+Each frequency step runs: set frequency (`F 0 <freq>`) → record a
+0.30 s quiet baseline → motor on (`S 1 128`) → 0.15 s settling (LRA
+ring-up) → 0.40 s measurement → motor off → 0.15 s rest. The baseline
+is re-measured at every step so slow drift cannot bias the curve.
+Total duration ≈ 1.5 min.
+
+### 2.3 Experiment 2 — amplitude sweep
+
+Frequency fixed at the Experiment 1 result (224 Hz); `amp` stepped
+4 → 128 in steps of 4 with the same per-step protocol (~35 s total).
+
+### 2.4 Measures
+
+The per-step metric is the **RMS delta**: the root-mean-square of
+`|a| − baseline_mean` over the measurement window, in raw LIS3DH
+counts. For Experiment 2 it is converted to absolute units via the
+sensor's high-resolution sensitivity, 1 count = 1 mg:
+`a[m/s²] = counts × 0.00981`. `peak_delta` (largest single-sample
+deviation) is logged as a secondary metric.
+
+### 2.5 Standards and choice of the target band
+
+No standard prescribes a haptic-cue intensity, so the target band is
+perception-based, with the relevant standards used to scope the
+problem:
+
+- **ISO 2631-1 (whole-body vibration)** is *not applicable*: its
+  frequency weightings stop at 80 Hz, below the 224 Hz drive. Its
+  comfort descriptor scale (< 0.315 m/s² "not uncomfortable") is used
+  only as a conservative order-of-magnitude cross-check.
+- **ISO 5349-1 (hand-transmitted vibration, 8–1000 Hz)** *covers* the
+  frequency range but regulates occupational *exposure*: the daily
+  action value is A(8) = 2.5 m/s² (Wh-weighted, 8 h). Short haptic
+  cues at < 1 m/s² unweighted are orders of magnitude below it —
+  safety is therefore not the binding constraint, comfort and
+  detectability are.
+- **Psychophysics** sets the actual target: fingertip vibrotactile
+  detection thresholds near 200–250 Hz (the Pacinian corpuscle
+  sensitivity peak) are ~0.1–0.4 m/s² RMS, and a clearly perceptible
+  but non-annoying cue is conventionally placed just above threshold.
+
+Target band adopted: **0.4–0.6 m/s² RMS**, aiming at its centre
+(0.5 m/s²).
+
+### 2.6 Running the experiments
+
+```bash
+python lra_frequency_sweep.py    # ~1.5 min, prints f0
+python lra_amplitude_sweep.py    # ~35 s, prints recommended amp
+```
+
+Both scripts auto-detect the rig (USB VID:PID `16C0:0483`, confirmed by
+the `E` → `E haptic-piano ...` handshake), and on exit — including
+Ctrl+C — stop all motors, restore the boot-default frequency and stop
+the accelerometer stream. Outputs are timestamped into `output/`:
+
+| File | Content |
+|------|------|
+| `sweep_<ts>.csv` / `frequency_response_<ts>.png` | Experiment 1 data and plot |
+| `amp_sweep_<ts>.csv` / `amplitude_response_<ts>.png` | Experiment 2 data and plot |
+
+## 3. Results (runs of 2026-07-15)
+
+### 3.1 Experiment 1 — resonant frequency
+
+Data `output/sweep_20260715_152236.csv`, plot
+`output/frequency_response_20260715_152236.png`.
+
+- **f₀ = 224 Hz** (fine-pass peak: `rms_delta = 111.1` counts,
+  `peak_delta = 298` counts).
+- The resonance region spans ~221–231 Hz (`rms_delta ≈ 103–111`), with
+  the sharp high-side cliff typical of a high-Q resonator (231 → 232 Hz
+  drops from 105 to 67).
+- At the previous 300 Hz default the same drive produced
+  `rms_delta ≈ 40`: retuning to 224 Hz yields **~2.8× more vibration**
+  from the same voltage.
+
+### 3.2 Experiment 2 — amplitude at 224 Hz
+
+Data `output/amp_sweep_20260715_153925.csv`, plot
+`output/amplitude_response_20260715_153925.png`.
+
+- **Recommended `amp = 64`** → 0.49 m/s² RMS, the centre of the target
+  band. In-band alternatives: `amp = 60` (0.40) and `amp = 68` (0.57).
+- The interim default `amp = 75` measures ≈ 0.65 m/s² — above the
+  band, consistent with pilot feedback that it felt too strong.
+- Below `amp ≈ 56` readings flatten at ~0.28–0.38 m/s²: this is the
+  rig's measurement noise floor (baseline |a| jitter), not real
+  vibration; absolute values below ~0.4 m/s² are not trustworthy.
+- From `amp ≈ 60` upward the curve tracks the `sin(π·amp/255)` model
+  well; above `amp ≈ 88` it plateaus at 0.72–0.84 m/s² (LRA stroke
+  saturation) rather than following the model to its 128 peak.
+
+## 4. Discussion
+
+### 4.1 Adopted configuration
+
+| Setting | Value | Where it lives |
+|------|------|------|
+| LRA drive frequency | **224 Hz** | firmware boot default (`DEFAULT_PWM_FREQ`, since v2.7.0); can be overridden at runtime with `F <port> <freq>` |
+| Default cue intensity | **`amp = 64`** (0.49 m/s² RMS at 224 Hz) | `HAPTIC_AMPLITUDE` in `app/haptic_cue.py`, `pulse()` defaults in `common/controller.py`, and the `AMP` constants of the experiment scripts |
+
+### 4.2 Interpretation
+
+- The measured amplitude curve validates the `sin(π·amp/255)` drive
+  model in the usable region and reveals stroke saturation above
+  `amp ≈ 88` — driving harder than ~90 gains nothing, which bounds the
+  useful intensity range to roughly 60–90.
+- The division of labour confirmed by these data: **frequency is a
+  calibration constant** (set once to f₀, never used as an intensity
+  knob — the resonance is only ~10 Hz wide and detuning changes the
+  perceived pitch as well as the strength), while **intensity is
+  controlled by `amp`** within the monotonic, unsaturated 0–90 region.
+
+### 4.3 Limitations
+
+- f₀ is **mount-specific**: 224 Hz holds for this Blu-Tack desk mount.
+  Re-run Experiment 1 (and ideally Experiment 2) whenever the LRA is
+  remounted, e.g. onto the finger rig — expect a shift of a few Hz.
+- Absolute intensities below ~0.4 m/s² are floor-limited on this rig;
+  a stiffer mount or averaging longer windows would be needed to
+  resolve them.
+- Single actuator, single session: unit-to-unit spread and temperature
+  drift are not characterised (both are typically a few Hz for coin
+  LRAs — within the measured 221–231 Hz plateau).
+- The 0.4–0.6 m/s² band is a design target from perception literature,
+  not a standard's requirement; per-user preference can still be
+  exposed as a setting (60/64/68 are all in-band).
+
+### 4.4 Troubleshooting a re-run
+
+- A flat frequency curve with no peak usually means the accelerometer
+  is not mechanically coupled to the LRA (check the Blu-Tack) or the
+  motor is not on port 0 (`MOTOR_INDEX`).
+- A peak at the edge of the sweep range: widen `COARSE_START_HZ` /
+  `COARSE_STOP_HZ`.
+- `amp = 128` on the 10 V rail is a deliberate short-burst overdrive
+  (0.4 s bursts are fine; haptic driver ICs overdrive on purpose for
+  fast ring-up) — avoid holding the LRA at high `amp` continuously.
+
+## Appendix: configuration constants
+
+All knobs are constants at the top of each script:
+
+| Constant | Default | Meaning |
+|------|------|------|
+| `MOTOR_INDEX` | 0 | motor port driving the LRA |
+| `AMP` (Exp 1) | 128 | sweep drive amplitude (max AC fundamental) |
+| `FREQ_HZ` (Exp 2) | 224 | fixed drive frequency for the amplitude sweep |
+| `AMP_VALUES` (Exp 2) | 4–128 step 4 | amplitude steps |
+| `TARGET_BAND_MS2` / `TARGET_MS2` (Exp 2) | 0.4–0.6 / 0.5 | target cue band and aim point |
+| `COARSE_START_HZ` / `COARSE_STOP_HZ` / `COARSE_STEP_HZ` (Exp 1) | 100 / 350 / 5 | coarse pass range and step |
+| `FINE_SPAN_HZ` / `FINE_STEP_HZ` (Exp 1) | 10 / 1 | fine pass around the coarse peak |
+| `BASELINE_S` / `SETTLE_S` / `MEASURE_S` / `REST_S` | 0.30 / 0.15 / 0.40 / 0.15 | per-step timing |
+| `ACC_INTERVAL_MS` | 3 | stream interval (LIS3DH ODR is 400 Hz, keep ≥ 3) |
+| `MS2_PER_COUNT` (Exp 2) | 0.00981 | LIS3DH HR ±2 g: 1 count = 1 mg |

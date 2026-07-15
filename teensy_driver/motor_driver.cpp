@@ -5,7 +5,10 @@
 // for SPI - and pin 13 carries the onboard LED.
 static const uint8_t PWM_PINS[] = {0,1,2,3,4,5,6,7,8,9,10,11};
 static const uint8_t NUM_PWM = sizeof(PWM_PINS) / sizeof(PWM_PINS[0]);
-static const uint32_t DEFAULT_PWM_FREQ = 300;
+// Boot-time PWM frequency for every motor pin: the LRA's measured
+// resonant frequency (see experiments/lra_frequency_sweep, 2026-07-15).
+// ERMs are insensitive to drive frequency, so sharing this value is safe.
+static const uint32_t DEFAULT_PWM_FREQ = 224;
 
 // 'F' command frequency limits, clamped to a range that makes sense for
 // vibration motors. Every motor pin is addressable, same as P/S, so a

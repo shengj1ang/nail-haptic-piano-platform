@@ -20,7 +20,7 @@ ACC_START_CMD = "A START 10"
 ACC_STOP_CMD = "A STOP"
 
 MOTOR_IDX = 10          # You confirmed key 'v' -> motor 10
-AMP = 80                # Vibration amplitude
+AMP = 64                # Vibration amplitude
 VIB_DURATION_S = 0.20   # Motor ON duration for each trial
 
 NUM_TRIALS = 3          # Adjustable: how many trials to measure

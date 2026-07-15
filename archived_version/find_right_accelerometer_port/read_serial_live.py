@@ -1,36 +1,49 @@
 import sys
-from collections import deque
-
 import serial
 from serial.tools import list_ports
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 
 
 def auto_detect_port() -> str:
+    """
+    Cross-platform auto detection of serial port.
+
+    Priority:
+    1. USB / Arduino / Teensy devices
+    2. Platform-specific common patterns
+    3. Fallback to manual selection
+    """
     ports = list(list_ports.comports())
+
     if not ports:
         raise RuntimeError("No serial ports found")
 
     scored = []
+
     for p in ports:
         score = 0
+
         name = (p.device or "").lower()
         desc = (p.description or "").lower()
         hwid = (p.hwid or "").lower()
         manufacturer = (getattr(p, "manufacturer", "") or "").lower()
 
+        # Common USB indicators
         if "usb" in name or "usb" in desc or "usb" in hwid:
             score += 3
+
         if "serial" in desc:
             score += 1
+
         if "arduino" in desc or "arduino" in manufacturer:
             score += 5
+
         if "teensy" in desc or "teensy" in manufacturer:
             score += 6
+
         if "ch340" in desc or "cp210" in desc or "ftdi" in desc:
             score += 4
 
+        # macOS
         if sys.platform == "darwin":
             if "cu." in name:
                 score += 3
@@ -38,9 +51,13 @@ def auto_detect_port() -> str:
                 score += 4
             if "bluetooth" in desc or "edifier" in name or "edifier" in desc:
                 score -= 10
+
+        # Linux
         elif sys.platform.startswith("linux"):
             if "ttyacm" in name or "ttyusb" in name:
                 score += 4
+
+        # Windows
         elif sys.platform.startswith("win"):
             if "com" in name:
                 score += 2
@@ -50,6 +67,7 @@ def auto_detect_port() -> str:
         scored.append((score, p))
 
     scored.sort(key=lambda x: x[0], reverse=True)
+
     best_score = scored[0][0]
     best_ports = [p for s, p in scored if s == best_score and s > 0]
 
@@ -62,6 +80,7 @@ def auto_detect_port() -> str:
         print("Multiple possible serial devices detected:")
         for i, p in enumerate(best_ports):
             print(f"[{i}] {p.device} | {p.description}")
+
         while True:
             idx = input("Select index: ").strip()
             if idx.isdigit():
@@ -72,6 +91,7 @@ def auto_detect_port() -> str:
     print("Could not auto-select device. Available ports:")
     for i, p in enumerate(ports):
         print(f"[{i}] {p.device} | {p.description}")
+
     while True:
         idx = input("Select index: ").strip()
         if idx.isdigit():
@@ -83,86 +103,31 @@ def auto_detect_port() -> str:
 def main():
     baud = 115200
     port = auto_detect_port()
-    ser = serial.Serial(port, baudrate=baud, timeout=0.02)
-    print(f"Connected to {port}")
 
-    max_points = 400
-    xs = deque(maxlen=max_points)
-    ys = deque(maxlen=max_points)
-    zs = deque(maxlen=max_points)
-    ts = deque(maxlen=max_points)
-    sample_index = 0
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    line_x, = ax.plot([], [], label="X")
-    line_y, = ax.plot([], [], label="Y")
-    line_z, = ax.plot([], [], label="Z")
-
-    ax.set_title("LIS3DH Real-Time Acceleration")
-    ax.set_xlabel("Sample")
-    ax.set_ylabel("Acceleration (raw)")
-    ax.legend()
-    ax.grid(True)
-
-    def update(_frame):
-        nonlocal sample_index
-
-        for _ in range(100):
-            try:
-                raw = ser.readline().decode("utf-8", errors="ignore").strip()
-            except Exception:
-                break
-
-            if not raw:
-                continue
-
-            # Expected format (firmware >= v2.5.0): ACC,id,x,y,z
-            # This plot follows sensor 0 only.
-            parts = raw.split(",")
-            if len(parts) != 5 or parts[0] != "ACC" or parts[1] != "0":
-                continue
-
-            try:
-                x = int(parts[2])
-                y = int(parts[3])
-                z = int(parts[4])
-            except ValueError:
-                continue
-
-            ts.append(sample_index)
-            xs.append(x)
-            ys.append(y)
-            zs.append(z)
-            sample_index += 1
-
-        if not ts:
-            return line_x, line_y, line_z
-
-        line_x.set_data(ts, xs)
-        line_y.set_data(ts, ys)
-        line_z.set_data(ts, zs)
-
-        left = ts[0]
-        right = ts[-1] if ts[-1] > ts[0] else ts[0] + 1
-        ax.set_xlim(left, right)
-
-        data_min = min(min(xs), min(ys), min(zs))
-        data_max = max(max(xs), max(ys), max(zs))
-        if data_min == data_max:
-            data_min -= 1
-            data_max += 1
-        padding = max(20, int((data_max - data_min) * 0.1))
-        ax.set_ylim(data_min - padding, data_max + padding)
-
-        return line_x, line_y, line_z
-
-    ani = FuncAnimation(fig, update, interval=50, blit=False, cache_frame_data=False)
+    print(f"Connecting to {port} at {baud} baud...")
 
     try:
-        plt.show()
+        ser = serial.Serial(port, baudrate=baud, timeout=1)
+        print("Connected. Reading serial output...\n")
+
+        while True:
+            try:
+                line = ser.readline().decode("utf-8", errors="ignore").strip()
+                if line:
+                    print(line)
+            except KeyboardInterrupt:
+                print("\nStopped by user.")
+                break
+
+    except serial.SerialException as e:
+        print(f"Serial error: {e}")
+
     finally:
-        ser.close()
-        print("Serial port closed.")
+        try:
+            ser.close()
+            print("Serial port closed.")
+        except:
+            pass
 
 
 if __name__ == "__main__":

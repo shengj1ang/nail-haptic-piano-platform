@@ -18,7 +18,7 @@ def main():
         # Start a long triple pulse on motor 0
         # This will run independently inside the Arduino
         print("Motor 0: triple pulse (long)")
-        vc.pulse(0, count=3, amp=80, on_ms=200, off_ms=200)
+        vc.pulse(0, count=3, amp=64, on_ms=200, off_ms=200)
 
         # Do NOT wait for it to finish
         time.sleep(0.1)
@@ -26,7 +26,7 @@ def main():
         # Step 2:
         # Inject another motor while motor 0 is still running
         print("Motor 3: injected single pulse")
-        vc.pulse(3, count=1, amp=80, on_ms=120, off_ms=0)
+        vc.pulse(3, count=1, amp=64, on_ms=120, off_ms=0)
 
         # Short delay before next injection
         time.sleep(0.1)
@@ -34,7 +34,7 @@ def main():
         # Step 3:
         # Start another independent pattern
         print("Motor 5: double pulse")
-        vc.pulse(5, count=2, amp=80, on_ms=150, off_ms=150)
+        vc.pulse(5, count=2, amp=64, on_ms=150, off_ms=150)
 
         # At this point:
         # All motors are running independently on the MCU

@@ -27,7 +27,7 @@ KEY_MAP = {
     'v':11,
 }
 
-AMP = 80
+AMP = 64
 
 current_mask = 0
 vc = None

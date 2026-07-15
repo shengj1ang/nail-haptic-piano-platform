@@ -48,7 +48,7 @@ class VibratorController:
     def stop_all(self):
         self.send("X")
 
-    def pulse(self, idx, count=1, amp=80, on_ms=120, off_ms=120):
+    def pulse(self, idx, count=1, amp=64, on_ms=120, off_ms=120):
         """
         Send async pulse task to one motor.
 
@@ -60,7 +60,7 @@ class VibratorController:
         cmd = f"P {idx} {count} {amp} {on_ms} {off_ms}"
         self.send(cmd)
 
-    def pulse_many(self, motors, count=1, amp=80, on_ms=120, off_ms=120):
+    def pulse_many(self, motors, count=1, amp=64, on_ms=120, off_ms=120):
         """
         Trigger multiple motors at once (async).
         """

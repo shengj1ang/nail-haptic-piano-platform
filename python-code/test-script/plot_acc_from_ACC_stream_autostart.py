@@ -130,14 +130,19 @@ def main():
     def update(_frame):
         nonlocal sample_index
 
-        for _ in range(100):
+        # Drain only what has already arrived, then draw. A blocking
+        # readline() here would stall the GUI: at 10 ms/sample, waiting
+        # for a fixed 100 lines used to pin each frame to ~1 s.
+        for _ in range(500):
+            if ser.in_waiting == 0:
+                break
             try:
                 raw = ser.readline().decode("utf-8", errors="ignore").strip()
             except Exception:
                 break
 
             if not raw:
-                continue
+                break
 
             # Expected format (firmware >= v2.5.0): ACC,id,x,y,z
             # This plot follows sensor 0 only.
