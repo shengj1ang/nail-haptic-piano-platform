@@ -115,9 +115,13 @@
       "level_symbol": "β",
       "sequence": "1799551287-β-9",
       "rest_after": false,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null
+      "status": "completed",
+      "started_at": "2026-07-17T13:33:49.092532+00:00",
+      "completed_at": "2026-07-17T13:34:36.315616+00:00",
+      "quiz_name": "P01-T07-Bβ",
+      "quiz_attempts": [
+        "P01-T07-Bβ"
+      ]
     },
     {
       "index": 8,
@@ -369,7 +373,7 @@
     }
   ],
   "progress": {
-    "completed": 5,
+    "completed": 6,
     "total": 27,
     "next_trial_index": 3,
     "finished": false
