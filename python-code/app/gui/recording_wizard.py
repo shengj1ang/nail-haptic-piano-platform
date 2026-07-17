@@ -15,7 +15,6 @@ Three pages:
 """
 
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -546,7 +545,7 @@ class ReviewPage(QWizardPage):
             meta = SongMeta(
                 title=info.song_name(),
                 difficulty=info.difficulty(),
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=time.time(),
                 duration_s=self._duration_s,
                 note_count=len(self._notes),
             )

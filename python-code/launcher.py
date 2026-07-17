@@ -99,7 +99,7 @@ SECTIONS = [
         ],
     ),
     (
-        "6. Controlled Pilot Study",
+        "6. Main User Study",
         [
             ("Participant Trial Schedule", PilotScheduleWindow),
             # Opens three windows together: the session controller, the

@@ -40,7 +40,7 @@ data/music/<song>/               saved teacher recordings (see app/music_recordi
 data/sequence/<name>/            generated stimulus sequences (same meta.json/fingering.json layout as
                                  data/music/, see app/sequence_generator.py)
 data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results)
-data/ControlledPilotStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
+data/MainUserStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
                                  schedule + live progress (see app/pilot_study.py); the Formal
                                  Experiment Session (launcher section 6, no standalone script)
                                  updates and resumes from this file after a crash
@@ -129,10 +129,10 @@ Run these from inside `python-code/`.
 | `test_virtual_piano_led.py` | Manual-test UI - on-screen piano that lights the physical LED strips (see below). |
 | `music_recording_wizard.py` | PyQt wizard - records a song (video+MIDI), flashes the LEDs for sync, and saves a fingering-annotated score under `data/music/<song>/`. |
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
-| `experiment_sequence_wizard.py` | Stimulus generator for the controlled pilot study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
+| `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
 | `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
 | `quiz_analysis.py` | Offline analysis of a saved quiz session - camera-based finger matching, note/finger/action accuracy, timing. |
-| launcher section 6 (no standalone scripts) | The controlled pilot study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Controlled pilot study](#controlled-pilot-study-launcher-section-6). |
+| launcher section 6 (no standalone scripts) | The main user study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Main user study](#main-user-study-launcher-section-6). |
 | `test_haptic_vibrator.py` | Manual test - drive each finger's vibration motor individually. |
 | `setup_camera_wizard.py` | Camera selection/orientation wizard. |
 | `launcher.py` | Hub window - one button per script above, grouped by stage; only one tool is open at a time (they share the camera). |
@@ -150,17 +150,17 @@ first run) holds the camera index/flip settings, Canny thresholds, the
 MIDI port, and which profile is "active" (used by default when a script
 doesn't ask you to pick one).
 
-### Controlled pilot study (launcher section 6)
+### Main user study (launcher section 6)
 
 The formal experiment tools have no standalone entry scripts - open them
-from `launcher.py`, section "6. Controlled Pilot Study":
+from `launcher.py`, section "6. Main User Study":
 
 1. **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) -
    enter the participant's metadata, lock them to one generated stimulus
    batch under `data/sequence/`, and generate + save the randomised
    27-trial schedule (3 conditions x 3 levels x 3 unique sequences per
    cell, seeded shuffle, 2-min rests after trials 9 and 18) to
-   `data/ControlledPilotStudy/<participant>/TrialStructure.json`.
+   `data/MainUserStudy/<participant>/TrialStructure.json`.
 
 2. **Formal Experiment Session** (`app/gui/experiment_session_window.py`) -
    opens three windows at once:
@@ -293,9 +293,9 @@ app/
   sequence_generator.py        # stimulus generation: D = (C_m,C_s,C_c) metrics, level constraints,
                                #   matched families, seeded RNG (see SEQUENCE_GENERATOR_ALGORITHM.md)
   stimulus_validation.py       # difficulty validation of the alpha/beta/gamma level pools
-  pilot_study.py               # controlled pilot study: 27-trial randomised schedules (3 conditions x
+  pilot_study.py               # main user study: 27-trial randomised schedules (3 conditions x
                                #   3 levels x 3 sequences, method.tex "Trial Structure"), saved to
-                               #   data/ControlledPilotStudy/<participant>/TrialStructure.json with
+                               #   data/MainUserStudy/<participant>/TrialStructure.json with
                                #   per-trial status for crash-resume
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
                                #   and the pilot study's trial runner

@@ -1,4 +1,4 @@
-"""Trial runner - the live window of the formal Controlled Pilot Study
+"""Trial runner - the live window of the formal Main User Study
 session.
 
 student_quiz.QuizWindow re-purposed for scheduled trials: the sequence,
@@ -46,7 +46,7 @@ class ExperimentRunnerWindow(QuizWindow):
         # Stashed before super().__init__ because that's when _make_cue runs.
         self._shared_cue = cue
         super().__init__(cfg, guidance_type="visual")
-        self.setWindowTitle("Controlled Pilot Study - Trial Runner")
+        self.setWindowTitle("Main User Study - Trial Runner")
         self._trial_index: Optional[int] = None
         self._allow_close = False
 

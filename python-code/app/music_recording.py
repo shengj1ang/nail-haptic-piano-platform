@@ -87,8 +87,7 @@ def list_songs(data_dir: Path = MUSIC_DATA_DIR) -> List[str]:
 
 @dataclass
 class RawMidiEvent:
-    abs_time: float  # time.time() when the message was received
-    rel_time: float  # seconds since the recorder started
+    abs_time: float  # absolute wall-clock time.time() when the message was received
     type: str  # "note_on" or "note_off"
     note: int
     velocity: int
@@ -96,9 +95,8 @@ class RawMidiEvent:
 
 class RawMidiRecorder:
     """Like app.midi.MidiListener, but keeps every note_on/note_off message
-    (not just note-on) and stamps each with a wall-clock time.time() value
-    in addition to the usual recorder-relative one, for the raw diagnostic
-    log (see module docstring)."""
+    (not just note-on), each stamped with an absolute wall-clock
+    time.time() value, for the raw diagnostic log (see module docstring)."""
 
     def __init__(self, port_name: Optional[str] = None):
         available = list_input_ports()
@@ -127,10 +125,8 @@ class RawMidiRecorder:
                             continue
                         velocity = int(getattr(msg, "velocity", 0))
                         msg_type = "note_on" if (msg.type == "note_on" and velocity > 0) else "note_off"
-                        now = time.time()
                         event = RawMidiEvent(
-                            abs_time=now,
-                            rel_time=now - self.start_time,
+                            abs_time=time.time(),
                             type=msg_type,
                             note=int(msg.note),
                             velocity=velocity,
@@ -161,37 +157,43 @@ def save_raw_midi_log(events: List[RawMidiEvent], path: Path) -> None:
 def load_raw_midi_log(path: Path) -> List[RawMidiEvent]:
     with open(path) as f:
         data = json.load(f)
-    return [RawMidiEvent(**item) for item in data]
+    # Older logs also carried a recorder-relative rel_time - ignored now;
+    # abs_time is the one wall-clock format used everywhere.
+    return [
+        RawMidiEvent(abs_time=item["abs_time"], type=item["type"], note=item["note"], velocity=item["velocity"])
+        for item in data
+    ]
 
 
 def notes_only(events: List[RawMidiEvent]) -> List[MidiEvent]:
     """The note-on subset of a raw log, in app.midi's MidiEvent format
-    (relative time), ready for app.offline.analyze_recording."""
-    return [MidiEvent(time=e.rel_time, note=e.note) for e in events if e.type == "note_on"]
+    (absolute wall-clock time), ready for app.offline.analyze_recording."""
+    return [MidiEvent(time=e.abs_time, note=e.note) for e in events if e.type == "note_on"]
 
 
 def first_note_on_time(events: List[RawMidiEvent]) -> float:
-    """How much leading dead air (the LED sync flash, then however long the
-    performer takes to actually start) sits before the first real note -
-    see trim_to_first_note()."""
-    times = [e.rel_time for e in events if e.type == "note_on"]
+    """Wall-clock moment of the first real note (after the LED sync flash
+    and however long the performer takes to actually start) - see
+    trim_to_first_note()."""
+    times = [e.abs_time for e in events if e.type == "note_on"]
     return min(times) if times else 0.0
 
 
 def trim_to_first_note(events: List[RawMidiEvent]) -> List[RawMidiEvent]:
-    """Shift every event's rel_time so the first note_on lands at 0,
-    dropping the leading dead air before it. Only used when building the
-    saved score/fingering (so a song starts playing back the instant it's
-    pressed play, not a few seconds later) - never on raw/, which has to
-    stay on the recording's original clock to stay lined up with the video
-    (see app.offline.analyze_recording)."""
+    """Shift every event onto a song-position clock: the first note_on
+    lands at 0, events before it are dropped. The result's abs_time is
+    deliberately no longer a wall-clock value - it's a position within the
+    piece, only ever used to build the saved score/fingering (so a song
+    starts playing back the instant it's pressed play). Never applied to
+    raw/, which has to stay on absolute wall-clock time to stay lined up
+    with the video (see app.offline.analyze_recording)."""
     t0 = first_note_on_time(events)
     if t0 <= 0:
         return list(events)
     return [
-        RawMidiEvent(abs_time=e.abs_time, rel_time=e.rel_time - t0, type=e.type, note=e.note, velocity=e.velocity)
+        RawMidiEvent(abs_time=e.abs_time - t0, type=e.type, note=e.note, velocity=e.velocity)
         for e in events
-        if e.rel_time >= t0
+        if e.abs_time >= t0
     ]
 
 
@@ -212,8 +214,8 @@ def build_score_midi(events: List[RawMidiEvent], path: Path, bpm: float = 120.0,
 
     seconds_per_tick = (60.0 / bpm) / ticks_per_beat
     last_tick = 0
-    for e in sorted((e for e in events if e.type in ("note_on", "note_off")), key=lambda e: e.rel_time):
-        tick = max(int(round(e.rel_time / seconds_per_tick)), 0)
+    for e in sorted((e for e in events if e.type in ("note_on", "note_off")), key=lambda e: e.abs_time):
+        tick = max(int(round(e.abs_time / seconds_per_tick)), 0)
         delta = max(tick - last_tick, 0)
         last_tick = tick
         velocity = e.velocity if e.type == "note_on" else 0
@@ -260,7 +262,7 @@ class SongMeta:
     # reads the *current* Config for that instead.
     title: str
     difficulty: int  # 1, 2, or 3 - a label only, not otherwise interpreted here
-    created_at: str  # ISO 8601
+    created_at: float  # absolute wall-clock time.time() timestamp
     duration_s: float
     note_count: int
     # Effective generation note bounds, present only on generated
@@ -356,14 +358,14 @@ def _note_durations(raw_events: List[RawMidiEvent]) -> Dict[int, List[float]]:
     note, in chronological order, by pairing them up FIFO per note number."""
     pending: Dict[int, List[float]] = {}
     durations: Dict[int, List[float]] = {}
-    for e in sorted(raw_events, key=lambda e: e.rel_time):
+    for e in sorted(raw_events, key=lambda e: e.abs_time):
         if e.type == "note_on":
-            pending.setdefault(e.note, []).append(e.rel_time)
+            pending.setdefault(e.note, []).append(e.abs_time)
         elif e.type == "note_off":
             queue = pending.get(e.note)
             if queue:
                 start = queue.pop(0)
-                durations.setdefault(e.note, []).append(max(e.rel_time - start, 0.05))
+                durations.setdefault(e.note, []).append(max(e.abs_time - start, 0.05))
     return durations
 
 

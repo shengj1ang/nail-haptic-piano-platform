@@ -1,4 +1,4 @@
-"""Controlled pilot study: participant trial schedules.
+"""Main user study: participant trial schedules.
 
 Implements the locked trial structure from final_report_2026/method/
 method.tex ("Trial Structure" + "Within-Subject Randomisation and
@@ -20,7 +20,7 @@ count), every sequence is additionally used at most once across the three
 conditions.
 
 The schedule is saved to
-data/ControlledPilotStudy/<participant>/TrialStructure.json together with
+data/MainUserStudy/<participant>/TrialStructure.json together with
 the participant metadata (method.tex logs handedness etc. as descriptive
 metadata, not experimental factors). Every trial row carries its own
 status/timestamps and the document carries a derived progress block, so
@@ -33,14 +33,14 @@ app/gui/pilot_schedule_window.py for the Qt wrapper.
 import json
 import random
 import re
-from datetime import datetime, timezone
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .music_recording import list_songs, sanitize_song_name
 from .sequence_generator import LEVEL_SYMBOL, LEVELS, SEQUENCE_DATA_DIR
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "ControlledPilotStudy"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "MainUserStudy"
 TRIAL_STRUCTURE_FILENAME = "TrialStructure.json"
 SCHEMA_VERSION = 1
 
@@ -186,7 +186,7 @@ def new_trial_structure(
     as actually presented ... are saved in the session metadata"."""
     doc = {
         "schema_version": SCHEMA_VERSION,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": time.time(),
         "participant": dict(participant),
         "keyboard_profile": keyboard_profile,
         "sequence_batch": sequence_batch,
@@ -236,14 +236,14 @@ def _find_trial(doc: dict, index: int) -> dict:
 def mark_trial_started(doc: dict, index: int) -> None:
     trial = _find_trial(doc, index)
     trial["status"] = TRIAL_STATUS_IN_PROGRESS
-    trial["started_at"] = datetime.now(timezone.utc).isoformat()
+    trial["started_at"] = time.time()
     recompute_progress(doc)
 
 
 def mark_trial_completed(doc: dict, index: int) -> None:
     trial = _find_trial(doc, index)
     trial["status"] = TRIAL_STATUS_COMPLETED
-    trial["completed_at"] = datetime.now(timezone.utc).isoformat()
+    trial["completed_at"] = time.time()
     recompute_progress(doc)
 
 
@@ -280,7 +280,7 @@ def load_trial_structure(participant_name: str, data_dir: Path = DATA_DIR) -> di
 
 
 def list_participants(data_dir: Path = DATA_DIR) -> List[str]:
-    """Every participant folder under data/ControlledPilotStudy/ that
+    """Every participant folder under data/MainUserStudy/ that
     already holds a TrialStructure.json."""
     root = Path(data_dir)
     if not root.exists():

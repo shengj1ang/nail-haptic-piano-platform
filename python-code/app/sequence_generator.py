@@ -52,8 +52,8 @@ in music_playback.py, student_quiz.py and student_quiz_haptic.py.
 import csv
 import math
 import random
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -1243,7 +1243,7 @@ def save_sequence_as_song(
     meta = SongMeta(
         title=name.strip() or song_name,
         difficulty=LEVEL_DIFFICULTY[level],
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=time.time(),
         duration_s=duration_s,
         note_count=len(actions),
         start_note=start_note,

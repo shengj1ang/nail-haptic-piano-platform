@@ -4,10 +4,11 @@ Runs mido's blocking port read on its own thread; note-on events land in a
 small queue that the GUI thread drains on a timer, so the UI never blocks
 waiting on MIDI I/O.
 
-Events are timestamped relative to when the listener was created, the same
-convention HandTracker uses for its video timestamps - so if a MIDI log
-saved here and a video recording were started at the same moment, their
-timestamps line up for offline analysis (see app/offline.py).
+Every event carries an absolute wall-clock timestamp (time.time()) - the
+single time format used across the whole codebase. Offline analysis
+(app/offline.py) maps those absolute times onto video frames through the
+recording's sync anchors (see app.sync_led), so no relative clocks are
+ever stored.
 """
 
 import json
@@ -30,7 +31,7 @@ def list_input_ports() -> List[str]:
 
 @dataclass
 class MidiEvent:
-    time: float  # seconds since the listener started
+    time: float  # absolute wall-clock time.time() when the note was received
     note: int
 
 
@@ -59,7 +60,6 @@ class MidiListener:
             raise RuntimeError(f"MIDI port '{port_name}' not found. Available: {available}")
 
         self.port_name = port_name
-        self._start_time = time.time()
         self._events: deque = deque(maxlen=256)
         self._lock = threading.Lock()
         self._running = True
@@ -72,7 +72,7 @@ class MidiListener:
                 while self._running:
                     for msg in port.iter_pending():
                         if msg.type == "note_on" and getattr(msg, "velocity", 0) > 0:
-                            event = MidiEvent(time=time.time() - self._start_time, note=int(msg.note))
+                            event = MidiEvent(time=time.time(), note=int(msg.note))
                             with self._lock:
                                 self._events.append(event)
                     time.sleep(0.001)

@@ -1,6 +1,6 @@
-"""Data Analysis - (re-)run finger-matching over any saved quiz
-(data/quiz/<name>/) and see its Note Accuracy / Timing Error / Finger
-Accuracy.
+"""Data Analysis - list every saved quiz (data/quiz/<name>/) with its
+guidance type and Note Accuracy / Timing Error / Finger Accuracy, tick
+any subset, and (re-)run the finger-matching pass over them in a batch.
 
 This is the standalone entry point for
 app/gui/quiz_analysis_window.py - the same window student_quiz.py opens
@@ -20,7 +20,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     window = QuizAnalysisWindow(cfg)
-    window.resize(700, 500)
+    window.resize(1050, 600)
     window.show()
     sys.exit(app.exec())
 

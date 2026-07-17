@@ -71,7 +71,7 @@ class SeedConfig:
     drawing a fresh seed is the only action that changes the default."""
 
     sequence_generator: Optional[int] = None  # Experiment Sequence Generator
-    pilot_schedule: Optional[int] = None  # Controlled Pilot Study schedule
+    pilot_schedule: Optional[int] = None  # Main User Study schedule
 
 
 @dataclass

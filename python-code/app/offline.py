@@ -7,15 +7,15 @@ a camera or MIDI device connected. This is the entry point for the
 "record now, analyze later" workflow: a session's MIDI notes and video get
 captured during the experiment, and finger accuracy is computed afterward.
 
-The MIDI log's timestamps are relative to when the MIDI recorder started,
-which is always somewhat *before* the video's first frame (the recorder is
-constructed first; opening the camera/VideoWriter takes time). sync_path
-points at the session's sync.json (see app.music_recording.SyncInfo),
-which records both start moments so each event can be shifted onto the
-video's clock before being mapped to a frame. Without it, events are
-assumed to already be video-relative - and every match is read from a
-frame *later* than the actual keypress, by however long the gap between
-the two starts was.
+The MIDI log's timestamps are absolute wall-clock time.time() values.
+sync_path points at the session's sync.json (see
+app.music_recording.SyncInfo); from it and the video, app.sync_led builds
+the frame mapping - anchored on the recorded LED flash when it can be
+found in the footage (which absorbs the camera pipeline's unrecorded
+latency), falling back to the software start-time stamps otherwise. The
+anchor actually used is saved next to sync.json as sync_detect.json for
+audit. Without sync.json at all, event times are assumed to already be
+video-relative (legacy recordings only).
 """
 
 import json
@@ -31,6 +31,7 @@ from .keyboard.template import KeyboardTemplate
 from .midi import load_midi_log
 from .music_recording import SyncInfo
 from .profiles import DATA_DIR
+from .sync_led import DETECTION_FILENAME, event_epoch_time, resolve_sync_anchor
 
 
 def analyze_recording(
@@ -58,13 +59,14 @@ def analyze_recording(
     mapping = MidiMapping.load(data_dir / keyboard_profile_name / "midi_mapping.json")
     events = load_midi_log(midi_log_path)
 
-    # MIDI-relative -> video-relative (see module docstring). midi_start
-    # precedes video_start, so the shift is negative: the event happened
-    # this many seconds *earlier* on the video's clock.
-    time_offset_s = 0.0
+    # Build the wall-clock -> frame mapping (see module docstring): a saved
+    # (auto/manual) alignment wins, else the LED flash is detected now,
+    # else the start-time stamps. The anchor used is saved for audit.
+    sync = anchor = None
     if sync_path is not None and Path(sync_path).exists():
         sync = SyncInfo.load(sync_path)
-        time_offset_s = sync.midi_start_time - sync.video_start_time
+        anchor = resolve_sync_anchor(video_path, sync, keyboard_profile_name, data_dir)
+        anchor.save(Path(sync_path).parent / DETECTION_FILENAME)
 
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -99,7 +101,11 @@ def analyze_recording(
 
     results: List[Optional[FingerMatch]] = []
     for event in events:
-        frame_idx = min(max(int(round((event.time + time_offset_s) * fps)), 0), len(hands_by_frame) - 1)
+        if anchor is not None:
+            frame_idx = anchor.frame_for(event_epoch_time(event.time, sync))
+        else:
+            frame_idx = int(round(event.time * fps))  # legacy: no sync.json, video-relative times
+        frame_idx = min(max(frame_idx, 0), len(hands_by_frame) - 1)
         hands = hands_by_frame[frame_idx] if hands_by_frame else {}
         results.append(match_note_to_finger(event.note, template, mapping, hands))
 

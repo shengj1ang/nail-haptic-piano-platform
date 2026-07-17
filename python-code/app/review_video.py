@@ -38,6 +38,7 @@ from .keyboard.template import KeyboardTemplate
 from .music_recording import SyncInfo
 from .profiles import DATA_DIR
 from .quiz import QuizResult
+from .sync_led import event_epoch_time, resolve_sync_anchor
 
 # BGR
 TARGET_TINT = (255, 160, 60)  # blue-ish: "this key was cued"
@@ -191,19 +192,25 @@ def render_review_video(
     if hands_path is not None and Path(hands_path).exists():
         hands_by_frame = load_hands_by_frame(hands_path)
 
-    # MIDI-relative -> video-relative, same shift as app.offline.
-    time_offset_s = 0.0
+    # Wall-clock -> video-relative seconds, through the same LED-anchored
+    # mapping app.offline uses, so the overlay marks the exact frames the
+    # scoring read.
+    sync = anchor = None
     if sync_path is not None and Path(sync_path).exists():
         sync = SyncInfo.load(sync_path)
-        time_offset_s = sync.midi_start_time - sync.video_start_time
+        anchor = resolve_sync_anchor(video_path, sync, keyboard_profile_name, data_dir)
+
+    def to_video_s(t: Optional[float]) -> Optional[float]:
+        if t is None:
+            return None
+        if anchor is None:
+            return t  # legacy: no sync.json, times already video-relative
+        return event_epoch_time(t, sync) - anchor.frame0_epoch
 
     # One annotation segment per note: from its cue onset until the next
     # note's cue onset (the quiz presents notes strictly one at a time).
     ordered = sorted(results, key=lambda r: r.cue_onset_time)
-    segments = []  # (start_v, result, keypress_v)
-    for r in ordered:
-        keypress_v = r.keypress_time + time_offset_s if r.keypress_time is not None else None
-        segments.append((r.cue_onset_time + time_offset_s, r, keypress_v))
+    segments = [(to_video_s(r.cue_onset_time), r, to_video_s(r.keypress_time)) for r in ordered]
 
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0

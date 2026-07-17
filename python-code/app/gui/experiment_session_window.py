@@ -1,4 +1,4 @@
-"""Formal experiment session for the Controlled Pilot Study.
+"""Formal experiment session for the Main User Study.
 
 The launcher's "Formal Experiment Session" button opens THREE windows at
 once:
@@ -72,7 +72,7 @@ ACTION_COL = 7
 class ExperimentSessionWindow(QMainWindow):
     def __init__(self, cfg: Optional[Config] = None):
         super().__init__()
-        self.setWindowTitle("Controlled Pilot Study - Formal Experiment Session")
+        self.setWindowTitle("Main User Study - Formal Experiment Session")
         self.cfg = cfg or Config.load()
         self.resize(1200, 840)
 
@@ -114,7 +114,7 @@ class ExperimentSessionWindow(QMainWindow):
 
         self.info_label = QLabel(
             "Load a participant to see their schedule. (Schedules are created in the "
-            "Participant Trial Schedule window and saved under data/ControlledPilotStudy/.)"
+            "Participant Trial Schedule window and saved under data/MainUserStudy/.)"
         )
         self.info_label.setWordWrap(True)
 
@@ -215,7 +215,7 @@ class ExperimentSessionWindow(QMainWindow):
         name = self.participant_combo.currentText()
         if not name:
             QMessageBox.information(
-                self, "Nothing to load", "No saved participants under data/ControlledPilotStudy/."
+                self, "Nothing to load", "No saved participants under data/MainUserStudy/."
             )
             return
         try:

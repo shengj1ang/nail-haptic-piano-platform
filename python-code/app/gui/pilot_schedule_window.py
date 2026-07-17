@@ -1,4 +1,4 @@
-"""Participant Trial Schedule generator for the Controlled Pilot Study.
+"""Participant Trial Schedule generator for the Main User Study.
 
 Qt wrapper around app.pilot_study (which holds all the logic, GUI-free):
 fill in the participant's metadata, pick which generated stimulus batch
@@ -7,7 +7,7 @@ randomised schedule from method.tex "Trial Structure" - 3 conditions x 3
 levels x 3 unique sequences per cell, interleaved by a seeded shuffle,
 with the two mandatory 2-min rests after trials 9 and 18 marked inline.
 The table is a preview of exactly what will run; Save writes it to
-data/ControlledPilotStudy/<participant>/TrialStructure.json.
+data/MainUserStudy/<participant>/TrialStructure.json.
 
 Every trial row in that file carries its own status/timestamps, so the
 experiment runner (the next tool in this launcher section) updates the
@@ -66,7 +66,7 @@ COLUMNS = ["Trial", "Condition", "Level", "Sequence", "Rest after", "Status"]
 class PilotScheduleWindow(QMainWindow):
     def __init__(self, cfg: Optional[Config] = None):
         super().__init__()
-        self.setWindowTitle("Controlled Pilot Study - Participant Trial Schedule")
+        self.setWindowTitle("Main User Study - Participant Trial Schedule")
         self.cfg = cfg or Config.load()
         self.resize(1100, 850)
 
@@ -372,7 +372,7 @@ class PilotScheduleWindow(QMainWindow):
     def _load_existing(self) -> None:
         name = self.load_combo.currentText()
         if not name:
-            QMessageBox.information(self, "Nothing to load", "No saved participants under data/ControlledPilotStudy/.")
+            QMessageBox.information(self, "Nothing to load", "No saved participants under data/MainUserStudy/.")
             return
         try:
             doc = load_trial_structure(name)

@@ -5,18 +5,32 @@
     "target_note_name": "G3",
     "target_key_id": 4,
     "target_finger": "L3",
-    "cue_onset_time": 6.268070936203003,
+    "cue_onset_time": 1784297996.2316449,
     "timed_out": false,
     "actual_note": 55,
     "actual_key_id": 4,
-    "keypress_time": 7.134977102279663,
+    "keypress_time": 1784297997.098551,
     "timing_error_s": 0.8669061660766602,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.006732354103002284,
+      "L2": 0.3126191447612917,
+      "L3": 0.5330697199731734,
+      "L4": 0.14240174061388497,
+      "L5": 0.005148226169897145,
+      "R1": 2.4066216893491638e-05,
+      "R2": 3.843592596758635e-06,
+      "R3": 7.760079618756043e-07,
+      "R4": 1.1376816987954692e-07,
+      "R5": 1.4793128468435263e-08
+    },
+    "target_finger_probability": 0.5330697199731734,
+    "actual_finger_point": [
+      455,
+      219
+    ]
   },
   {
     "index": 1,
@@ -24,18 +38,32 @@
     "target_note_name": "C4",
     "target_key_id": 7,
     "target_finger": "L5",
-    "cue_onset_time": 7.536577224731445,
+    "cue_onset_time": 1784297997.5001512,
     "timed_out": false,
     "actual_note": 60,
     "actual_key_id": 7,
-    "keypress_time": 8.388478994369507,
+    "keypress_time": 1784297998.352053,
     "timing_error_s": 0.8519017696380615,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L5",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.00048547218578824837,
+      "L2": 0.006448498681770814,
+      "L3": 0.03732302358566218,
+      "L4": 0.37292859695974806,
+      "L5": 0.5794108548176256,
+      "R1": 0.0020451515821597187,
+      "R2": 0.001042906805568501,
+      "R3": 0.0002676732710073626,
+      "R4": 4.2511179939009575e-05,
+      "R5": 5.310930730592586e-06
+    },
+    "target_finger_probability": 0.5794108548176256,
+    "actual_finger_point": [
+      573,
+      266
+    ]
   },
   {
     "index": 2,
@@ -43,18 +71,32 @@
     "target_note_name": "A3",
     "target_key_id": 5,
     "target_finger": "L2",
-    "cue_onset_time": 8.805174112319946,
+    "cue_onset_time": 1784297998.768748,
     "timed_out": false,
     "actual_note": 57,
     "actual_key_id": 5,
-    "keypress_time": 9.314148902893066,
+    "keypress_time": 1784297999.2777228,
     "timing_error_s": 0.5089747905731201,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.03923956465156995,
+      "L2": 0.8690444755704914,
+      "L3": 0.08205537335087931,
+      "L4": 0.007443895526790374,
+      "L5": 0.0005103769565116679,
+      "R1": 0.0009031768042800813,
+      "R2": 0.0007028542770895035,
+      "R3": 8.7807733981473e-05,
+      "R4": 1.188348454874779e-05,
+      "R5": 5.916438576769609e-07
+    },
+    "target_finger_probability": 0.8690444755704914,
+    "actual_finger_point": [
+      457,
+      220
+    ]
   },
   {
     "index": 3,
@@ -62,18 +104,32 @@
     "target_note_name": "C3",
     "target_key_id": 0,
     "target_finger": "L4",
-    "cue_onset_time": 9.738364934921265,
+    "cue_onset_time": 1784297999.7019389,
     "timed_out": false,
     "actual_note": 48,
     "actual_key_id": 0,
-    "keypress_time": 10.919261932373047,
+    "keypress_time": 1784298000.8828359,
     "timing_error_s": 1.1808969974517822,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.013374563609586436,
+      "L2": 0.44146379188326285,
+      "L3": 0.44146379188326285,
+      "L4": 0.08563516501941283,
+      "L5": 0.01806268494402433,
+      "R1": 1.8913887750163207e-09,
+      "R2": 6.099407626474715e-10,
+      "R3": 1.2817055552793753e-10,
+      "R4": 2.91764489792488e-11,
+      "R5": 1.7742216896096012e-12
+    },
+    "target_finger_probability": 0.08563516501941283,
+    "actual_finger_point": [
+      275,
+      215
+    ]
   },
   {
     "index": 4,
@@ -81,18 +137,32 @@
     "target_note_name": "E4",
     "target_key_id": 9,
     "target_finger": "R2",
-    "cue_onset_time": 11.373156070709229,
+    "cue_onset_time": 1784298001.33673,
     "timed_out": false,
     "actual_note": 64,
     "actual_key_id": 9,
-    "keypress_time": 12.015652179718018,
+    "keypress_time": 1784298001.979226,
     "timing_error_s": 0.6424961090087891,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 9.45495365329753e-06,
+      "L2": 4.6607413789062355e-06,
+      "L3": 1.1042590087012765e-06,
+      "L4": 1.899820907773879e-07,
+      "L5": 1.590971308644781e-08,
+      "R1": 0.16590564957031168,
+      "R2": 0.7002372811575104,
+      "R3": 0.12047222768056703,
+      "R4": 0.012825293178109987,
+      "R5": 0.0005441225676561433
+    },
+    "target_finger_probability": 0.7002372811575104,
+    "actual_finger_point": [
+      683,
+      193
+    ]
   },
   {
     "index": 5,
@@ -100,18 +170,32 @@
     "target_note_name": "A4",
     "target_key_id": 12,
     "target_finger": "R5",
-    "cue_onset_time": 12.441195011138916,
+    "cue_onset_time": 1784298002.404769,
     "timed_out": false,
     "actual_note": 69,
     "actual_key_id": 12,
-    "keypress_time": 13.25174617767334,
+    "keypress_time": 1784298003.21532,
     "timing_error_s": 0.8105511665344238,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R4",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 1.019074102197189e-08,
+      "L2": 5.7365003235968604e-09,
+      "L3": 1.72780069409985e-09,
+      "L4": 3.220170851630414e-10,
+      "L5": 2.297954801608151e-11,
+      "R1": 0.007966219158770653,
+      "R2": 0.0400984935671525,
+      "R3": 0.24258174993530293,
+      "R4": 0.42468119868544035,
+      "R5": 0.28467232065329484
+    },
+    "target_finger_probability": 0.28467232065329484,
+    "actual_finger_point": [
+      815,
+      149
+    ]
   },
   {
     "index": 6,
@@ -119,18 +203,32 @@
     "target_note_name": "F3",
     "target_key_id": 3,
     "target_finger": "L2",
-    "cue_onset_time": 13.674345970153809,
+    "cue_onset_time": 1784298003.63792,
     "timed_out": false,
     "actual_note": 53,
     "actual_key_id": 3,
-    "keypress_time": 14.238756895065308,
+    "keypress_time": 1784298004.2023308,
     "timing_error_s": 0.564410924911499,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.031139324179236306,
+      "L2": 0.73397242773304,
+      "L3": 0.21240003698835208,
+      "L4": 0.020873313217344376,
+      "L5": 0.001613606060458505,
+      "R1": 7.698930697949331e-07,
+      "R2": 4.612692927022808e-07,
+      "R3": 4.910603901716061e-08,
+      "R4": 9.914338290074404e-09,
+      "R5": 1.6388290968020028e-09
+    },
+    "target_finger_probability": 0.73397242773304,
+    "actual_finger_point": [
+      402,
+      223
+    ]
   },
   {
     "index": 7,
@@ -138,18 +236,32 @@
     "target_note_name": "F3",
     "target_key_id": 3,
     "target_finger": "L2",
-    "cue_onset_time": 14.644083023071289,
+    "cue_onset_time": 1784298004.607657,
     "timed_out": false,
     "actual_note": 53,
     "actual_key_id": 3,
-    "keypress_time": 15.065456867218018,
+    "keypress_time": 1784298005.0290308,
     "timing_error_s": 0.4213738441467285,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.03164612821417876,
+      "L2": 0.7765537026152629,
+      "L3": 0.1767728897692292,
+      "L4": 0.014223077194810625,
+      "L5": 0.0007984090651022705,
+      "R1": 3.265499390402354e-06,
+      "R2": 2.2313818986037584e-06,
+      "R3": 2.3754957962429366e-07,
+      "R4": 5.1954916804334676e-08,
+      "R5": 6.755630855863511e-09
+    },
+    "target_finger_probability": 0.7765537026152629,
+    "actual_finger_point": [
+      383,
+      207
+    ]
   },
   {
     "index": 8,
@@ -157,18 +269,32 @@
     "target_note_name": "F4",
     "target_key_id": 10,
     "target_finger": "R2",
-    "cue_onset_time": 15.476646900177002,
+    "cue_onset_time": 1784298005.4402208,
     "timed_out": false,
     "actual_note": 65,
     "actual_key_id": 10,
-    "keypress_time": 16.036227226257324,
+    "keypress_time": 1784298005.9998012,
     "timing_error_s": 0.5595803260803223,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 2.5353150229618772e-06,
+      "L2": 6.416362495130999e-07,
+      "L3": 7.109532296581392e-08,
+      "L4": 9.621705670376881e-09,
+      "L5": 1.1096243710288261e-09,
+      "R1": 0.039985264374731176,
+      "R2": 0.8700154721837245,
+      "R3": 0.07583128934063114,
+      "R4": 0.01253482782041577,
+      "R5": 0.001629887502571692
+    },
+    "target_finger_probability": 0.8700154721837245,
+    "actual_finger_point": [
+      742,
+      209
+    ]
   },
   {
     "index": 9,
@@ -176,18 +302,32 @@
     "target_note_name": "D3",
     "target_key_id": 1,
     "target_finger": "L4",
-    "cue_onset_time": 16.44322109222412,
+    "cue_onset_time": 1784298006.406795,
     "timed_out": false,
     "actual_note": 50,
     "actual_key_id": 1,
-    "keypress_time": 17.28873085975647,
+    "keypress_time": 1784298007.2523048,
     "timing_error_s": 0.8455097675323486,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.16469646450934147,
+      "L2": 0.6001101590101602,
+      "L3": 0.1773503858475549,
+      "L4": 0.04198596329949943,
+      "L5": 0.01585664245228728,
+      "R1": 2.848447095090929e-07,
+      "R2": 8.767509808934525e-08,
+      "R3": 1.0111141299177743e-08,
+      "R4": 2.04140422125594e-09,
+      "R5": 2.0880341135691383e-10
+    },
+    "target_finger_probability": 0.04198596329949943,
+    "actual_finger_point": [
+      332,
+      280
+    ]
   },
   {
     "index": 10,
@@ -195,18 +335,32 @@
     "target_note_name": "C4",
     "target_key_id": 7,
     "target_finger": "L2",
-    "cue_onset_time": 17.746165990829468,
+    "cue_onset_time": 1784298007.70974,
     "timed_out": false,
     "actual_note": 60,
     "actual_key_id": 7,
-    "keypress_time": 18.274946212768555,
+    "keypress_time": 1784298008.2385201,
     "timing_error_s": 0.5287802219390869,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.0004500981213902705,
+      "L2": 0.00013852744938917566,
+      "L3": 4.1723665946980185e-05,
+      "L4": 7.776205517478833e-06,
+      "L5": 8.967918425200958e-07,
+      "R1": 0.023845091424952412,
+      "R2": 0.8151019663848722,
+      "R3": 0.14023410680858606,
+      "R4": 0.018978622564373396,
+      "R5": 0.0012011905831293718
+    },
+    "target_finger_probability": 0.00013852744938917566,
+    "actual_finger_point": [
+      615,
+      226
+    ]
   },
   {
     "index": 11,
@@ -214,18 +368,32 @@
     "target_note_name": "G3",
     "target_key_id": 4,
     "target_finger": "L4",
-    "cue_onset_time": 18.68530797958374,
+    "cue_onset_time": 1784298008.648882,
     "timed_out": false,
     "actual_note": 55,
     "actual_key_id": 4,
-    "keypress_time": 19.551850080490112,
+    "keypress_time": 1784298009.515424,
     "timing_error_s": 0.8665421009063721,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L4",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.0007639191168810566,
+      "L2": 0.07758977846516796,
+      "L3": 0.28152363991062856,
+      "L4": 0.5783715154137463,
+      "L5": 0.06157256650650939,
+      "R1": 9.119462630794731e-05,
+      "R2": 7.13767154065264e-05,
+      "R3": 1.3845658273142937e-05,
+      "R4": 2.029869898120436e-06,
+      "R5": 1.3371718105623145e-07
+    },
+    "target_finger_probability": 0.5783715154137463,
+    "actual_finger_point": [
+      432,
+      208
+    ]
   },
   {
     "index": 12,
@@ -233,18 +401,32 @@
     "target_note_name": "F4",
     "target_key_id": 10,
     "target_finger": "R2",
-    "cue_onset_time": 19.980102062225342,
+    "cue_onset_time": 1784298009.943676,
     "timed_out": false,
     "actual_note": 65,
     "actual_key_id": 10,
-    "keypress_time": 20.570529222488403,
+    "keypress_time": 1784298010.5341032,
     "timing_error_s": 0.5904271602630615,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 7.876101571961486e-06,
+      "L2": 7.061000061613153e-06,
+      "L3": 8.821322360315348e-07,
+      "L4": 1.0588376885331793e-07,
+      "L5": 9.228919449258811e-09,
+      "R1": 0.06714345261059582,
+      "R2": 0.8685554369054913,
+      "R3": 0.05721587611186636,
+      "R4": 0.0065984278378997795,
+      "R5": 0.000470872187588728
+    },
+    "target_finger_probability": 0.8685554369054913,
+    "actual_finger_point": [
+      743,
+      208
+    ]
   },
   {
     "index": 13,
@@ -252,18 +434,32 @@
     "target_note_name": "G4",
     "target_key_id": 11,
     "target_finger": "R5",
-    "cue_onset_time": 20.980770111083984,
+    "cue_onset_time": 1784298010.944344,
     "timed_out": false,
     "actual_note": 67,
     "actual_key_id": 11,
-    "keypress_time": 21.734926223754883,
+    "keypress_time": 1784298011.6985002,
     "timing_error_s": 0.7541561126708984,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R3",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 5.409009614001753e-07,
+      "L2": 5.866120776448868e-07,
+      "L3": 7.041200298420493e-08,
+      "L4": 8.796586474143925e-09,
+      "L5": 6.800178341707383e-10,
+      "R1": 0.004925627804632192,
+      "R2": 0.09937029119012385,
+      "R3": 0.3871658629324005,
+      "R4": 0.3871658629324005,
+      "R5": 0.1213711477387965
+    },
+    "target_finger_probability": 0.1213711477387965,
+    "actual_finger_point": [
+      759,
+      180
+    ]
   },
   {
     "index": 14,
@@ -271,18 +467,32 @@
     "target_note_name": "C3",
     "target_key_id": 0,
     "target_finger": "L3",
-    "cue_onset_time": 22.149848222732544,
+    "cue_onset_time": 1784298012.1134222,
     "timed_out": false,
     "actual_note": 48,
     "actual_key_id": 0,
-    "keypress_time": 23.318350076675415,
+    "keypress_time": 1784298013.281924,
     "timing_error_s": 1.168501853942871,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.0920987079302564,
+      "L2": 0.25522380080530194,
+      "L3": 0.46336353977498074,
+      "L4": 0.18533051719305751,
+      "L5": 0.0039834202536269125,
+      "R1": 1.0602765851416996e-08,
+      "R2": 3.057664436314915e-09,
+      "R3": 3.127507812707818e-10,
+      "R4": 5.828860661486745e-11,
+      "R5": 1.1306826376229182e-11
+    },
+    "target_finger_probability": 0.46336353977498074,
+    "actual_finger_point": [
+      233,
+      270
+    ]
   },
   {
     "index": 15,
@@ -290,18 +500,32 @@
     "target_note_name": "D3",
     "target_key_id": 1,
     "target_finger": "L5",
-    "cue_onset_time": 23.78160309791565,
+    "cue_onset_time": 1784298013.745177,
     "timed_out": false,
     "actual_note": 50,
     "actual_key_id": 1,
-    "keypress_time": 24.635241985321045,
+    "keypress_time": 1784298014.598816,
     "timing_error_s": 0.8536388874053955,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L5",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.0010991394298591262,
+      "L2": 0.009443288543008384,
+      "L3": 0.05964497524636488,
+      "L4": 0.34668268451018797,
+      "L5": 0.5831298610179719,
+      "R1": 3.544991147398787e-08,
+      "R2": 1.3789679715480442e-08,
+      "R3": 1.5279400652802382e-09,
+      "R4": 3.921622842932931e-10,
+      "R5": 9.291413105727117e-11
+    },
+    "target_finger_probability": 0.5831298610179719,
+    "actual_finger_point": [
+      307,
+      233
+    ]
   },
   {
     "index": 16,
@@ -309,18 +533,32 @@
     "target_note_name": "D4",
     "target_key_id": 8,
     "target_finger": "R3",
-    "cue_onset_time": 25.051476001739502,
+    "cue_onset_time": 1784298015.01505,
     "timed_out": false,
     "actual_note": 62,
     "actual_key_id": 8,
-    "keypress_time": 25.7443950176239,
+    "keypress_time": 1784298015.707969,
     "timing_error_s": 0.6929190158843994,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.002170587449969592,
+      "L2": 0.000662028266068358,
+      "L3": 0.00010943253635236419,
+      "L4": 1.6043571712839222e-05,
+      "L5": 1.514837621992163e-06,
+      "R1": 0.008913375146110776,
+      "R2": 0.0982537063824062,
+      "R3": 0.5059623883902408,
+      "R4": 0.31786276771152244,
+      "R5": 0.06604815570799458
+    },
+    "target_finger_probability": 0.5059623883902408,
+    "actual_finger_point": [
+      672,
+      298
+    ]
   },
   {
     "index": 17,
@@ -328,18 +566,32 @@
     "target_note_name": "F3",
     "target_key_id": 3,
     "target_finger": "L4",
-    "cue_onset_time": 26.18449902534485,
+    "cue_onset_time": 1784298016.148073,
     "timed_out": false,
     "actual_note": 53,
     "actual_key_id": 3,
-    "keypress_time": 26.863566160202026,
+    "keypress_time": 1784298016.82714,
     "timing_error_s": 0.6790671348571777,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L3",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.009883582050864217,
+      "L2": 0.1796504740985122,
+      "L3": 0.47271094056234825,
+      "L4": 0.31686761943930364,
+      "L5": 0.020873576616243034,
+      "R1": 7.76703020415244e-06,
+      "R2": 5.084716935313394e-06,
+      "R3": 7.758774949032886e-07,
+      "R4": 1.696936309540557e-07,
+      "R5": 9.914463398424938e-09
+    },
+    "target_finger_probability": 0.31686761943930364,
+    "actual_finger_point": [
+      398,
+      214
+    ]
   },
   {
     "index": 18,
@@ -347,18 +599,32 @@
     "target_note_name": "B4",
     "target_key_id": 13,
     "target_finger": "R1",
-    "cue_onset_time": 27.31851291656494,
+    "cue_onset_time": 1784298017.2820868,
     "timed_out": false,
     "actual_note": 71,
     "actual_key_id": 13,
-    "keypress_time": 28.529121160507202,
+    "keypress_time": 1784298018.492695,
     "timing_error_s": 1.2106082439422607,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 4.250351644433056e-10,
+      "L2": 4.943431366520473e-11,
+      "L3": 5.47747808557895e-12,
+      "L4": 1.1510157249918482e-12,
+      "L5": 1.3815829191306644e-13,
+      "R1": 0.7186532358932666,
+      "R2": 0.24405142339961028,
+      "R3": 0.0304893961126794,
+      "R4": 0.005459618714045157,
+      "R5": 0.001346325399162313
+    },
+    "target_finger_probability": 0.7186532358932666,
+    "actual_finger_point": [
+      877,
+      246
+    ]
   },
   {
     "index": 19,
@@ -366,18 +632,32 @@
     "target_note_name": "D4",
     "target_key_id": 8,
     "target_finger": "L2",
-    "cue_onset_time": 28.956430196762085,
+    "cue_onset_time": 1784298018.9200041,
     "timed_out": false,
     "actual_note": 62,
     "actual_key_id": 8,
-    "keypress_time": 29.89159917831421,
+    "keypress_time": 1784298019.855173,
     "timing_error_s": 0.935168981552124,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.014170927623242605,
+      "L2": 0.285922514312345,
+      "L3": 0.1464243210268808,
+      "L4": 0.018233465637205137,
+      "L5": 0.0008714519392511254,
+      "R1": 0.16623278706740982,
+      "R2": 0.3382399490770656,
+      "R3": 0.02512229131298774,
+      "R4": 0.00432216118786598,
+      "R5": 0.0004601308157462673
+    },
+    "target_finger_probability": 0.285922514312345,
+    "actual_finger_point": [
+      742,
+      214
+    ]
   },
   {
     "index": 20,
@@ -385,18 +665,32 @@
     "target_note_name": "C5",
     "target_key_id": 14,
     "target_finger": "R3",
-    "cue_onset_time": 30.356740951538086,
+    "cue_onset_time": 1784298020.320315,
     "timed_out": false,
     "actual_note": 72,
     "actual_key_id": 14,
-    "keypress_time": 32.250431060791016,
+    "keypress_time": 1784298022.214005,
     "timing_error_s": 1.8936901092529297,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 6.4447351768170306e-12,
+      "L2": 1.4615411675191364e-12,
+      "L3": 3.751202916050689e-13,
+      "L4": 1.0020787237143791e-13,
+      "L5": 3.0182031146313684e-14,
+      "R1": 0.07054322455651331,
+      "R2": 0.5877053026051391,
+      "R3": 0.3098925536336172,
+      "R4": 0.025951402028281684,
+      "R5": 0.005907517168037035
+    },
+    "target_finger_probability": 0.3098925536336172,
+    "actual_finger_point": [
+      936,
+      185
+    ]
   },
   {
     "index": 21,
@@ -404,18 +698,32 @@
     "target_note_name": "C4",
     "target_key_id": 7,
     "target_finger": "L4",
-    "cue_onset_time": 32.656935930252075,
+    "cue_onset_time": 1784298022.6205099,
     "timed_out": false,
     "actual_note": 60,
     "actual_key_id": 7,
-    "keypress_time": 33.75771903991699,
+    "keypress_time": 1784298023.721293,
     "timing_error_s": 1.100783109664917,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L4",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.0013271062822941457,
+      "L2": 0.07563504467576086,
+      "L3": 0.3735309419201328,
+      "L4": 0.5143998309567767,
+      "L5": 0.025610459552262696,
+      "R1": 0.0027198008625129023,
+      "R2": 0.004967918027037096,
+      "R3": 0.0015573736492337066,
+      "R4": 0.00023763980983955546,
+      "R5": 1.3884264149553365e-05
+    },
+    "target_finger_probability": 0.5143998309567767,
+    "actual_finger_point": [
+      567,
+      216
+    ]
   },
   {
     "index": 22,
@@ -423,18 +731,32 @@
     "target_note_name": "D4",
     "target_key_id": 8,
     "target_finger": "R5",
-    "cue_onset_time": 34.19225192070007,
+    "cue_onset_time": 1784298024.1558259,
     "timed_out": false,
     "actual_note": 62,
     "actual_key_id": 8,
-    "keypress_time": 35.24425292015076,
+    "keypress_time": 1784298025.2078269,
     "timing_error_s": 1.0520009994506836,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R4",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 4.798580776245735e-05,
+      "L2": 2.390755377828605e-05,
+      "L3": 5.664363132261608e-06,
+      "L4": 9.745245837342565e-07,
+      "L5": 9.577002510316321e-08,
+      "R1": 0.008358726477547623,
+      "R2": 0.03057766112816075,
+      "R3": 0.12985769378585363,
+      "R4": 0.4487379951494243,
+      "R5": 0.38238929543973177
+    },
+    "target_finger_probability": 0.38238929543973177,
+    "actual_finger_point": [
+      613,
+      200
+    ]
   },
   {
     "index": 23,
@@ -442,18 +764,32 @@
     "target_note_name": "A3",
     "target_key_id": 5,
     "target_finger": "R3",
-    "cue_onset_time": 35.692720890045166,
+    "cue_onset_time": 1784298025.6562948,
     "timed_out": false,
     "actual_note": 57,
     "actual_key_id": 5,
-    "keypress_time": 36.81980919837952,
+    "keypress_time": 1784298026.7833831,
     "timing_error_s": 1.1270883083343506,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.022883867694715013,
+      "L2": 0.025434062965861835,
+      "L3": 0.002707672303633395,
+      "L4": 0.0002556590232515112,
+      "L5": 1.9763654434445617e-05,
+      "R1": 0.008944218334376157,
+      "R2": 0.08444406286690477,
+      "R3": 0.7322260935588735,
+      "R4": 0.11629026350734557,
+      "R5": 0.0067943360906039555
+    },
+    "target_finger_probability": 0.7322260935588735,
+    "actual_finger_point": [
+      517,
+      225
+    ]
   },
   {
     "index": 24,
@@ -461,18 +797,32 @@
     "target_note_name": "A3",
     "target_key_id": 5,
     "target_finger": "L1",
-    "cue_onset_time": 37.22664999961853,
+    "cue_onset_time": 1784298027.190224,
     "timed_out": false,
     "actual_note": 57,
     "actual_key_id": 5,
-    "keypress_time": 38.179686069488525,
+    "keypress_time": 1784298028.14326,
     "timing_error_s": 0.9530360698699951,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.9700662640680103,
+      "L2": 0.015613996277370973,
+      "L3": 0.0031990502058520964,
+      "L4": 0.0008555593964679947,
+      "L5": 0.00018268114144096698,
+      "R1": 0.005825775572443952,
+      "R2": 0.003487255366872177,
+      "R3": 0.0006499336481887391,
+      "R4": 0.00011181774599664998,
+      "R5": 7.666577355952207e-06
+    },
+    "target_finger_probability": 0.9700662640680103,
+    "actual_finger_point": [
+      459,
+      283
+    ]
   },
   {
     "index": 25,
@@ -480,18 +830,32 @@
     "target_note_name": "B3",
     "target_key_id": 6,
     "target_finger": "R5",
-    "cue_onset_time": 38.62298512458801,
+    "cue_onset_time": 1784298028.586559,
     "timed_out": false,
     "actual_note": 59,
     "actual_key_id": 6,
-    "keypress_time": 40.09279799461365,
+    "keypress_time": 1784298030.056372,
     "timing_error_s": 1.4698128700256348,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R4",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.011645771972288568,
+      "L2": 0.003923467829082055,
+      "L3": 0.0005752076994378799,
+      "L4": 5.0135592850493056e-05,
+      "L5": 4.927004475818344e-06,
+      "R1": 0.011985269393828947,
+      "R2": 0.0172355810539897,
+      "R3": 0.08885234197517741,
+      "R4": 0.5822942551513958,
+      "R5": 0.28343304232747324
+    },
+    "target_finger_probability": 0.28343304232747324,
+    "actual_finger_point": [
+      519,
+      186
+    ]
   },
   {
     "index": 26,
@@ -499,18 +863,32 @@
     "target_note_name": "A4",
     "target_key_id": 12,
     "target_finger": "R1",
-    "cue_onset_time": 40.56187391281128,
+    "cue_onset_time": 1784298030.5254478,
     "timed_out": false,
     "actual_note": 69,
     "actual_key_id": 12,
-    "keypress_time": 41.44807815551758,
+    "keypress_time": 1784298031.411652,
     "timing_error_s": 0.8862042427062988,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 6.066181047447397e-07,
+      "L2": 1.4697383396994003e-07,
+      "L3": 1.9890745448692686e-08,
+      "L4": 2.1175390114562565e-09,
+      "L5": 2.1659079797600634e-10,
+      "R1": 0.8754552289854318,
+      "R2": 0.10096198024614966,
+      "R3": 0.019584609197920308,
+      "R4": 0.003369431422483863,
+      "R5": 0.0006279743312004422
+    },
+    "target_finger_probability": 0.8754552289854318,
+    "actual_finger_point": [
+      863,
+      223
+    ]
   },
   {
     "index": 27,
@@ -518,18 +896,32 @@
     "target_note_name": "B4",
     "target_key_id": 13,
     "target_finger": "R1",
-    "cue_onset_time": 41.86268496513367,
+    "cue_onset_time": 1784298031.826259,
     "timed_out": false,
     "actual_note": 71,
     "actual_key_id": 13,
-    "keypress_time": 42.565118074417114,
+    "keypress_time": 1784298032.528692,
     "timing_error_s": 0.7024331092834473,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 4.903041938403232e-08,
+      "L2": 1.3138550144661316e-08,
+      "L3": 1.5152048856977197e-09,
+      "L4": 1.6788948690134656e-10,
+      "L5": 2.3648648014168126e-11,
+      "R1": 0.8978833049714258,
+      "R2": 0.07826027337480729,
+      "R3": 0.01929874581146762,
+      "R4": 0.003596783989457131,
+      "R5": 0.0009608279771295664
+    },
+    "target_finger_probability": 0.8978833049714258,
+    "actual_finger_point": [
+      893,
+      228
+    ]
   },
   {
     "index": 28,
@@ -537,18 +929,32 @@
     "target_note_name": "D4",
     "target_key_id": 8,
     "target_finger": "L3",
-    "cue_onset_time": 42.99931287765503,
+    "cue_onset_time": 1784298032.9628868,
     "timed_out": false,
     "actual_note": 62,
     "actual_key_id": 8,
-    "keypress_time": 43.817878007888794,
+    "keypress_time": 1784298033.781452,
     "timing_error_s": 0.8185651302337646,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "L3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.0006547411984052718,
+      "L2": 0.09697947852995466,
+      "L3": 0.8128353415536738,
+      "L4": 0.06540041193353047,
+      "L5": 0.0015227662118716388,
+      "R1": 0.01512212792063318,
+      "R2": 0.005932991514894353,
+      "R3": 0.0012467355274073722,
+      "R4": 0.00027267587972963116,
+      "R5": 3.2729729899741767e-05
+    },
+    "target_finger_probability": 0.8128353415536738,
+    "actual_finger_point": [
+      617,
+      245
+    ]
   },
   {
     "index": 29,
@@ -556,17 +962,31 @@
     "target_note_name": "F4",
     "target_key_id": 10,
     "target_finger": "R4",
-    "cue_onset_time": 44.230666160583496,
+    "cue_onset_time": 1784298034.19424,
     "timed_out": false,
     "actual_note": 65,
     "actual_key_id": 10,
-    "keypress_time": 45.48073601722717,
+    "keypress_time": 1784298035.44431,
     "timing_error_s": 1.2500698566436768,
     "note_correct": true,
-    "actual_finger": null,
-    "finger_correct": null,
-    "finger_probabilities": null,
-    "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger": "R3",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 1.76476712957923e-05,
+      "L2": 8.221585709780653e-06,
+      "L3": 1.5322896180806155e-06,
+      "L4": 1.9142926713649608e-07,
+      "L5": 1.2115896832858876e-08,
+      "R1": 0.011461663068967022,
+      "R2": 0.34343841890808335,
+      "R3": 0.3872257360302627,
+      "R4": 0.23021365677287364,
+      "R5": 0.027632920128025568
+    },
+    "target_finger_probability": 0.23021365677287364,
+    "actual_finger_point": [
+      734,
+      191
+    ]
   }
 ]

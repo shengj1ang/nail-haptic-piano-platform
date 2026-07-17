@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .finger_matching import FINGER_PROBABILITY_THRESHOLD
 from .keyboard.midi_mapping import note_name
 from .music_recording import MUSIC_DATA_DIR, FINGERING_FILENAME, sanitize_song_name, song_dir
 
@@ -115,7 +116,7 @@ class QuizResult:
     target_note_name: str
     target_key_id: Optional[int]
     target_finger: Optional[str]
-    cue_onset_time: float  # seconds, same relative clock as the raw MIDI log
+    cue_onset_time: float  # absolute wall-clock time.time(), same clock as the raw MIDI log
     timed_out: bool
     actual_note: Optional[int] = None
     actual_key_id: Optional[int] = None
@@ -153,7 +154,7 @@ class QuizMeta:
     song_name: str
     keyboard_profile_name: str
     port_name: Optional[str]
-    created_at: str
+    created_at: float  # absolute wall-clock time.time() timestamp
     timeout_s: float
     note_count: int
     hits: int
@@ -181,29 +182,251 @@ class QuizMeta:
             return cls(**json.load(f))
 
 
-def summarize(results: List[QuizResult]) -> Dict[str, Optional[float]]:
-    """The three headline numbers: Note Accuracy (target key vs actual
-    key), mean Timing Error (keypress time - cue onset time), and Finger
-    Accuracy (the share of attempts whose finger_correct judgment passed -
-    i.e. the target finger held enough softmax probability mass, see
-    app.finger_matching.is_finger_correct) - the last one only over
-    attempts where both target and detected finger are actually known."""
+# Every finger label a quiz target/detection can carry, table order.
+FINGER_LABELS = ["L1", "L2", "L3", "L4", "L5", "R1", "R2", "R3", "R4", "R5"]
+
+# Alternative finger-probability thresholds for the report's sensitivity
+# analysis (method.tex "Finger-Matching Validation and Sensitivity
+# Analysis") - the primary theta = 0.40 lives in app.finger_matching.
+SENSITIVITY_THRESHOLDS = [0.30, 0.35, 0.45, 0.50]
+
+# An event whose target-finger probability lands within this margin of the
+# decision threshold is "borderline" - the finger verdict could flip under
+# a slightly different theta, so these are the events most worth checking
+# in the review video during the manual audit.
+BORDERLINE_MARGIN = 0.05
+
+# A keypress this soon after cue onset is faster than a planned reaction -
+# the participant was almost certainly moving before the cue.
+ANTICIPATION_THRESHOLD_S = 0.1
+
+
+def _mean(values: List[float]) -> Optional[float]:
+    return statistics.mean(values) if values else None
+
+
+def summarize(results: List[QuizResult]) -> Dict[str, object]:
+    """Per-trial outcome measures, following the report's "Outcome
+    Measures and Pilot Analysis Plan" (final_report_2026/method/method.tex).
+
+    Per event t: K_t = key correct, F_t = finger correct under the
+    theta = 0.40 threshold rule (see app.finger_matching.is_finger_correct;
+    unresolved counts as incorrect), A_t = K_t and F_t in the same event.
+
+    The three finger-accuracy views:
+      - fa_main   = sum(A) / total          (the report's primary measure)
+      - fa_key    = sum(A) / sum(K)         (finger correct, given correct key)
+      - fa_finger = sum(A) / sum(F)         (key correct, given correct finger)
+
+    finger_accuracy is kept as an alias of fa_main - it's what
+    QuizMeta.finger_accuracy stores.
+
+    Cross-trial aggregation (per participant / condition / all data) is
+    deliberately not here - single-trial numbers only.
+    """
     total = len(results)
     hits = sum(1 for r in results if r.note_correct)
     misses = sum(1 for r in results if r.timed_out)
+    responded = [r for r in results if not r.timed_out]
+
+    def a(r: QuizResult) -> bool:  # A_t: complete action correct
+        return r.note_correct and bool(r.finger_correct)
+
+    a_count = sum(1 for r in results if a(r))
+    f_count = sum(1 for r in results if r.finger_correct)
 
     timing_errors = [r.timing_error_s for r in results if r.timing_error_s is not None]
-    mean_timing_error_s = statistics.mean(timing_errors) if timing_errors else None
 
-    finger_checks = [r for r in results if r.target_finger is not None and r.actual_finger is not None]
-    finger_accuracy = (
-        sum(1 for r in finger_checks if r.finger_correct) / len(finger_checks) if finger_checks else None
+    # Error breakdown (counts; false starts need the raw MIDI log and are
+    # left to the offline scripts).
+    wrong_key = sum(1 for r in responded if not r.note_correct)
+    key_ok_wrong_finger = sum(1 for r in results if r.note_correct and not r.finger_correct)
+
+    # Detection-quality rates, over responded events only (a timeout has
+    # no keypress moment to detect a finger at). Unresolved = no hand/
+    # fingertip visible; ambiguous = resolved but no single fingertip held
+    # a majority of the softmax mass.
+    unresolved = sum(1 for r in responded if r.actual_finger is None)
+    with_probs = [r for r in responded if r.finger_probabilities]
+    ambiguous = sum(1 for r in with_probs if max(r.finger_probabilities.values()) < 0.5)
+
+    # Hand-transition effects: event t is a "switch" when its target hand
+    # differs from event t-1's. First event has no predecessor.
+    same_hand: List[QuizResult] = []
+    hand_switch: List[QuizResult] = []
+    for prev, cur in zip(results, results[1:]):
+        if prev.target_finger and cur.target_finger:
+            (hand_switch if cur.target_finger[0] != prev.target_finger[0] else same_hand).append(cur)
+
+    def transition_stats(events: List[QuizResult]) -> Dict[str, Optional[float]]:
+        return {
+            "n": len(events),
+            "fa_main": (sum(1 for r in events if a(r)) / len(events)) if events else None,
+            "mean_timing_error_s": _mean([r.timing_error_s for r in events if r.timing_error_s is not None]),
+        }
+
+    # Per-finger profiles, keyed by the event's *target* finger.
+    finger_stats: Dict[str, Dict[str, Optional[float]]] = {}
+    for finger in FINGER_LABELS:
+        events = [r for r in results if r.target_finger == finger]
+        finger_stats[finger] = {
+            "n": len(events),
+            "fa_main": (sum(1 for r in events if a(r)) / len(events)) if events else None,
+            "mean_timing_error_s": _mean([r.timing_error_s for r in events if r.timing_error_s is not None]),
+        }
+
+    # Threshold sensitivity: re-judge F_t from the stored target-finger
+    # probability under alternative thetas - no video pass needed.
+    fa_theta: Dict[str, Optional[float]] = {}
+    for theta in SENSITIVITY_THRESHOLDS:
+        a_theta = sum(
+            1
+            for r in results
+            if r.note_correct and r.target_finger_probability is not None and r.target_finger_probability >= theta
+        )
+        fa_theta[f"{theta:.2f}"] = a_theta / total if total else None
+
+    # Timing distribution beyond the mean - spread and tail.
+    sorted_te = sorted(timing_errors)
+    timing_stats = {
+        "median_s": statistics.median(sorted_te) if sorted_te else None,
+        "sd_s": statistics.stdev(sorted_te) if len(sorted_te) >= 2 else None,
+        "min_s": sorted_te[0] if sorted_te else None,
+        "max_s": sorted_te[-1] if sorted_te else None,
+        "p95_s": sorted_te[min(len(sorted_te) - 1, int(0.95 * len(sorted_te)))] if sorted_te else None,
+    }
+
+    # Within-trial trend: least-squares slope of RT over event index
+    # (learning/fatigue inside one trial), plus a first-half vs
+    # second-half split of FA and RT.
+    xy = [(r.index, r.timing_error_s) for r in results if r.timing_error_s is not None]
+    rt_slope = None
+    if len(xy) >= 2:
+        mean_x = _mean([x for x, _ in xy])
+        mean_y = _mean([y for _, y in xy])
+        denom = sum((x - mean_x) ** 2 for x, _ in xy)
+        rt_slope = sum((x - mean_x) * (y - mean_y) for x, y in xy) / denom if denom else None
+
+    def half_stats(events: List[QuizResult]) -> Dict[str, Optional[float]]:
+        return {
+            "fa_main": (sum(1 for r in events if a(r)) / len(events)) if events else None,
+            "mean_timing_error_s": _mean([r.timing_error_s for r in events if r.timing_error_s is not None]),
+        }
+
+    first_half = half_stats(results[: total // 2])
+    second_half = half_stats(results[total // 2:])
+
+    # Wrong-key spatial profile: how far off (in semitones) and to which
+    # side - near-misses and wild presses are different kinds of error.
+    wrong_events = [r for r in responded if not r.note_correct and r.actual_note is not None]
+    wrong_key_stats = {
+        "mean_abs_semitones": _mean([abs(r.actual_note - r.target_note) for r in wrong_events]),
+        "below": sum(1 for r in wrong_events if r.actual_note < r.target_note),
+        "above": sum(1 for r in wrong_events if r.actual_note > r.target_note),
+    }
+
+    # Detection-confidence profile. Borderline events are the manual-audit
+    # priority: their finger verdict sits within BORDERLINE_MARGIN of the
+    # threshold and could flip under a slightly different theta.
+    target_probs = [r.target_finger_probability for r in results if r.target_finger_probability is not None]
+    margins = [
+        sorted(r.finger_probabilities.values(), reverse=True)
+        for r in with_probs
+        if len(r.finger_probabilities) >= 2
+    ]
+    confidence = {
+        "mean_target_prob": _mean(target_probs),
+        "mean_top_margin": _mean([m[0] - m[1] for m in margins]),
+        "borderline": sum(1 for p in target_probs if abs(p - FINGER_PROBABILITY_THRESHOLD) <= BORDERLINE_MARGIN),
+    }
+
+    anticipation = sum(
+        1 for r in results if r.timing_error_s is not None and r.timing_error_s < ANTICIPATION_THRESHOLD_S
     )
 
+    # Target-vs-detected finger confusion counts (None = unresolved), for
+    # the per-trial detail view's confusion matrix.
+    confusion: Dict[str, Dict[Optional[str], int]] = {}
+    for r in responded:
+        if r.target_finger is None:
+            continue
+        row = confusion.setdefault(r.target_finger, {})
+        row[r.actual_finger] = row.get(r.actual_finger, 0) + 1
+
+    fa_main = a_count / total if total else None
     return {
+        # Headline (QuizMeta) fields
         "note_accuracy": hits / total if total else 0.0,
         "hits": hits,
         "misses": misses,
-        "mean_timing_error_s": mean_timing_error_s,
-        "finger_accuracy": finger_accuracy,
+        "mean_timing_error_s": _mean(timing_errors),
+        "finger_accuracy": fa_main,
+        # The three finger-accuracy views
+        "fa_main": fa_main,
+        "fa_key": a_count / hits if hits else None,
+        "fa_finger": a_count / f_count if f_count else None,
+        # Reaction time stratified by correctness
+        "rt_correct_key_s": _mean([r.timing_error_s for r in results if r.note_correct and r.timing_error_s is not None]),
+        "rt_complete_s": _mean([r.timing_error_s for r in results if a(r) and r.timing_error_s is not None]),
+        # Error breakdown
+        "timeout_rate": misses / total if total else None,
+        "wrong_key": wrong_key,
+        "key_ok_wrong_finger": key_ok_wrong_finger,
+        # Finger-detection quality
+        "unresolved_rate": unresolved / len(responded) if responded else None,
+        "ambiguous_rate": ambiguous / len(with_probs) if with_probs else None,
+        # Hand transitions / per-finger profiles / threshold sensitivity
+        "same_hand": transition_stats(same_hand),
+        "hand_switch": transition_stats(hand_switch),
+        "finger_stats": finger_stats,
+        "fa_theta": fa_theta,
+        # Distribution / trend / audit extras (mainly for the detail view)
+        "timing_stats": timing_stats,
+        "rt_slope_s_per_event": rt_slope,
+        "first_half": first_half,
+        "second_half": second_half,
+        "wrong_key_stats": wrong_key_stats,
+        "confidence": confidence,
+        "anticipation": anticipation,
+        "confusion": confusion,
     }
+
+
+def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optional[Dict[str, int]]:
+    """False starts / extra keypresses: note_on events in the raw MIDI log
+    (midi_raw.json) that were never matched to a cue event. The quiz
+    runner only records the press it matched to each cue, so double
+    presses, corrections, and presses outside every response window are
+    only visible here. None if the raw log is missing."""
+    try:
+        with open(midi_raw_path) as f:
+            events = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+    note_ons = [e for e in events if e.get("type") == "note_on"]
+    # Consume the note_on nearest each matched keypress (same note, within
+    # 5 ms - both timestamps come from the same MIDI clock, so they agree
+    # to float precision; the tolerance just absorbs rounding).
+    unmatched = list(note_ons)
+    for r in results:
+        if r.keypress_time is None or r.actual_note is None:
+            continue
+        best = None
+        for e in unmatched:
+            if e["note"] == r.actual_note and abs(e["abs_time"] - r.keypress_time) <= 0.005:
+                if best is None or abs(e["abs_time"] - r.keypress_time) < abs(best["abs_time"] - r.keypress_time):
+                    best = e
+        if best is not None:
+            unmatched.remove(best)
+    return {"note_on_total": len(note_ons), "extra_presses": len(unmatched)}
+
+
+def full_summary(quiz_name: str, results: List[QuizResult]) -> Dict[str, object]:
+    """summarize() plus the raw-MIDI extras (false starts, under the
+    "extra" key; None when midi_raw.json is missing) - everything the
+    analysis table or the per-trial detail view needs, computed fresh
+    from the disk-backed per-event data."""
+    s = summarize(results)
+    s["extra"] = count_extra_presses(results, quiz_raw_dir(quiz_name) / RAW_MIDI_FILENAME)
+    return s

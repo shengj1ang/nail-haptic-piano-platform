@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "created_at": 1783630352.013646,
+  "participant": {
+    "name": "P01",
+    "sex": "male",
+    "age": 20,
+    "handedness": "right",
+    "piano_experience_years": 0,
+    "notes": ""
+  },
+  "keyboard_profile": "white-city-lab-20260708",
+  "sequence_batch": "1799551287",
+  "schedule_seed": 1466861749,
+  "conditions": {
+    "A": "Key-only practice",
+    "B": "Visual finger-cue guidance",
+    "C": "Vibrotactile finger guidance"
+  },
+  "rest_after_trials": [
+    9,
+    18
+  ],
+  "rest_duration_s": 120,
+  "trials": [
+    {
+      "index": 1,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-1",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784133976.118152,
+      "completed_at": 1784134027.534213,
+      "quiz_name": "P01-T01-B\u03b2",
+      "quiz_attempts": [
+        "P01-T01-B\u03b2"
+      ]
+    },
+    {
+      "index": 2,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-6",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784134530.518484,
+      "completed_at": 1784134575.220354,
+      "quiz_name": "P01-T02-C\u03b1",
+      "quiz_attempts": [
+        "P01-T02-C\u03b1"
+      ]
+    },
+    {
+      "index": 3,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-6",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 4,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-5",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784134063.936064,
+      "completed_at": 1784134110.700432,
+      "quiz_name": "P01-T04-B\u03b2",
+      "quiz_attempts": [
+        "P01-T04-B\u03b2"
+      ]
+    },
+    {
+      "index": 5,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-3",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 6,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-5",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 7,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-9",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784295229.092532,
+      "completed_at": 1784295276.315616,
+      "quiz_name": "P01-T07-B\u03b2",
+      "quiz_attempts": [
+        "P01-T07-B\u03b2"
+      ]
+    },
+    {
+      "index": 8,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-2",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 9,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-1",
+      "rest_after": true,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 10,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-1",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 11,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-4",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784134598.168108,
+      "completed_at": 1784134642.598188,
+      "quiz_name": "P01-T11-C\u03b2",
+      "quiz_attempts": [
+        "P01-T11-C\u03b2"
+      ]
+    },
+    {
+      "index": 12,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-6",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 13,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-3",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1784135120.978444,
+      "completed_at": 1784135172.748007,
+      "quiz_name": "P01-T13-B\u03b3",
+      "quiz_attempts": [
+        "P01-T13-B\u03b3"
+      ]
+    },
+    {
+      "index": 14,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-5",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 15,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-7",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 16,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-4",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 17,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-4",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 18,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-7",
+      "rest_after": true,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 19,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-2",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 20,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-2",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 21,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-8",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 22,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-9",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 23,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-9",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 24,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-7",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 25,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "\u03b2",
+      "sequence": "1799551287-\u03b2-3",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 26,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "\u03b3",
+      "sequence": "1799551287-\u03b3-8",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 27,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "\u03b1",
+      "sequence": "1799551287-\u03b1-8",
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    }
+  ],
+  "progress": {
+    "completed": 6,
+    "total": 27,
+    "next_trial_index": 3,
+    "finished": false
+  }
+}

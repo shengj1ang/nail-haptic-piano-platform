@@ -23,7 +23,6 @@ under data/quiz/<quiz name>/ alongside a per-note breakdown.
 
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -432,16 +431,13 @@ class QuizWindow(QMainWindow):
     # The per-note cue/response loop
     # ------------------------------------------------------------------
 
-    def _rel_time(self) -> float:
-        return time.time() - self.midi_recorder.start_time
-
     def _show_current_target(self) -> None:
         target = self.targets[self.current_index]
         if self.led_connected and self.led_mapper is not None:
             self.led_mapper.light_key(target.note)
             self.lit_note = target.note
         self.cue.show_target(target.note, target.finger)
-        self.cue_onset_time = self._rel_time()
+        self.cue_onset_time = time.time()
         self.phase = "presenting"
         self.status_label.setText(
             f"Note {self.current_index + 1}/{len(self.targets)}: {target.note_name} - finger {target.finger or '?'}"
@@ -539,12 +535,12 @@ class QuizWindow(QMainWindow):
             # after this cue's onset is a fresh response - a plain scan
             # over the (small) event list is plenty at this event rate.
             note_on = next(
-                (e for e in self.raw_events if e.type == "note_on" and e.rel_time >= self.cue_onset_time),
+                (e for e in self.raw_events if e.type == "note_on" and e.abs_time >= self.cue_onset_time),
                 None,
             )
             if note_on is not None:
-                self._record_result(timed_out=False, actual_note=note_on.note, keypress_time=note_on.rel_time)
-            elif self._rel_time() - self.cue_onset_time >= self.timeout_s:
+                self._record_result(timed_out=False, actual_note=note_on.note, keypress_time=note_on.abs_time)
+            elif time.time() - self.cue_onset_time >= self.timeout_s:
                 self._record_result(timed_out=True)
 
         elif self.phase == "gap":
@@ -630,7 +626,7 @@ class QuizWindow(QMainWindow):
             song_name=self.current_song_name,
             keyboard_profile_name=self.cfg.active_keyboard_profile,
             port_name=self.port_combo.currentText(),
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=time.time(),
             timeout_s=self.timeout_s,
             note_count=len(self.results),
             hits=summary["hits"],

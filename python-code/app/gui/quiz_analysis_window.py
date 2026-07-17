@@ -1,32 +1,47 @@
-"""Reusable "run finger-matching over a saved quiz" window.
+"""Reusable "run finger-matching over saved quizzes" window.
 
 Deliberately independent of how a quiz's cues were delivered - it only
 ever looks at a quiz's recorded video/MIDI (data/quiz/<name>/raw/) plus
 the target-vs-actual note/timing results already saved by the quiz
 runner, never at the cue mechanism itself. That means the exact same
-window works for today's screen-guided quiz (student_quiz.py,
-guidance_type "visual") and any future one (e.g. a vibration-motor
-guidance_type) without changes here.
+window works for the screen-guided quiz (student_quiz.py, guidance_type
+"visual"), the vibration-motor one (student_quiz_haptic.py, "haptic")
+and any future guidance_type without changes here.
 
 Used two ways:
   - Automatically, right after a quiz finishes (student_quiz.py opens
-    this with initial_quiz_name set, which starts the analysis right
-    away).
+    this with initial_quiz_name set, which checks just that quiz and
+    starts the analysis right away).
   - Standalone (quiz_analysis.py, also reachable from the launcher's
-    "Data Analysis" section) to (re-)analyze any past quiz picked from a
-    dropdown.
+    "Data Analysis" section): every saved quiz is listed with its
+    guidance type and headline metrics; tick any subset (e.g. all of one
+    participant via the filter box) and (re-)analyze them in one batch.
+
+Two analysis modes:
+  - "from video": the full pipeline - MediaPipe finger-matching over the
+    raw recording, save results.json/meta.json, render the review video.
+  - "data only": re-summarize an already-analyzed quiz straight from its
+    results.json. This is the second half of the manual-audit loop: watch
+    the review video, hand-correct any mis-scored note in results.json,
+    then recompute the headline metrics without re-running the video.
 """
 
-from typing import Optional
+from typing import List, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
+    QAbstractItemView,
+    QApplication,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +49,7 @@ from PySide6.QtWidgets import (
 from ..config import Config
 from ..finger_matching import FINGER_PROBABILITY_THRESHOLD, is_finger_correct
 from ..quiz import (
+    FINGER_LABELS,
     META_FILENAME,
     RAW_HANDS_FILENAME,
     RAW_NOTES_FILENAME,
@@ -41,150 +57,568 @@ from ..quiz import (
     RAW_VIDEO_FILENAME,
     RESULTS_FILENAME,
     REVIEW_VIDEO_FILENAME,
+    SENSITIVITY_THRESHOLDS,
     QuizMeta,
+    full_summary,
     list_quizzes,
     load_quiz_results,
     quiz_dir,
     quiz_raw_dir,
     save_quiz_results,
-    summarize,
 )
+from ..music_recording import SyncInfo
+from ..sync_led import load_sync_alignment, resolve_sync_anchor
 from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
+from .quiz_detail_window import QuizDetailWindow
+from .video_sync_window import VideoSyncWindow
+
+COL_QUIZ = 0
+COL_SYNC = 1  # not aligned / auto-aligned / manually aligned
+COL_OFFSET = 2  # aligned flash frame vs software timestamps, in seconds
+COL_SYNC_BTN = 3  # per-row Video Sync button
+COL_STATUS = 4
+METRIC_COL0 = 5  # first metric column
+
+
+def _pct(x) -> str:
+    return f"{x * 100:.0f}%" if x is not None else "n/a"
+
+
+def _ms(x) -> str:
+    return f"{x * 1000:.0f} ms" if x is not None else "n/a"
+
+
+def _build_metric_columns():
+    """The per-trial metric columns, following the report's outcome-measure
+    plan (final_report_2026/method/method.tex): (title, tooltip,
+    needs_analysis, getter(meta, summary) -> str). needs_analysis columns
+    show an em dash until the finger-matching video pass has run - their
+    values would be meaningless before it."""
+    cols = [
+        ("Guidance", "How the cue was delivered (visual / haptic / key-only).", False,
+         lambda m, s: m.guidance_type),
+        ("Song", "The recorded song or generated sequence this quiz played.", False,
+         lambda m, s: m.song_name),
+        ("Notes", "Number of target events (T).", False,
+         lambda m, s: str(m.note_count)),
+        ("Key Accuracy", "sum(K) / T - correct-key events over all events.", False,
+         lambda m, s: f"{_pct(s['note_accuracy'])} ({s['hits']}/{m.note_count})"),
+        ("FA main", "sum(K and F) / T - key AND finger correct in the same event, over all events. "
+                    "The report's primary measure; unresolved fingers count as incorrect.", True,
+         lambda m, s: _pct(s["fa_main"])),
+        ("FA | key ok", "sum(K and F) / sum(K) - finger correct, among correct-key events.", True,
+         lambda m, s: _pct(s["fa_key"])),
+        ("Note Accuracy | finger ok", "sum(K and F) / sum(F) - key correct, among correct-finger events.", True,
+         lambda m, s: _pct(s["fa_finger"])),
+        ("Timing Error", "Mean cue-to-keypress interval over every responded event.", False,
+         lambda m, s: _ms(s["mean_timing_error_s"])),
+        ("RT (key ok)", "Mean reaction time over correct-key events only.", False,
+         lambda m, s: _ms(s["rt_correct_key_s"])),
+        ("RT (complete)", "Mean reaction time over complete (key AND finger correct) events only.", True,
+         lambda m, s: _ms(s["rt_complete_s"])),
+        ("Timeouts", "Events with no keypress inside the response window.", False,
+         lambda m, s: str(s["misses"])),
+        ("Wrong key", "Responded events whose key didn't match the target.", False,
+         lambda m, s: str(s["wrong_key"])),
+        ("False starts", "note_on presses in the raw MIDI log never matched to a cue event - double "
+                         "presses, corrections, presses outside every response window. n/a if "
+                         "midi_raw.json is missing.", False,
+         lambda m, s: str(s["extra"]["extra_presses"]) if s.get("extra") else "n/a"),
+        ("Key ok, wrong finger", "Correct-key events that failed the finger threshold rule.", True,
+         lambda m, s: str(s["key_ok_wrong_finger"])),
+        ("Unresolved", "Responded events where no fingertip could be detected at the keypress.", True,
+         lambda m, s: _pct(s["unresolved_rate"])),
+        ("Ambiguous", "Resolved events where no single fingertip held a majority (>= 0.5) of the "
+                      "softmax probability mass.", True,
+         lambda m, s: _pct(s["ambiguous_rate"])),
+        ("FA same-hand", "FA main over events whose target hand matches the previous event's.", True,
+         lambda m, s: _pct(s["same_hand"]["fa_main"])),
+        ("FA hand-switch", "FA main over events whose target hand differs from the previous event's.", True,
+         lambda m, s: _pct(s["hand_switch"]["fa_main"])),
+        ("TE same-hand", "Mean timing error over same-hand transition events.", False,
+         lambda m, s: _ms(s["same_hand"]["mean_timing_error_s"])),
+        ("TE hand-switch", "Mean timing error over hand-switch transition events.", False,
+         lambda m, s: _ms(s["hand_switch"]["mean_timing_error_s"])),
+    ]
+    for f in FINGER_LABELS:
+        cols.append((f"FA {f}", f"FA main over events targeting finger {f}; n/a when the sequence "
+                                "never targets it.", True,
+                     lambda m, s, f=f: _pct(s["finger_stats"][f]["fa_main"])))
+    for f in FINGER_LABELS:
+        cols.append((f"TE {f}", f"Mean timing error over responded events targeting finger {f}.", False,
+                     lambda m, s, f=f: _ms(s["finger_stats"][f]["mean_timing_error_s"])))
+    for theta in SENSITIVITY_THRESHOLDS:
+        key = f"{theta:.2f}"
+        cols.append((f"FA θ={key}", f"FA main re-judged with finger threshold {key} instead of "
+                                    f"{FINGER_PROBABILITY_THRESHOLD:.2f} (sensitivity analysis), from the "
+                                    "stored probabilities - no video pass.", True,
+                     lambda m, s, key=key: _pct(s["fa_theta"][key])))
+    return cols
+
+
+METRIC_COLUMNS = _build_metric_columns()
+COLUMN_TITLES = ["Quiz", "Sync", "Video Offset", "", "Status"] + [
+    title for title, _tip, _needs, _get in METRIC_COLUMNS
+]
 
 
 class QuizAnalysisWindow(QMainWindow):
     def __init__(self, cfg: Config, initial_quiz_name: Optional[str] = None):
         super().__init__()
         self.setWindowTitle("Quiz Analysis")
+        self.resize(1050, 600)  # wide enough for the full metrics table
         self.cfg = cfg
 
-        self.quiz_combo = QComboBox()
-        self.quiz_combo.currentTextChanged.connect(self._load_quiz)
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filter quizzes (e.g. P02)...")
+        self.filter_edit.textChanged.connect(self._apply_filter)
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(lambda: self._refresh_quizzes())
+        select_all_btn = QPushButton("Select shown")
+        select_all_btn.clicked.connect(lambda: self._select_rows(lambda analyzed: True))
+        select_unanalyzed_btn = QPushButton("Select not analyzed")
+        select_unanalyzed_btn.clicked.connect(lambda: self._select_rows(lambda analyzed: not analyzed))
+        select_analyzed_btn = QPushButton("Select analyzed")
+        select_analyzed_btn.clicked.connect(lambda: self._select_rows(lambda analyzed: analyzed))
+        select_none_btn = QPushButton("Select none")
+        select_none_btn.clicked.connect(lambda: self._select_rows(None))
 
-        self.info_label = QLabel("Pick a quiz to analyze.")
-        self.info_label.setWordWrap(True)
-        self.analyze_btn = QPushButton("Analyze")
+        self.table = QTableWidget(0, len(COLUMN_TITLES))
+        self.table.setHorizontalHeaderLabels(COLUMN_TITLES)
+        self.table.horizontalHeaderItem(COL_SYNC).setToolTip(
+            "Video/MIDI alignment state: not aligned (falls back to software timestamps - unreliable) / auto-aligned (LED flash detection) / manually aligned (confirmed in the Video Sync window)."
+        )
+        self.table.horizontalHeaderItem(COL_OFFSET).setToolTip(
+            "Aligned flash frame vs the software timestamps, in seconds. Unknown (not 0!) until aligned - the old analysis effectively assumed 0."
+        )
+        for i, (_title, tip, _needs, _get) in enumerate(METRIC_COLUMNS):
+            self.table.horizontalHeaderItem(METRIC_COL0 + i).setToolTip(tip)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # There are far more metric columns than fit on screen - scroll
+        # sideways (per pixel, not per column) to reach the rest.
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.table.itemChanged.connect(self._on_item_changed)
+        self.table.cellDoubleClicked.connect(self._open_detail)
+
+        self.align_btn = QPushButton("Auto-align selected")
+        self.align_btn.setToolTip(
+            "Run LED flash detection on every checked quiz and save it as an auto alignment; quizzes already aligned (manual included) are skipped, untrusted detections are marked failed."
+        )
+        self.align_btn.setEnabled(False)
+        self.align_btn.clicked.connect(self._auto_align_selected)
+        self.analyze_btn = QPushButton("Analyze selected (from video)")
+        self.analyze_btn.setToolTip(
+            "Full pipeline: MediaPipe finger-matching over the raw video, then the review video."
+        )
         self.analyze_btn.setEnabled(False)
-        self.analyze_btn.clicked.connect(self._run_analysis)
+        self.analyze_btn.clicked.connect(self._start_batch)
+        self.data_only_btn = QPushButton("Analyze selected (data only)")
+        self.data_only_btn.setToolTip(
+            "Recompute the summary metrics straight from results.json - no video pass. Use after "
+            "manually correcting a quiz's results.json; only works on quizzes already analyzed from video."
+        )
+        self.data_only_btn.setEnabled(False)
+        self.data_only_btn.clicked.connect(self._run_data_only)
+        self.cancel_btn = QPushButton("Cancel remaining")
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self._cancel_batch)
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        self.results_label = QLabel("")
-        self.results_label.setWordWrap(True)
+        self.status_label = QLabel(
+            f"Finger Accuracy counts a note as correct when the target finger's probability is "
+            f"≥ {FINGER_PROBABILITY_THRESHOLD:.2f}."
+        )
+        self.status_label.setWordWrap(True)
 
-        quiz_row = QHBoxLayout()
-        quiz_row.addWidget(QLabel("Quiz:"))
-        quiz_row.addWidget(self.quiz_combo, 1)
-        quiz_row.addWidget(refresh_btn)
+        top_row = QHBoxLayout()
+        top_row.addWidget(self.filter_edit, 1)
+        top_row.addWidget(refresh_btn)
+
+        select_row = QHBoxLayout()
+        select_row.addWidget(QLabel("Select:"))
+        select_row.addWidget(select_all_btn)
+        select_row.addWidget(select_unanalyzed_btn)
+        select_row.addWidget(select_analyzed_btn)
+        select_row.addWidget(select_none_btn)
+        select_row.addStretch(1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(self.align_btn)
+        bottom_row.addWidget(self.analyze_btn)
+        bottom_row.addWidget(self.data_only_btn)
+        bottom_row.addWidget(self.cancel_btn)
+        bottom_row.addStretch(1)
 
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.addLayout(quiz_row)
-        layout.addWidget(self.info_label)
-        layout.addWidget(self.analyze_btn)
+        layout.addLayout(top_row)
+        layout.addLayout(select_row)
+        layout.addWidget(self.table, 1)
+        layout.addLayout(bottom_row)
         layout.addWidget(self.progress_bar)
-        layout.addWidget(self.results_label)
+        layout.addWidget(self.status_label)
         self.setCentralWidget(central)
 
-        self.meta: Optional[QuizMeta] = None
-        self.results: list = []
+        # Batch state: the names still to analyze, plus the quiz currently
+        # going through the analyze -> review-video pipeline.
+        self._queue: List[str] = []
+        self._batch_total = 0
+        self._batch_failed = 0
+        self._current_name: Optional[str] = None
+        self._current_meta: Optional[QuizMeta] = None
+        self._current_results: list = []
         self._worker: Optional[AnalyzeWorker] = None
         self._review_worker: Optional[ReviewVideoWorker] = None
+        self._detail_windows: list = []  # keep references so Qt doesn't GC them
+        self._sync_windows: list = []
 
-        self._refresh_quizzes(select=initial_quiz_name)
-        if initial_quiz_name and self.meta is not None:
-            self._run_analysis()
+        self._refresh_quizzes(check_only=initial_quiz_name)
+        if initial_quiz_name is not None and self._checked_names():
+            self._start_batch()
 
     # ------------------------------------------------------------------
+    # Table population / selection
 
-    def _refresh_quizzes(self, select: Optional[str] = None) -> None:
+    def _refresh_quizzes(self, check_only: Optional[str] = None) -> None:
+        """Rebuild the table from disk. check_only pre-checks just that
+        quiz (the post-quiz auto-analysis path); otherwise nothing is
+        checked."""
         quizzes = list_quizzes()
-        self.quiz_combo.blockSignals(True)
-        self.quiz_combo.clear()
-        self.quiz_combo.addItems(quizzes)
-        self.quiz_combo.blockSignals(False)
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(quizzes))
+        for row, name in enumerate(quizzes):
+            quiz_item = QTableWidgetItem(name)
+            quiz_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            quiz_item.setCheckState(Qt.CheckState.Checked if name == check_only else Qt.CheckState.Unchecked)
+            self.table.setItem(row, COL_QUIZ, quiz_item)
+            for col in range(1, len(COLUMN_TITLES)):
+                item = QTableWidgetItem("")
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                self.table.setItem(row, col, item)
+            sync_btn = QPushButton("Video Sync")
+            sync_btn.clicked.connect(lambda _=False, n=name: self._open_sync_window(n))
+            self.table.setCellWidget(row, COL_SYNC_BTN, sync_btn)
+            try:
+                meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+                results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
+            except Exception as e:
+                self.table.item(row, COL_STATUS).setText(f"couldn't load: {e}")
+                continue
+            self._fill_row(row, meta, full_summary(name, results))
+        self.table.blockSignals(False)
 
         if not quizzes:
-            self.info_label.setText("No quizzes found under data/quiz/. Run one with student_quiz.py first.")
+            self.status_label.setText("No quizzes found under data/quiz/. Run one with student_quiz.py first.")
+        self._apply_filter(self.filter_edit.text())
+        self._update_analyze_btn()
+
+    def _fill_row(self, row: int, meta: QuizMeta, summary: dict) -> None:
+        # Key accuracy and timing come straight from the quiz runner, so
+        # they're shown even before the finger-matching pass has run; the
+        # finger-based columns (needs_analysis) stay dashed until then.
+        for i, (_title, _tip, needs_analysis, getter) in enumerate(METRIC_COLUMNS):
+            self.table.item(row, METRIC_COL0 + i).setText(
+                "—" if needs_analysis and not meta.analyzed else getter(meta, summary)
+            )
+        self.table.item(row, COL_STATUS).setText("analyzed" if meta.analyzed else "not analyzed")
+        # Remembered per row so "Select (not) analyzed" and the data-only
+        # button's precondition don't have to re-read every meta.json.
+        self.table.item(row, COL_QUIZ).setData(Qt.ItemDataRole.UserRole, meta.analyzed)
+        self._fill_sync_cols(row, meta.quiz_name)
+
+    def _fill_sync_cols(self, row: int, name: str) -> None:
+        """Sync status + offset columns, from raw/sync_align.json. Offset before any
+        alignment is unknown ("?"), not zero - the software-timestamp
+        fallback silently assumes 0, which is exactly what alignment fixes."""
+        raw = quiz_raw_dir(name)
+        btn = self.table.cellWidget(row, COL_SYNC_BTN)
+        if not (raw / RAW_SYNC_FILENAME).exists():
+            self.table.item(row, COL_SYNC).setText("no sync.json")
+            self.table.item(row, COL_OFFSET).setText("—")
+            if btn is not None:
+                btn.setEnabled(False)
             return
-
-        target = select if select in quizzes else quizzes[0]
-        self.quiz_combo.setCurrentText(target)
-        self._load_quiz(target)
-
-    def _load_quiz(self, name: str) -> None:
-        if not name:
-            return
-        try:
-            self.meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
-            self.results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
-        except Exception as e:
-            QMessageBox.warning(self, "Couldn't load quiz", str(e))
-            return
-
-        status = "already analyzed" if self.meta.analyzed else "not yet analyzed"
-        self.info_label.setText(
-            f"{name}: song {self.meta.song_name}  |  guidance {self.meta.guidance_type}  |  "
-            f"{self.meta.note_count} notes  |  {status}"
-        )
-        self.analyze_btn.setText("Re-analyze" if self.meta.analyzed else "Analyze")
-        self.analyze_btn.setEnabled(True)
-
-        if self.meta.analyzed:
-            self._show_summary()
+        align = load_sync_alignment(raw)
+        if align is None:
+            self.table.item(row, COL_SYNC).setText("not aligned")
+            self.table.item(row, COL_OFFSET).setText("?")
         else:
-            self.results_label.setText("")
+            self.table.item(row, COL_SYNC).setText("manually aligned" if align.method == "manual" else "auto-aligned")
+            offset = align.led_vs_start_times_offset_s
+            self.table.item(row, COL_OFFSET).setText(f"{offset:+.3f} s" if offset is not None else "?")
+
+    def _row_of(self, name: str) -> Optional[int]:
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, COL_QUIZ).text() == name:
+                return row
+        return None
+
+    def _apply_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for row in range(self.table.rowCount()):
+            name = self.table.item(row, COL_QUIZ).text().lower()
+            self.table.setRowHidden(row, bool(needle) and needle not in name)
+
+    def _row_analyzed(self, row: int) -> bool:
+        return bool(self.table.item(row, COL_QUIZ).data(Qt.ItemDataRole.UserRole))
+
+    def _select_rows(self, predicate) -> None:
+        """Replace the current selection: check the visible rows whose
+        analyzed-state passes predicate (so a 'P02' filter + Select not
+        analyzed checks exactly that participant's unanalyzed quizzes),
+        uncheck everything else, hidden rows included. predicate None =
+        Select none."""
+        self.table.blockSignals(True)
+        for row in range(self.table.rowCount()):
+            check = (
+                predicate is not None
+                and not self.table.isRowHidden(row)
+                and predicate(self._row_analyzed(row))
+            )
+            self.table.item(row, COL_QUIZ).setCheckState(
+                Qt.CheckState.Checked if check else Qt.CheckState.Unchecked
+            )
+        self.table.blockSignals(False)
+        self._update_analyze_btn()
+
+    def _checked_names(self) -> List[str]:
+        return [
+            self.table.item(row, COL_QUIZ).text()
+            for row in range(self.table.rowCount())
+            if self.table.item(row, COL_QUIZ).checkState() == Qt.CheckState.Checked
+        ]
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == COL_QUIZ:
+            self._update_analyze_btn()
+
+    def _open_sync_window(self, name: str) -> None:
+        try:
+            meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+            window = VideoSyncWindow(name, meta.keyboard_profile_name)
+        except Exception as e:
+            QMessageBox.warning(self, "Couldn't open Video Sync", f"{name}: {e}")
+            return
+        window.saved.connect(self._on_sync_saved)
+        self._sync_windows = [w for w in self._sync_windows if w.isVisible()]
+        self._sync_windows.append(window)
+        window.show()
+
+    def _on_sync_saved(self, name: str) -> None:
+        row = self._row_of(name)
+        if row is not None:
+            self._fill_sync_cols(row, name)
+
+    def _auto_align_selected(self) -> None:
+        """LED flash detection + auto-alignment save, over every checked quiz. Existing
+        alignments (manual included) are left untouched; untrusted
+        detections are reported per row and not persisted."""
+        aligned = skipped = failed = 0
+        for name in self._checked_names():
+            row = self._row_of(name)
+            raw = quiz_raw_dir(name)
+            if not (raw / RAW_SYNC_FILENAME).exists():
+                failed += 1
+                continue
+            if load_sync_alignment(raw) is not None:
+                skipped += 1
+                continue
+            try:
+                meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+                sync = SyncInfo.load(raw / RAW_SYNC_FILENAME)
+                anchor = resolve_sync_anchor(
+                    raw / RAW_VIDEO_FILENAME, sync, meta.keyboard_profile_name
+                )
+            except Exception as e:
+                anchor = None
+                reason = str(e)
+            if anchor is not None and anchor.method in ("led", "auto", "manual"):
+                aligned += 1
+            else:
+                failed += 1
+                reason = anchor.reason if anchor is not None else reason
+                if row is not None:
+                    self.table.item(row, COL_SYNC).setText("not aligned (detection failed)")
+                    self.table.item(row, COL_SYNC).setToolTip(reason)
+                    self.table.item(row, COL_OFFSET).setText("?")
+                continue
+            if row is not None:
+                self._fill_sync_cols(row, name)
+            QApplication.processEvents()
+        self.status_label.setText(
+            f"Auto-align done: {aligned} aligned, {skipped} already aligned (skipped), {failed} failed (need manual alignment)."
+        )
+
+    def _open_detail(self, row: int, _col: int) -> None:
+        name = self.table.item(row, COL_QUIZ).text()
+        try:
+            detail = QuizDetailWindow(name)
+        except Exception as e:
+            QMessageBox.warning(self, "Couldn't open quiz", f"{name}: {e}")
+            return
+        self._detail_windows = [w for w in self._detail_windows if w.isVisible()]
+        self._detail_windows.append(detail)
+        detail.show()
+
+    def _update_analyze_btn(self) -> None:
+        n = len(self._checked_names())
+        analyzed_n = sum(
+            1
+            for row in range(self.table.rowCount())
+            if self.table.item(row, COL_QUIZ).checkState() == Qt.CheckState.Checked and self._row_analyzed(row)
+        )
+        idle = self._current_name is None
+        self.analyze_btn.setText(f"Analyze selected (from video) ({n})" if n else "Analyze selected (from video)")
+        self.analyze_btn.setEnabled(n > 0 and idle)
+        # Data-only needs the video pass to have run already (it only
+        # re-summarizes results.json), so it counts just the analyzed ones.
+        self.data_only_btn.setText(
+            f"Analyze selected (data only) ({analyzed_n})" if analyzed_n else "Analyze selected (data only)"
+        )
+        self.data_only_btn.setEnabled(analyzed_n > 0 and idle)
+        self.align_btn.setText(f"Auto-align selected ({n})" if n else "Auto-align selected")
+        self.align_btn.setEnabled(n > 0 and idle)
 
     # ------------------------------------------------------------------
+    # Batch driver
 
-    def _run_analysis(self) -> None:
-        if self.meta is None:
+    def _start_batch(self) -> None:
+        self._queue = self._checked_names()
+        if not self._queue:
             return
-        name = self.meta.quiz_name
-        video_path = quiz_raw_dir(name) / RAW_VIDEO_FILENAME
-        notes_path = quiz_raw_dir(name) / RAW_NOTES_FILENAME
-        sync_path = quiz_raw_dir(name) / RAW_SYNC_FILENAME
+        self._batch_total = len(self._queue)
+        self._batch_failed = 0
+        self.analyze_btn.setEnabled(False)
+        self.align_btn.setEnabled(False)
+        self.data_only_btn.setEnabled(False)
+        self.cancel_btn.setVisible(True)
+        self.filter_edit.setEnabled(False)
+        for name in self._queue:
+            row = self._row_of(name)
+            if row is not None:
+                self.table.item(row, COL_STATUS).setText("queued")
+        self._run_next()
 
-        pressed = [r for r in self.results if not r.timed_out]
+    def _cancel_batch(self) -> None:
+        """Drop everything still queued; the quiz currently being analyzed
+        finishes normally (its results are saved as usual)."""
+        for name in self._queue:
+            row = self._row_of(name)
+            if row is not None:
+                self.table.item(row, COL_STATUS).setText("cancelled")
+        self._batch_total -= len(self._queue)
+        self._queue = []
+        self.cancel_btn.setEnabled(False)
+
+    def _run_data_only(self) -> None:
+        """Re-summarize each checked quiz straight from its (possibly
+        hand-corrected) results.json - no video pass, no review render.
+        The manual-audit loop: analyze from video, watch the review video,
+        fix any mis-scored note directly in results.json, then this
+        recomputes the metrics exactly as saved, without re-judging
+        anything. Quizzes whose video pass never ran are skipped - there'd
+        be no finger data to summarize."""
+        done = skipped = failed = 0
+        for name in self._checked_names():
+            row = self._row_of(name)
+            if row is not None and not self._row_analyzed(row):
+                self.table.item(row, COL_STATUS).setText("skipped (analyze from video first)")
+                skipped += 1
+                continue
+            try:
+                meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+                results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
+            except Exception as e:
+                if row is not None:
+                    self.table.item(row, COL_STATUS).setText(f"failed: {e}")
+                failed += 1
+                continue
+            summary = full_summary(name, results)
+            meta.hits = summary["hits"]
+            meta.misses = summary["misses"]
+            meta.note_accuracy = summary["note_accuracy"]
+            meta.mean_timing_error_s = summary["mean_timing_error_s"]
+            meta.finger_accuracy = summary["finger_accuracy"]
+            meta.save(quiz_dir(name) / META_FILENAME)
+            if row is not None:
+                self._fill_row(row, meta, summary)
+                self.table.item(row, COL_STATUS).setText("analyzed (recomputed from results.json)")
+            done += 1
+        parts = [f"{done} recomputed from results.json"]
+        if skipped:
+            parts.append(f"{skipped} skipped (never analyzed from video)")
+        if failed:
+            parts.append(f"{failed} failed")
+        self.status_label.setText("Data-only pass done: " + ", ".join(parts) + ".")
+
+    def _run_next(self) -> None:
+        if not self._queue:
+            self._end_batch()
+            return
+        name = self._queue.pop(0)
+        self._current_name = name
+        row = self._row_of(name)
+
+        try:
+            self._current_meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+            self._current_results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
+        except Exception as e:
+            self._fail_current(f"couldn't load: {e}")
+            return
+
+        pressed = [r for r in self._current_results if not r.timed_out]
         if not pressed:
             self._finalize([])
             return
 
-        self.analyze_btn.setEnabled(False)
-        self.quiz_combo.setEnabled(False)
+        if row is not None:
+            self.table.item(row, COL_STATUS).setText("analyzing...")
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
-        self.results_label.setText("Matching fingers against the video...")
+        self._set_status(f"{name}: matching fingers against the video...")
 
         self._worker = AnalyzeWorker(
-            video_path,
-            notes_path,
-            self.meta.keyboard_profile_name,
-            sync_path=sync_path,
+            quiz_raw_dir(name) / RAW_VIDEO_FILENAME,
+            quiz_raw_dir(name) / RAW_NOTES_FILENAME,
+            self._current_meta.keyboard_profile_name,
+            sync_path=quiz_raw_dir(name) / RAW_SYNC_FILENAME,
             hands_out_path=quiz_raw_dir(name) / RAW_HANDS_FILENAME,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.succeeded.connect(self._finalize)
-        self._worker.failed.connect(self._on_failed)
+        self._worker.failed.connect(self._fail_current)
         self._worker.start()
+
+    def _batch_position(self) -> str:
+        done = self._batch_total - len(self._queue)
+        return f"{done}/{self._batch_total}"
+
+    def _set_status(self, text: str) -> None:
+        self.status_label.setText(f"[{self._batch_position()}] {text}")
 
     def _on_progress(self, done: int, total: int) -> None:
         if total > 0:
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(done)
-            self.results_label.setText(f"Matching fingers against the video... {done}/{total} frames")
+            self._set_status(f"{self._current_name}: matching fingers against the video... {done}/{total} frames")
         else:
-            self.results_label.setText(f"Matching fingers against the video... {done} frames")
+            self._set_status(f"{self._current_name}: matching fingers against the video... {done} frames")
 
-    def _on_failed(self, message: str) -> None:
-        self.progress_bar.setVisible(False)
-        self.analyze_btn.setEnabled(True)
-        self.quiz_combo.setEnabled(True)
-        QMessageBox.warning(self, "Analysis failed", message)
+    def _fail_current(self, message: str) -> None:
+        self._batch_failed += 1
+        row = self._row_of(self._current_name) if self._current_name else None
+        if row is not None:
+            self.table.item(row, COL_STATUS).setText(f"failed: {message}")
+        self._current_name = None
+        self._run_next()
 
     def _finalize(self, matches: list) -> None:
-        pressed = [r for r in self.results if not r.timed_out]
+        pressed = [r for r in self._current_results if not r.timed_out]
         for result, match in zip(pressed, matches):
             result.actual_finger = match.finger if match else None
             result.finger_probabilities = match.probabilities if match else None
@@ -194,49 +628,54 @@ class QuizAnalysisWindow(QMainWindow):
             result.finger_correct = is_finger_correct(match, result.target_finger)
             result.actual_finger_point = list(match.point) if match else None
 
-        name = self.meta.quiz_name
-        save_quiz_results(self.results, quiz_dir(name) / RESULTS_FILENAME)
+        name = self._current_name
+        meta = self._current_meta
+        save_quiz_results(self._current_results, quiz_dir(name) / RESULTS_FILENAME)
 
-        summary = summarize(self.results)
-        self.meta.hits = summary["hits"]
-        self.meta.misses = summary["misses"]
-        self.meta.note_accuracy = summary["note_accuracy"]
-        self.meta.mean_timing_error_s = summary["mean_timing_error_s"]
-        self.meta.finger_accuracy = summary["finger_accuracy"]
-        self.meta.analyzed = True
-        self.meta.save(quiz_dir(name) / META_FILENAME)
+        summary = full_summary(name, self._current_results)
+        meta.hits = summary["hits"]
+        meta.misses = summary["misses"]
+        meta.note_accuracy = summary["note_accuracy"]
+        meta.mean_timing_error_s = summary["mean_timing_error_s"]
+        meta.finger_accuracy = summary["finger_accuracy"]
+        meta.analyzed = True
+        meta.save(quiz_dir(name) / META_FILENAME)
 
-        self._show_summary()
+        row = self._row_of(name)
+        if row is not None:
+            self._fill_row(row, meta, summary)
+
         self._start_review_render()
 
     # ------------------------------------------------------------------
+    # Review video (per quiz, right after its analysis)
 
     def _start_review_render(self) -> None:
         """Re-encode the raw video with the per-note verdicts drawn on top
         (see app.review_video), for manual auditing of the scoring."""
-        name = self.meta.quiz_name
+        name = self._current_name
         video_path = quiz_raw_dir(name) / RAW_VIDEO_FILENAME
         if not video_path.exists():
-            self._end_busy()
+            self._finish_current("analyzed (no raw video for review)")
             return
 
-        self.analyze_btn.setEnabled(False)
-        self.quiz_combo.setEnabled(False)
-        self.progress_bar.setVisible(True)
+        row = self._row_of(name)
+        if row is not None:
+            self.table.item(row, COL_STATUS).setText("rendering review video...")
         self.progress_bar.setRange(0, 0)
-        self.results_label.setText(self.results_label.text() + "\nRendering review video...")
+        self._set_status(f"{name}: rendering review video...")
 
         self._review_worker = ReviewVideoWorker(
             video_path,
             quiz_dir(name) / REVIEW_VIDEO_FILENAME,
-            self.results,
-            self.meta.keyboard_profile_name,
+            self._current_results,
+            self._current_meta.keyboard_profile_name,
             sync_path=quiz_raw_dir(name) / RAW_SYNC_FILENAME,
             hands_path=quiz_raw_dir(name) / RAW_HANDS_FILENAME,
         )
         self._review_worker.progress.connect(self._on_review_progress)
-        self._review_worker.succeeded.connect(self._on_review_done)
-        self._review_worker.failed.connect(self._on_review_failed)
+        self._review_worker.succeeded.connect(lambda _out: self._finish_current("analyzed"))
+        self._review_worker.failed.connect(lambda msg: self._finish_current(f"analyzed (review video failed: {msg})"))
         self._review_worker.start()
 
     def _on_review_progress(self, done: int, total: int) -> None:
@@ -244,32 +683,20 @@ class QuizAnalysisWindow(QMainWindow):
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(done)
 
-    def _on_review_done(self, out_path: str) -> None:
-        self._end_busy()
-        self._show_summary()
-        self.results_label.setText(self.results_label.text() + f"\nReview video: {out_path}")
+    def _finish_current(self, status: str) -> None:
+        row = self._row_of(self._current_name) if self._current_name else None
+        if row is not None:
+            self.table.item(row, COL_STATUS).setText(status)
+        self._current_name = None
+        self._run_next()
 
-    def _on_review_failed(self, message: str) -> None:
-        self._end_busy()
-        self._show_summary()
-        self.results_label.setText(self.results_label.text() + f"\nReview video failed: {message}")
-
-    def _end_busy(self) -> None:
+    def _end_batch(self) -> None:
+        self._current_name = None
         self.progress_bar.setVisible(False)
-        self.analyze_btn.setEnabled(True)
-        self.analyze_btn.setText("Re-analyze")
-        self.quiz_combo.setEnabled(True)
-
-    def _show_summary(self) -> None:
-        meta = self.meta
-        timing_text = f"{meta.mean_timing_error_s * 1000:.0f} ms" if meta.mean_timing_error_s is not None else "n/a"
-        finger_text = (
-            f"{meta.finger_accuracy * 100:.0f}% (target finger's probability ≥ {FINGER_PROBABILITY_THRESHOLD:.2f})"
-            if meta.finger_accuracy is not None
-            else "n/a"
-        )
-        self.results_label.setText(
-            f"Note Accuracy: {meta.note_accuracy * 100:.0f}% ({meta.hits}/{meta.note_count}, {meta.misses} missed)\n"
-            f"Mean Timing Error: {timing_text}\n"
-            f"Finger Accuracy: {finger_text}"
-        )
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.setEnabled(True)
+        self.filter_edit.setEnabled(True)
+        ok = self._batch_total - self._batch_failed
+        failed = f", {self._batch_failed} failed" if self._batch_failed else ""
+        self.status_label.setText(f"Done: {ok}/{self._batch_total} quizzes analyzed{failed}.")
+        self._update_analyze_btn()
