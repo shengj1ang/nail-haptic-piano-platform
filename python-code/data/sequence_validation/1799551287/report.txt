@@ -1,0 +1,121 @@
+Conclusion: VALID
+
+Difficulty validation - 27 sequence(s) (α (alpha)=9, β (beta)=9, γ (gamma)=9)
+
+== C_m (motor movement cost) ==
+  d̄_seq - expected to rise
+    α (alpha): n=9  median=2.621  IQR=[2.483, 2.690]  range=[2.345, 2.862]
+    β (beta): n=9  median=3.379  IQR=[3.000, 3.552]  range=[2.690, 4.069]
+    γ (gamma): n=9  median=6.966  IQR=[6.586, 7.586]  range=[6.172, 9.034]
+    medians ordered: yes; adjacent-pair violation rate: 1.2% (limit 10%) -> MONOTONIC
+
+  d̄_m - expected to rise
+    α (alpha): n=9  median=1.464  IQR=[1.393, 1.536]  range=[1.143, 1.821]
+    β (beta): n=9  median=2.893  IQR=[2.357, 2.964]  range=[2.214, 3.143]
+    γ (gamma): n=9  median=5.107  IQR=[4.893, 5.464]  range=[4.714, 5.643]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  d_m95 - expected to rise
+    α (alpha): n=9  median=2.000  IQR=[2.000, 2.000]  range=[2.000, 2.650]
+    β (beta): n=9  median=5.000  IQR=[4.000, 5.000]  range=[3.650, 5.000]
+    γ (gamma): n=9  median=9.650  IQR=[9.000, 10.000]  range=[7.650, 10.000]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  d̄_f - expected to rise
+    α (alpha): n=9  median=1.000  IQR=[0.964, 1.000]  range=[0.857, 1.000]
+    β (beta): n=9  median=1.286  IQR=[1.250, 1.429]  range=[1.214, 1.536]
+    γ (gamma): n=9  median=2.143  IQR=[2.000, 2.179]  range=[1.929, 2.250]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  R_L - expected to rise
+    α (alpha): n=9  median=3.000  IQR=[3.000, 6.000]  range=[3.000, 7.000]
+    β (beta): n=9  median=8.000  IQR=[7.000, 10.000]  range=[3.000, 10.000]
+    γ (gamma): n=9  median=14.000  IQR=[12.000, 14.000]  range=[10.000, 14.000]
+    medians ordered: yes; adjacent-pair violation rate: 3.7% (limit 10%) -> MONOTONIC
+
+  R_R - expected to rise
+    α (alpha): n=9  median=5.000  IQR=[3.000, 5.000]  range=[3.000, 7.000]
+    β (beta): n=9  median=7.000  IQR=[5.000, 7.000]  range=[4.000, 9.000]
+    γ (gamma): n=9  median=15.000  IQR=[14.000, 15.000]  range=[12.000, 15.000]
+    medians ordered: yes; adjacent-pair violation rate: 9.9% (limit 10%) -> MONOTONIC
+
+== C_s (sequence complexity) ==
+  H_norm - expected to rise
+    α (alpha): n=9  median=0.273  IQR=[0.273, 0.281]  range=[0.262, 0.281]
+    β (beta): n=9  median=0.505  IQR=[0.496, 0.513]  range=[0.485, 0.529]
+    γ (gamma): n=9  median=0.694  IQR=[0.684, 0.712]  range=[0.671, 0.715]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  V_trans - expected to rise
+    α (alpha): n=9  median=0.103  IQR=[0.103, 0.103]  range=[0.103, 0.103]
+    β (beta): n=9  median=0.241  IQR=[0.207, 0.241]  range=[0.172, 0.241]
+    γ (gamma): n=9  median=0.310  IQR=[0.310, 0.379]  range=[0.276, 0.414]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  P_pred - expected to fall
+    α (alpha): n=9  median=0.172  IQR=[0.172, 0.207]  range=[0.138, 0.276]
+    β (beta): n=9  median=0.103  IQR=[0.069, 0.103]  range=[0.069, 0.138]
+    γ (gamma): n=9  median=0.069  IQR=[0.069, 0.069]  range=[0.034, 0.069]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+== C_c (bimanual coordination) ==
+  A_h - expected to rise
+    α (alpha): n=9  median=0.345  IQR=[0.310, 0.345]  range=[0.276, 0.345]
+    β (beta): n=9  median=0.448  IQR=[0.448, 0.483]  range=[0.414, 0.483]
+    γ (gamma): n=9  median=0.552  IQR=[0.552, 0.586]  range=[0.517, 0.586]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  H_hand - descriptive diagnostic (reported only)
+    α (alpha): n=9  median=0.948  IQR=[0.935, 0.948]  range=[0.920, 0.959]
+    β (beta): n=9  median=0.992  IQR=[0.992, 0.992]  range=[0.988, 0.999]
+    γ (gamma): n=9  median=0.987  IQR=[0.984, 0.995]  range=[0.984, 0.995]
+
+  B_h - matching constraint (no ordering required)
+    α (alpha): n=9  median=0.867  IQR=[0.867, 0.867]  range=[0.867, 0.867]
+    β (beta): n=9  median=0.933  IQR=[0.933, 0.933]  range=[0.933, 0.933]
+    γ (gamma): n=9  median=0.933  IQR=[0.933, 0.933]  range=[0.933, 0.933]
+
+  O_LR - expected to rise
+    α (alpha): n=9  median=0.000  IQR=[0.000, 0.000]  range=[0.000, 0.000]
+    β (beta): n=9  median=0.067  IQR=[0.062, 0.077]  range=[0.050, 0.091]
+    γ (gamma): n=9  median=0.261  IQR=[0.250, 0.273]  range=[0.240, 0.286]
+    medians ordered: yes; adjacent-pair violation rate: 0.0% (limit 10%) -> MONOTONIC
+
+  X_f - validated separately (cross-region limits)
+    α (alpha): n=9  median=0.000  IQR=[0.000, 0.000]  range=[0.000, 0.000]
+    β (beta): n=9  median=0.000  IQR=[0.000, 0.000]  range=[0.000, 0.000]
+    γ (gamma): n=9  median=0.133  IQR=[0.100, 0.200]  range=[0.100, 0.200]
+
+  X_e - validated separately (cross-region limits)
+    α (alpha): n=9  median=0.000  IQR=[0.000, 0.000]  range=[0.000, 0.000]
+    β (beta): n=9  median=0.000  IQR=[0.000, 0.000]  range=[0.000, 0.000]
+    γ (gamma): n=9  median=3.000  IQR=[3.000, 3.000]  range=[3.000, 3.000]
+
+== Cross-region checks ==
+  α (alpha): PASS
+  β (beta): PASS
+  γ (gamma): PASS
+
+== Balance threshold checks (B_h vs level floor) ==
+  α (alpha): PASS
+  β (beta): PASS
+  γ (gamma): PASS
+
+== Structural checks ==
+  All sequences use both hands and pass the rejection rules.
+
+== Conclusion: VALID ==
+  - PASS: d̄_seq monotonic (rising medians, adjacent-pair violations 1.2%)
+  - PASS: d̄_m monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: d_m95 monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: d̄_f monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: R_L monotonic (rising medians, adjacent-pair violations 3.7%)
+  - PASS: R_R monotonic (rising medians, adjacent-pair violations 9.9%)
+  - PASS: H_norm monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: V_trans monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: P_pred monotonic (falling medians, adjacent-pair violations 0.0%)
+  - PASS: A_h monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: O_LR monotonic (rising medians, adjacent-pair violations 0.0%)
+  - PASS: Cross-region limits (X_f = X_e = 0 for α/β; γ within table limits)
+  - PASS: B_h at or above each level's balance threshold
+  - PASS: Structural rules (both hands, trigrams, 60% share, finger runs)

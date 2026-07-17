@@ -35,6 +35,10 @@ batch(es) about to be compared before the report opens (see
 app/gui/stimulus_validation_dialog.py), so picking the wrong filter is
 caught before running the analysis rather than after.
 
+"Export CSV" follows the same visible-rows convention: it writes the
+table exactly as currently filtered - same columns, same rows - to a
+CSV file picked in a save dialog (default data/sequence/metrics.csv).
+
 Read-only otherwise: this doesn't generate or save anything, it only
 reports what a saved fingering.json already contains. A real recording's
 fingering can have unresolved/ambiguous notes (the camera pipeline
@@ -44,6 +48,7 @@ Resolved column shows how many of a song's notes actually went into the
 numbers shown.
 """
 
+import csv
 import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -51,6 +56,7 @@ from typing import Dict, List, Optional, Tuple
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -71,6 +77,7 @@ from ..sequence_generator import (
     COMPONENTS,
     LEVEL_DIFFICULTY,
     LEVEL_SYMBOL,
+    SEQUENCE_DATA_DIR,
     Sequence,
     SequenceStats,
     evaluate_song,
@@ -174,6 +181,16 @@ class SequenceMetricsWindow(QMainWindow):
         self.validate_btn = QPushButton("Validate Stimulus Set (α / β / γ, currently visible rows)")
         self.validate_btn.clicked.connect(self._validate_stimulus_set)
 
+        self.export_csv_btn = QPushButton("Export CSV (currently visible rows)")
+        self.export_csv_btn.setToolTip(
+            "Save the table exactly as currently filtered - same columns, same rows - to a CSV file."
+        )
+        self.export_csv_btn.clicked.connect(self._export_csv)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addWidget(self.validate_btn, 1)
+        buttons_row.addWidget(self.export_csv_btn)
+
         metrics_label = QLabel(METRICS_EXPLANATION)
         metrics_label.setWordWrap(True)
 
@@ -185,7 +202,7 @@ class SequenceMetricsWindow(QMainWindow):
         layout.addLayout(top_row)
         layout.addLayout(filter_row)
         layout.addWidget(self.table, 1)
-        layout.addWidget(self.validate_btn)
+        layout.addLayout(buttons_row)
         layout.addWidget(metrics_label)
         layout.addWidget(self.status_label)
         self.setCentralWidget(central)
@@ -288,6 +305,46 @@ class SequenceMetricsWindow(QMainWindow):
         return meta.difficulty
 
     # ------------------------------------------------------------------
+    # CSV export - only the currently visible (filtered) rows
+    # ------------------------------------------------------------------
+
+    def _export_csv(self) -> None:
+        """Write the table exactly as currently shown - the Show/Filter
+        controls double as "which rows to export", same convention as the
+        Validate button. Written with utf-8-sig so the α/β/γ names
+        survive a double-click into Excel."""
+        if self.table.rowCount() == 0:
+            QMessageBox.information(
+                self,
+                "Nothing to export",
+                "No rows are currently visible. Adjust the Show/Filter controls above, then try again.",
+            )
+            return
+
+        path_str, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export CSV",
+            str(SEQUENCE_DATA_DIR / "metrics.csv"),
+            "CSV files (*.csv)",
+        )
+        if not path_str:
+            return  # cancelled
+
+        try:
+            with open(path_str, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(COLUMNS)
+                for row in range(self.table.rowCount()):
+                    writer.writerow(
+                        [self.table.item(row, col).text() for col in range(len(COLUMNS))]
+                    )
+        except Exception as exc:
+            QMessageBox.warning(self, "Couldn't export CSV", str(exc))
+            return
+
+        self.status_label.setText(f"Exported {self.table.rowCount()} visible row(s) to {path_str}.")
+
+    # ------------------------------------------------------------------
     # Stimulus set validation - only the currently visible (filtered) rows
     # ------------------------------------------------------------------
 
@@ -331,5 +388,9 @@ class SequenceMetricsWindow(QMainWindow):
             return
 
         report = validate_level_pools(pools)
-        dialog = StimulusValidationDialog(report, self)
+        # Batch name(s) of the validated sequences identify the export
+        # folder (data/sequence_validation/<batch id>/); for generator-named
+        # batches the batch name is the generation seed.
+        batch_id = "+".join(sorted(batches)) if batches else None
+        dialog = StimulusValidationDialog(report, self, batch_id=batch_id)
         dialog.exec()

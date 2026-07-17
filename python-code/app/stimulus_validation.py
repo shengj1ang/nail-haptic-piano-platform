@@ -31,6 +31,7 @@ app/gui/stimulus_validation_dialog.py for the report/plot window.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -47,6 +48,13 @@ from .sequence_generator import (
 
 LEVELS = ("alpha", "beta", "gamma")
 LEVEL_DISPLAY = {level: f"{LEVEL_SYMBOL[level]} ({level})" for level in LEVELS}
+
+# Where the validation dialog's "Export" button saves a report: one folder
+# per validated batch, data/sequence_validation/<batch id>/, holding the
+# plain-text report and the box-plot image (see
+# app/gui/stimulus_validation_dialog.py). The batch id is normally the
+# generation seed, which is what identifies a batch everywhere else too.
+VALIDATION_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "sequence_validation"
 
 # method.tex: "fewer than 10% of adjacent-level pairwise comparisons
 # violate that ordering".

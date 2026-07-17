@@ -49,6 +49,7 @@ produces under data/music/ (app.music_recording), so it loads unmodified
 in music_playback.py, student_quiz.py and student_quiz_haptic.py.
 """
 
+import csv
 import math
 import random
 from dataclasses import dataclass
@@ -1252,6 +1253,38 @@ def save_sequence_as_song(
     )
     meta.save(s_dir / META_FILENAME)
     return s_dir
+
+
+def export_batch_csv(
+    entries: List[Tuple[str, str, Sequence, SequenceStats]],
+    path: Path,
+    seed: Optional[int] = None,
+    start_note: Optional[int] = None,
+    end_note: Optional[int] = None,
+) -> Path:
+    """Write one generated batch as a single CSV overview file - one row
+    per sequence with its name, level, the full finger/note lists (same
+    display strings as the generator table), the family-matching
+    statistics plus the H_hand diagnostic, and the generation settings
+    (seed, note bounds) repeated on every row so the file is
+    self-contained. `entries` are (name, level, actions, stats) in table
+    order. Written with utf-8-sig so the α/β/γ in sequence names survive
+    a double-click into Excel. This is an overview export only - the
+    per-sequence meta.json/fingering.json files remain the format every
+    tool actually loads."""
+    stat_keys = list(FAMILY_TOLERANCES) + ["h_hand"]
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(["name", "level", "seed", "start_note", "end_note", "fingers", "notes", *stat_keys])
+        for name, level, actions, stats in entries:
+            fingers, notes = format_sequence_for_display(actions)
+            writer.writerow(
+                [name, level, seed, start_note, end_note, fingers, notes]
+                + [f"{stats.metric(key):.6f}" for key in stat_keys]
+            )
+    return path
 
 
 def format_sequence_for_display(actions: Sequence) -> Tuple[str, str]:

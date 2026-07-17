@@ -42,7 +42,10 @@ whole generation run can be told apart from another one later. "Save All"
 saves every row in one go, but first checks every target name for
 conflicts (against data/sequence/ and against each other) and saves
 nothing at all if even one conflict is found, rather than saving some and
-not others. Saved rows land under data/sequence/<name>/{meta.json,
+not others. "Export CSV" writes the whole generated table as one overview
+file, data/sequence/<seed>.csv (app.sequence_generator.export_batch_csv) -
+a spreadsheet-friendly summary that doesn't replace the per-sequence
+meta.json/fingering.json files the tools load. Saved rows land under data/sequence/<name>/{meta.json,
 fingering.json} - the same layout a real recording produces under
 data/music/ (app.music_recording) - so they show up, labelled
 "sequence/<name>", in music_playback.py's and student_quiz(_haptic).py's
@@ -85,6 +88,7 @@ from ..sequence_generator import (
     SEQUENCE_LENGTH,
     Sequence,
     SequenceStats,
+    export_batch_csv,
     format_sequence_for_display,
     generate_all_matched_families,
     profile_note_range,
@@ -117,7 +121,7 @@ class SequenceGeneratorWindow(QMainWindow):
         self.cfg = cfg or Config.load()
         self.resize(1500, 900)  # the results table has up to 3 levels x Count rows - needs real room
 
-        self._rows: Dict[int, Tuple[Sequence, str]] = {}  # table row -> (actions, level)
+        self._rows: Dict[int, Tuple[Sequence, str, SequenceStats]] = {}  # table row -> (actions, level, stats)
         self._generated_bounds: Optional[Tuple[int, int]] = None  # START/END notes of the last run
         self._generated_seed: Optional[int] = None  # RNG seed of the last run
         self._generated_count: Optional[int] = None  # per-level Count of the last run
@@ -215,11 +219,20 @@ class SequenceGeneratorWindow(QMainWindow):
         self.validation_btn.setEnabled(False)
         self.validation_btn.clicked.connect(self._show_validation_report)
 
+        self.export_csv_btn = QPushButton("Export CSV")
+        self.export_csv_btn.setEnabled(False)
+        self.export_csv_btn.setToolTip(
+            "Save the generated table as one overview CSV under data/sequence/<seed>.csv "
+            "(names, levels, finger/note lists, matching statistics)."
+        )
+        self.export_csv_btn.clicked.connect(self._export_csv)
+
         self.save_all_btn = QPushButton("Save All")
         self.save_all_btn.clicked.connect(self._save_all)
 
         buttons_row = QHBoxLayout()
         buttons_row.addWidget(self.validation_btn)
+        buttons_row.addWidget(self.export_csv_btn)
         buttons_row.addWidget(self.save_all_btn, 1)
 
         self.status_label = QLabel("")
@@ -353,6 +366,7 @@ class SequenceGeneratorWindow(QMainWindow):
         self._generated_seed = seed
         self._generated_count = count
         self._populate_table(families)
+        self.export_csv_btn.setEnabled(bool(self._rows))
 
         # method.tex step 4: validate the freshly generated pools before
         # they can be locked for the pilot study.
@@ -398,7 +412,7 @@ class SequenceGeneratorWindow(QMainWindow):
                 actions, stats = family[seq_id]
                 row = self.table.rowCount()
                 self.table.insertRow(row)
-                self._rows[row] = (actions, level)
+                self._rows[row] = (actions, level, stats)
 
                 base_name = f"{LEVEL_SYMBOL[level]}-{seq_id}"
                 default_name = f"{batch_name}-{base_name}" if batch_name else base_name
@@ -433,8 +447,49 @@ class SequenceGeneratorWindow(QMainWindow):
     def _show_validation_report(self) -> None:
         if self._validation_report is None:
             return
-        dialog = StimulusValidationDialog(self._validation_report, self)
+        # The generation seed identifies the batch, so the dialog's export
+        # lands in data/sequence_validation/<seed>/.
+        batch_id = str(self._generated_seed) if self._generated_seed is not None else None
+        dialog = StimulusValidationDialog(self._validation_report, self, batch_id=batch_id)
         dialog.exec()
+
+    def _export_csv(self) -> None:
+        """One overview CSV for the whole generated batch, saved as
+        data/sequence/<seed>.csv - the seed names the file because it is
+        what identifies the batch (regenerating with the same settings
+        reproduces exactly these rows)."""
+        if not self._rows or self._generated_seed is None:
+            QMessageBox.information(self, "Nothing to export", "Generate a batch first.")
+            return
+
+        path = SEQUENCE_DATA_DIR / f"{self._generated_seed}.csv"
+        if path.exists():
+            reply = QMessageBox.question(
+                self,
+                "Overwrite existing CSV?",
+                f"'{path.name}' already exists under data/sequence/. Overwrite it?",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        start_note, end_note = self._generated_bounds if self._generated_bounds else (None, None)
+        entries = [
+            (self._row_name(row), self._rows[row][1], self._rows[row][0], self._rows[row][2])
+            for row in sorted(self._rows)
+        ]
+        try:
+            export_batch_csv(
+                entries,
+                path,
+                seed=self._generated_seed,
+                start_note=start_note,
+                end_note=end_note,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Couldn't export CSV", str(exc))
+            return
+
+        self.status_label.setText(f"Exported {len(entries)} sequence(s) to data/sequence/{path.name}.")
 
     # ------------------------------------------------------------------
     # Saving
@@ -445,7 +500,7 @@ class SequenceGeneratorWindow(QMainWindow):
         return name_edit.text().strip() if isinstance(name_edit, QLineEdit) else ""
 
     def _save_row_to_disk(self, row: int, name: str) -> None:
-        actions, level = self._rows[row]
+        actions, level, _stats = self._rows[row]
         start_note, end_note = self._generated_bounds if self._generated_bounds else (None, None)
         save_sequence_as_song(
             name,

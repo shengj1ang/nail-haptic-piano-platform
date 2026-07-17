@@ -8,6 +8,13 @@ difficulty level with plain QPainter calls (no charting dependency), one
 widget per scalar component of D = (C_m, C_s, C_c), inside a scroll area -
 so the monotonic (or deliberately non-monotonic) level separation the text
 report describes can be seen directly rather than only read as numbers.
+
+"Export report" saves the dialog's contents to
+data/sequence_validation/<batch id>/ - report.txt (conclusion + the full
+text report shown in the lower pane) and boxplots.png (the complete
+box-plot stack rendered in one image). The batch id is passed in by the
+caller: the Sequence Generator passes its generation seed, the Sequence
+Metrics window passes the batch name(s) of the validated sequences.
 """
 
 from typing import Dict, Optional
@@ -16,7 +23,9 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog,
+    QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -25,7 +34,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..stimulus_validation import LEVEL_DISPLAY, LEVELS, GroupSummary, ValidationReport, format_report
+from ..music_recording import sanitize_song_name
+from ..stimulus_validation import (
+    LEVEL_DISPLAY,
+    LEVELS,
+    VALIDATION_DATA_DIR,
+    GroupSummary,
+    ValidationReport,
+    format_report,
+)
 
 # Chosen for contrast against the fixed dark background this widget always
 # paints (see paintEvent) - independent of whatever light/dark theme the
@@ -118,10 +135,17 @@ class _BoxPlotWidget(QWidget):
 
 
 class StimulusValidationDialog(QDialog):
-    def __init__(self, report: ValidationReport, parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        report: ValidationReport,
+        parent: Optional[QWidget] = None,
+        batch_id: Optional[str] = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Difficulty Validation (D = C_m, C_s, C_c)")
         self.resize(1000, 860)
+        self._report = report
+        self._batch_id = batch_id
 
         conclusion_label = QLabel(f"Conclusion: {report.conclusion.upper()}")
         conclusion_font = conclusion_label.font()
@@ -149,6 +173,7 @@ class StimulusValidationDialog(QDialog):
             title = f"{c.label} ({_DIRECTION_NOTE[c.direction]}){status}"
             plots_layout.addWidget(_BoxPlotWidget(title, c.groups))
         plots_layout.addStretch(1)
+        self._plots_host = plots_host  # grabbed whole for the exported image
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -165,10 +190,55 @@ class StimulusValidationDialog(QDialog):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
 
+        export_btn = QPushButton("Export report (text + plots)")
+        export_btn.setToolTip(
+            "Save report.txt and boxplots.png under data/sequence_validation/<batch id>/."
+        )
+        export_btn.clicked.connect(self._export)
+
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
+
+        buttons_row = QHBoxLayout()
+        buttons_row.addWidget(export_btn)
+        buttons_row.addWidget(close_btn, 1)
 
         layout = QVBoxLayout(self)
         layout.addWidget(conclusion_label)
         layout.addWidget(splitter, 1)
-        layout.addWidget(close_btn)
+        layout.addLayout(buttons_row)
+
+    def _export(self) -> None:
+        """report.txt + boxplots.png into data/sequence_validation/<batch id>/.
+        The image is the whole box-plot stack grabbed in one piece (the
+        plots host's full height, not just the visible scroll viewport)."""
+        folder = VALIDATION_DATA_DIR / sanitize_song_name(self._batch_id or "unnamed")
+        txt_path = folder / "report.txt"
+        png_path = folder / "boxplots.png"
+
+        if txt_path.exists() or png_path.exists():
+            reply = QMessageBox.question(
+                self,
+                "Overwrite existing export?",
+                f"'{folder.name}' already has an exported report under data/sequence_validation/. Overwrite it?",
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            txt_path.write_text(
+                f"Conclusion: {self._report.conclusion.upper()}\n\n{format_report(self._report)}",
+                encoding="utf-8",
+            )
+            if not self._plots_host.grab().save(str(png_path), "PNG"):
+                raise RuntimeError(f"Couldn't write {png_path.name}")
+        except Exception as exc:
+            QMessageBox.warning(self, "Couldn't export report", str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "Report exported",
+            f"Saved report.txt and boxplots.png to data/sequence_validation/{folder.name}/.",
+        )
