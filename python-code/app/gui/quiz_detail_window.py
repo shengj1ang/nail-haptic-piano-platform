@@ -1,20 +1,22 @@
 """Per-trial detail view - double-click a quiz row in the analysis
 window (app/gui/quiz_analysis_window.py) to open it.
 
-Read-only deep dive into a single quiz, built for the manual audit loop:
-the top table lists all 30 events with their target/actual key and
-finger, probability, and verdicts - borderline finger verdicts (within
+Deep dive into a single quiz, built for the manual audit loop: the top
+table lists all 30 events with their target/actual key and finger,
+probability, and verdicts - borderline finger verdicts (within
 BORDERLINE_MARGIN of the threshold) are highlighted so you know which
-events to check in the review video and, if needed, correct in
-results.json. Below it: the target-vs-detected finger confusion matrix
-and the distribution/trend statistics that don't fit the main table
-(timing spread, within-trial trend, wrong-key spatial profile,
-detection confidence, false starts).
+events to check. Double-clicking an event opens the per-event review
+window (app/gui/event_review_window.py): playback around the keypress
+and correction of the detected finger; hand-corrected events are flagged
+in the Manual column. Below the table: the target-vs-detected finger
+confusion matrix and the distribution/trend statistics that don't fit
+the main table (timing spread, within-trial trend, wrong-key spatial
+profile, detection confidence, false starts).
 """
 
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,21 +35,23 @@ from PySide6.QtWidgets import (
 from ..finger_matching import FINGER_PROBABILITY_THRESHOLD
 from ..quiz import (
     BORDERLINE_MARGIN,
-    FINGER_LABELS,
     META_FILENAME,
     RESULTS_FILENAME,
     QuizMeta,
+    finger_manually_corrected,
     full_summary,
     load_quiz_results,
     note_name,
     quiz_dir,
 )
+from .event_review_window import EventReviewWindow
 
 # Row/cell tints for the event table (light, readable on white).
 COLOR_TIMEOUT = QColor(230, 230, 230)
 COLOR_WRONG_KEY = QColor(255, 220, 220)
 COLOR_WRONG_FINGER = QColor(255, 238, 215)
 COLOR_BORDERLINE = QColor(255, 250, 190)
+COLOR_MANUAL = QColor(220, 235, 255)
 
 EVENT_COLUMNS = [
     "#",
@@ -58,6 +63,7 @@ EVENT_COLUMNS = [
     "p(target)",
     "Finger ✓",
     "RT",
+    "Manual",
 ]
 
 
@@ -70,25 +76,36 @@ def _pct(x) -> str:
 
 
 class QuizDetailWindow(QMainWindow):
+    changed = Signal(str)  # quiz name, emitted after an event correction is saved
+
     def __init__(self, quiz_name: str):
         super().__init__()
+        self.quiz_name = quiz_name
         self.setWindowTitle(f"Quiz Detail - {quiz_name}")
         self.resize(1000, 750)
+        self._event_windows: list = []  # keep references so Qt doesn't GC them
+        self._build()
 
-        meta = QuizMeta.load(quiz_dir(quiz_name) / META_FILENAME)
-        results = load_quiz_results(quiz_dir(quiz_name) / RESULTS_FILENAME)
-        summary = full_summary(quiz_name, results)
+    def _build(self) -> None:
+        """(Re)load everything from disk and rebuild the whole view -
+        also called after a per-event correction is saved, so the table,
+        confusion matrix and stats always reflect the current results.json."""
+        self.meta = QuizMeta.load(quiz_dir(self.quiz_name) / META_FILENAME)
+        results = load_quiz_results(quiz_dir(self.quiz_name) / RESULTS_FILENAME)
+        summary = full_summary(self.quiz_name, results)
 
         header = QLabel(
-            f"<b>{quiz_name}</b> — guidance {meta.guidance_type}, song {meta.song_name}, "
-            f"{meta.note_count} events, {'analyzed' if meta.analyzed else 'not analyzed'}<br>"
+            f"<b>{self.quiz_name}</b> — guidance {self.meta.guidance_type}, song {self.meta.song_name}, "
+            f"{self.meta.note_count} events, {'analyzed' if self.meta.analyzed else 'not analyzed'}<br>"
             f"Key Accuracy {_pct(summary['note_accuracy'])} | FA main {_pct(summary['fa_main'])} | "
             f"FA|key {_pct(summary['fa_key'])} | NoteAcc|finger {_pct(summary['fa_finger'])} | "
-            f"Timing {_ms(summary['mean_timing_error_s'])}"
+            f"Timing {_ms(summary['mean_timing_error_s'])}<br>"
+            f"<i>Double-click an event row to play back its keypress and correct the detected finger.</i>"
         )
         header.setWordWrap(True)
 
         events_table = self._build_events_table(results)
+        events_table.cellDoubleClicked.connect(self._open_event_review)
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._build_confusion_box(summary), 1)
@@ -99,7 +116,24 @@ class QuizDetailWindow(QMainWindow):
         layout.addWidget(header)
         layout.addWidget(events_table, 3)
         layout.addLayout(bottom, 2)
-        self.setCentralWidget(central)
+        self.setCentralWidget(central)  # deletes the previous central widget
+
+    # ------------------------------------------------------------------
+
+    def _open_event_review(self, row: int, _col: int) -> None:
+        try:
+            window = EventReviewWindow(self.quiz_name, row, self.meta.keyboard_profile_name)
+        except Exception as e:
+            QMessageBox.warning(self, "Couldn't open event review", f"event {row}: {e}")
+            return
+        window.saved.connect(self._on_event_corrected)
+        self._event_windows = [w for w in self._event_windows if w.isVisible()]
+        self._event_windows.append(window)
+        window.show()
+
+    def _on_event_corrected(self, _name: str) -> None:
+        self._build()
+        self.changed.emit(self.quiz_name)
 
     # ------------------------------------------------------------------
 
@@ -115,9 +149,10 @@ class QuizDetailWindow(QMainWindow):
         for row, r in enumerate(results):
             p = r.target_finger_probability
             borderline = p is not None and abs(p - FINGER_PROBABILITY_THRESHOLD) <= BORDERLINE_MARGIN
+            manual = not r.timed_out and finger_manually_corrected(r)
             if r.timed_out:
                 cells = [str(r.index), r.target_note_name, "—", "—", r.target_finger or "—",
-                         "—", "—", "—", "timeout"]
+                         "—", "—", "—", "timeout", ""]
                 tint: Optional[QColor] = COLOR_TIMEOUT
             else:
                 cells = [
@@ -130,6 +165,7 @@ class QuizDetailWindow(QMainWindow):
                     f"{p:.2f}" if p is not None else "n/a",
                     "—" if r.finger_correct is None else ("✓" if r.finger_correct else "✗"),
                     _ms(r.timing_error_s),
+                    "✎ manual" if manual else "",
                 ]
                 if not r.note_correct:
                     tint = COLOR_WRONG_KEY
@@ -150,21 +186,35 @@ class QuizDetailWindow(QMainWindow):
                         f"Within ±{BORDERLINE_MARGIN:.2f} of the θ={FINGER_PROBABILITY_THRESHOLD:.2f} "
                         "threshold - verdict could flip; check this event in the review video."
                     )
+                if manual and col == len(cells) - 1:
+                    item.setBackground(COLOR_MANUAL)
+                    item.setToolTip(
+                        "Actual Finger was hand-corrected in the event review window: it no longer "
+                        "matches the stored softmax argmax (the probabilities are kept unmodified as "
+                        "the audit trail)."
+                    )
                 table.setItem(row, col, item)
         return table
 
     def _build_confusion_box(self, summary: dict) -> QGroupBox:
         box = QGroupBox("Finger confusion (rows: target, columns: detected)")
         confusion = summary["confusion"]
-        cols = FINGER_LABELS + ["?"]
-        table = QTableWidget(len(FINGER_LABELS), len(cols))
+        # Physical keyboard order, left pinky to right pinky - so
+        # neighbouring-finger substitutions sit next to the diagonal.
+        order = ["L5", "L4", "L3", "L2", "L1", "R1", "R2", "R3", "R4", "R5"]
+        cols = order + ["?"]
+        table = QTableWidget(len(order), len(cols))
         table.setHorizontalHeaderLabels(cols)
-        table.setVerticalHeaderLabels(FINGER_LABELS)
+        table.setVerticalHeaderLabels(order)
+        table.horizontalHeaderItem(len(order)).setToolTip(
+            "Unresolved: the keypress was responded to, but no fingertip could be "
+            "detected at that moment (hand not visible / tracking failed)."
+        )
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        for i, target in enumerate(FINGER_LABELS):
+        for i, target in enumerate(order):
             row_counts = confusion.get(target, {})
-            for j, actual in enumerate(FINGER_LABELS + [None]):
+            for j, actual in enumerate(order + [None]):
                 count = row_counts.get(actual, 0)
                 item = QTableWidgetItem(str(count) if count else "")
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
@@ -211,6 +261,7 @@ class QuizDetailWindow(QMainWindow):
             f"mean top-1/top-2 margin {conf['mean_top_margin']:.2f}" if conf["mean_top_margin"] is not None else "",
             f"<b>Borderline events</b> (θ±{BORDERLINE_MARGIN:.2f}): {conf['borderline']} — audit these first",
             f"<b>Anticipation</b> (RT &lt; 100 ms): {summary['anticipation']}",
+            f"<b>Manually corrected events</b>: {summary['manual_corrections']}",
             "<b>False starts</b> (unmatched raw presses): "
             + (str(extra["extra_presses"]) + f" (of {extra['note_on_total']} total presses)" if extra else "n/a"),
         ]

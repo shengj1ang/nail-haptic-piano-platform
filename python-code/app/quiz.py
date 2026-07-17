@@ -389,6 +389,7 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
         "confidence": confidence,
         "anticipation": anticipation,
         "confusion": confusion,
+        "manual_corrections": sum(1 for r in responded if finger_manually_corrected(r)),
     }
 
 
@@ -420,6 +421,19 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
         if best is not None:
             unmatched.remove(best)
     return {"note_on_total": len(note_ons), "extra_presses": len(unmatched)}
+
+
+def finger_manually_corrected(r: QuizResult) -> bool:
+    """Was this event's actual_finger hand-corrected (in the per-event
+    review window)? The automatic pipeline always sets actual_finger to
+    the softmax argmax, and manual correction deliberately leaves the
+    stored probabilities untouched - so a mismatch between the two is the
+    audit trail. An originally-unresolved event (no distribution) that now
+    carries a finger is likewise a manual edit."""
+    if r.finger_probabilities:
+        detected = max(r.finger_probabilities, key=r.finger_probabilities.get)
+        return r.actual_finger != detected
+    return r.actual_finger is not None
 
 
 def full_summary(quiz_name: str, results: List[QuizResult]) -> Dict[str, object]:

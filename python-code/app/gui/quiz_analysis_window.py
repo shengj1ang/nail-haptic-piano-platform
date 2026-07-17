@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -67,6 +68,8 @@ from ..quiz import (
     save_quiz_results,
 )
 from ..music_recording import SyncInfo
+from ..participant_export import export_paths, export_participant
+from ..pilot_study import list_participants
 from ..sync_led import load_sync_alignment, resolve_sync_anchor
 from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
 from .quiz_detail_window import QuizDetailWindow
@@ -246,10 +249,19 @@ class QuizAnalysisWindow(QMainWindow):
         select_row.addWidget(select_none_btn)
         select_row.addStretch(1)
 
+        export_btn = QPushButton("Export participant data...")
+        export_btn.setToolTip(
+            "Pick a Main User Study participant and write <participant>_trials.csv and "
+            "<participant>_events.csv (all metrics + per-event data, no wall-clock timestamps) "
+            "next to their TrialStructure.json."
+        )
+        export_btn.clicked.connect(self._export_participant)
+
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(self.align_btn)
         bottom_row.addWidget(self.analyze_btn)
         bottom_row.addWidget(self.data_only_btn)
+        bottom_row.addWidget(export_btn)
         bottom_row.addWidget(self.cancel_btn)
         bottom_row.addStretch(1)
 
@@ -397,6 +409,41 @@ class QuizAnalysisWindow(QMainWindow):
         if item.column() == COL_QUIZ:
             self._update_analyze_btn()
 
+    def _export_participant(self) -> None:
+        participants = list_participants()
+        if not participants:
+            QMessageBox.information(self, "No participants", "No participants under data/MainUserStudy/.")
+            return
+        participant, ok = QInputDialog.getItem(
+            self, "Export participant data", "Participant:", participants, 0, False
+        )
+        if not ok or not participant:
+            return
+        existing = [p for p in export_paths(participant) if p.exists()]
+        if existing:
+            names = "\n".join(p.name for p in existing)
+            answer = QMessageBox.warning(
+                self,
+                "Files already exist",
+                f"These export files already exist and will be overwritten:\n\n{names}\n\nContinue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            result = export_participant(participant)
+        except Exception as e:
+            QMessageBox.warning(self, "Export failed", f"{participant}: {e}")
+            return
+        message = (
+            f"Exported {participant}: {result['trials']} trials, {result['events']} events -> "
+            + ", ".join(p.name for p in result["paths"])
+        )
+        if result["missing"]:
+            message += f"  |  {len(result['missing'])} trials had no quiz data: " + ", ".join(result["missing"])
+        self.status_label.setText(message)
+
     def _open_sync_window(self, name: str) -> None:
         try:
             meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
@@ -461,9 +508,25 @@ class QuizAnalysisWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Couldn't open quiz", f"{name}: {e}")
             return
+        detail.changed.connect(self._on_results_edited)
         self._detail_windows = [w for w in self._detail_windows if w.isVisible()]
         self._detail_windows.append(detail)
         detail.show()
+
+    def _on_results_edited(self, name: str) -> None:
+        """A per-event finger correction was saved from a detail window:
+        recompute the row's displayed metrics from the edited results.json.
+        meta.json stays as-is until Analyze selected (data only) persists
+        the recomputed summary."""
+        row = self._row_of(name)
+        if row is None:
+            return
+        try:
+            meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
+            results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
+        except Exception:
+            return
+        self._fill_row(row, meta, full_summary(name, results))
 
     def _update_analyze_btn(self) -> None:
         n = len(self._checked_names())
