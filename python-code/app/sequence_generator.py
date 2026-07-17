@@ -222,12 +222,11 @@ FAMILY_TOLERANCES: Dict[str, float] = {
     "o_lr": 0.05,
 }
 
-# Fixed 750ms blank interval before the next cue (method.tex "Trial
-# Structure"), plus the same default note-hold length used for a real
-# recording's un-timed notes (app.music_recording.DEFAULT_NOTE_DURATION_S) -
-# used only to give a generated sequence a plausible, evenly spaced
-# playback schedule; student_quiz.py never reads this field, only
-# music_playback.py's demo transport does.
+# Evenly spaced playback schedule for a generated sequence: the same
+# default note-hold length used for a real recording's un-timed notes
+# (app.music_recording.DEFAULT_NOTE_DURATION_S) plus a 0.75 s gap. Used
+# only by music_playback.py's demo transport; student_quiz.py never
+# reads this field.
 INTER_NOTE_INTERVAL_S = DEFAULT_NOTE_DURATION_S + 0.75
 
 # Displacement binning b(d) shared by the transition classes of C_s
