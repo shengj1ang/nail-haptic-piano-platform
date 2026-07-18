@@ -47,6 +47,7 @@ from app.gui.finger_detector_window import FingerDetectorWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
 from app.gui.pilot_schedule_window import PilotScheduleWindow
+from app.gui.participant_analysis_window import ParticipantAnalysisWindow
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
@@ -111,6 +112,7 @@ SECTIONS = [
         "7. Data Analysis",
         [
             ("Quiz Analysis", QuizAnalysisWindow),
+            ("Participant Analysis", ParticipantAnalysisWindow),
         ],
     ),
     (

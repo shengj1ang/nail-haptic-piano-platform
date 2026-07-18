@@ -1,0 +1,19 @@
+condition,category,count
+A,Correct key + correct finger,35
+A,Correct key + wrong finger,227
+A,Wrong key + correct finger,1
+A,Wrong key + wrong finger,7
+A,Unresolved finger,0
+A,No response (timeout),0
+B,Correct key + correct finger,192
+B,Correct key + wrong finger,69
+B,Wrong key + correct finger,7
+B,Wrong key + wrong finger,2
+B,Unresolved finger,0
+B,No response (timeout),0
+C,Correct key + correct finger,217
+C,Correct key + wrong finger,50
+C,Wrong key + correct finger,0
+C,Wrong key + wrong finger,3
+C,Unresolved finger,0
+C,No response (timeout),0

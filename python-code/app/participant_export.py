@@ -166,6 +166,11 @@ def _event_rows(participant: str, trial: dict, quiz_name: str, results) -> List[
             "event_index": r.index,
             "target_note": r.target_note,
             "target_note_name": r.target_note_name,
+            # Calibrated key indices (keyboard-profile order) - the honest
+            # "how many keys away" measure on a white-key-only layout,
+            # where MIDI semitone distance would overcount across E-F/B-C.
+            "target_key_id": r.target_key_id,
+            "actual_key_id": r.actual_key_id,
             "target_finger": r.target_finger,
             "target_hand": r.target_finger[0] if r.target_finger else None,
             "timed_out": r.timed_out,
@@ -184,9 +189,11 @@ def _event_rows(participant: str, trial: dict, quiz_name: str, results) -> List[
     return rows
 
 
-def export_participant(participant: str) -> Dict[str, object]:
-    """Writes both CSVs (overwriting silently - the GUI asks first) and
-    returns {trials, events, missing, paths}."""
+def collect_participant_data(participant: str):
+    """All of a participant's cross-trial data in memory: (trial_rows,
+    event_rows, missing). The same rows the CSV export writes - also used
+    directly by the participant analysis window, so the two can never
+    disagree."""
     structure_path = STUDY_DATA_DIR / participant / TRIAL_STRUCTURE_FILENAME
     with open(structure_path) as f:
         structure = json.load(f)
@@ -204,6 +211,13 @@ def export_participant(participant: str) -> Dict[str, object]:
         summary = full_summary(quiz_name, results)
         trial_rows.append(_trial_row(participant, trial, quiz_name, meta, summary))
         event_rows.extend(_event_rows(participant, trial, quiz_name, results))
+    return trial_rows, event_rows, missing
+
+
+def export_participant(participant: str) -> Dict[str, object]:
+    """Writes both CSVs (overwriting silently - the GUI asks first) and
+    returns {trials, events, missing, paths}."""
+    trial_rows, event_rows, missing = collect_participant_data(participant)
 
     trials_path, events_path = export_paths(participant)
     for path, rows in ((trials_path, trial_rows), (events_path, event_rows)):

@@ -32,18 +32,24 @@ experiment_sequence_wizard.py   entry point - generates the controlled bimanual 
                                  see SEQUENCE_GENERATOR_ALGORITHM.md (stage 4: experiment)
 student_quiz.py                 entry point - cue-response quiz with VISUAL finger cue (stage 4: experiment)
 student_quiz_haptic.py          entry point - same quiz with HAPTIC finger cue (stage 4: experiment)
-quiz_analysis.py                entry point - offline finger-matching analysis of a saved quiz session
+quiz_analysis.py                entry point - batch offline analysis of saved quiz sessions: outcome
+                                 metrics table, LED sync alignment, per-event review/correction,
+                                 participant CSV export (stage 5: data analysis)
 
 config.json                     app/ settings (auto-created), active profile
 data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
 data/music/<song>/               saved teacher recordings (see app/music_recording.py)
 data/sequence/<name>/            generated stimulus sequences (same meta.json/fingering.json layout as
                                  data/music/, see app/sequence_generator.py)
-data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results)
+data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results; raw/ also
+                                 holds sync_align.json - the trial's confirmed LED sync anchor -
+                                 and sync_detect.json, the audit trail of the anchor last used)
 data/MainUserStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
                                  schedule + live progress (see app/pilot_study.py); the Formal
                                  Experiment Session (launcher section 6, no standalone script)
-                                 updates and resumes from this file after a crash
+                                 updates and resumes from this file after a crash. Also the export
+                                 target: <P>_trials.csv / <P>_events.csv and figures/ (300 dpi
+                                 PNGs + per-analysis CSVs from Participant Analysis)
 hand_landmarker.task            MediaPipe hand landmark model, used by app/
 requirements.txt                Python deps for app/ (conda env "fingercam")
 
@@ -131,8 +137,9 @@ Run these from inside `python-code/`.
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
 | `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
 | `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
-| `quiz_analysis.py` | Offline analysis of a saved quiz session - camera-based finger matching, note/finger/action accuracy, timing. |
+| `quiz_analysis.py` | Batch offline analysis of saved quiz sessions: a checkable multi-quiz table with the report's full per-trial outcome measures, LED-anchored video/MIDI sync alignment (auto + manual), per-trial detail / per-event review-and-correction windows, and one-click per-participant CSV export - see [Data analysis](#data-analysis-launcher-section-7). |
 | launcher section 6 (no standalone scripts) | The main user study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Main user study](#main-user-study-launcher-section-6). |
+| launcher section 7, Participant Analysis (no standalone script) | Cross-trial single-participant analysis (`app/gui/participant_analysis_window.py`): condition/difficulty/learning charts, speed-accuracy trade-off, event-level error breakdown, finger confusion matrices, per-finger profiles - with 300 dpi figure + tidy CSV export. |
 | `test_haptic_vibrator.py` | Manual test - drive each finger's vibration motor individually. |
 | `setup_camera_wizard.py` | Camera selection/orientation wizard. |
 | `launcher.py` | Hub window - one button per script above, grouped by stage; only one tool is open at a time (they share the camera). |
@@ -199,6 +206,67 @@ from `launcher.py`, section "6. Main User Study":
    stored inside `TrialStructure.json` is *not* used at run time - it only
    records which profile limited the sequence generator's key range when
    the schedule was made.
+
+### Data analysis (launcher section 7)
+
+Every stored time in the codebase is an absolute Unix epoch timestamp
+(`time.time()` floats - no ISO strings, no recorder-relative clocks;
+`archive/migrate_to_epoch_timestamps.py` converted the pre-existing
+data). The analysis workflow, all reachable from launcher section
+"7. Data Analysis":
+
+1. **Quiz Analysis** (`quiz_analysis.py` /
+   `app/gui/quiz_analysis_window.py`) - the per-trial hub. Every saved
+   quiz is a row in a checkable table (filter box + select
+   shown/analyzed/not-analyzed shortcuts) with the report's full outcome
+   measures as columns: Key Accuracy, the three finger-accuracy views
+   (FA main = key∧finger over all events - the primary measure; FA |
+   key ok; Note Accuracy | finger ok), stratified reaction times,
+   timeouts/wrong-key/false-start counts, unresolved/ambiguous detection
+   rates, same-hand vs hand-switch splits, per-finger FA/TE (L1-L5,
+   R1-R5), and FA under alternative thresholds θ ∈ {0.30..0.50}.
+
+   - **Video sync**: mapping MIDI timestamps to video frames goes
+     through `app/sync_led.py` - the trial's LED flash is auto-detected
+     in the footage (box matched filter with the commanded pulse width +
+     two self-checks) and saved to `raw/sync_align.json`; the per-row
+     "Video Sync" button opens a 3-frame manual alignment window
+     (`app/gui/video_sync_window.py`) for trials the detector can't
+     handle. A saved (especially manual) alignment always wins over
+     re-detection. Per-trial camera start-up error is real: −0.2 s to
+     +0.55 s measured across the pilot data.
+   - **Analyze selected (from video)** runs the MediaPipe pipeline +
+     review-video render per checked quiz; **(data only)** re-summarizes
+     straight from a (possibly hand-corrected) `results.json`.
+   - **Double-click a quiz** for the per-trial detail window
+     (`app/gui/quiz_detail_window.py`): all 30 events with verdicts,
+     borderline-probability highlighting, a finger confusion matrix and
+     distribution stats. **Double-click an event** there to play back
+     its keypress ±5 s and correct the detected finger
+     (`app/gui/event_review_window.py`) - corrections change
+     `actual_finger` only (softmax kept as the audit trail) and are
+     flagged in a Manual column.
+   - **Export participant data** writes `<P>_trials.csv` /
+     `<P>_events.csv` (no wall-clock timestamps - RTs and verdicts only)
+     next to the participant's `TrialStructure.json`.
+
+2. **Participant Analysis** (`app/gui/participant_analysis_window.py`) -
+   cross-trial, within-subject: nine tabs (overview, learning
+   progression incl. the within-cell trial 1→3 trend, difficulty,
+   speed-accuracy trade-off, event-level error breakdown + wrong-key
+   distance, per-condition finger confusion with a paper view, per-finger
+   profiles + RT boxplots, RT distributions, data-quality audit), each
+   with an auto-generated caption. Computations live GUI-free in
+   `app/participant_analysis.py` (pandas DataFrames, participant-agnostic
+   - ready for the future multi-participant aggregation) over the rows
+   from `app/participant_export.py`, with unit tests in
+   `test-script/test_participant_analysis.py`. "Export figures + data"
+   writes 300 dpi PNGs + tidy CSVs (`<P>_<slug>.png/.csv`) under
+   `data/MainUserStudy/<P>/figures/`; "Paper mode" limits the export to
+   the paper-designated figure set.
+
+   All participant-level readouts are descriptive; group-level inference
+   is a separate, later step.
 
 ### Profile folder layout
 
@@ -285,8 +353,12 @@ app/
   config.py                    # Config / *Config dataclasses, JSON load/save
   hand_tracking.py             # HandTracker, Hand - MediaPipe wrapper, L1-L5/R1-R5 fingertips
   midi.py                      # MidiListener, MidiEvent, list_input_ports, save/load_midi_log
+                               #   (all event times are absolute epoch timestamps)
   finger_matching.py           # match_note_to_finger, FingerMatch - the core matching logic
-  offline.py                   # analyze_recording - recorded video + MIDI log -> matches
+  offline.py                   # analyze_recording - recorded video + MIDI log -> matches,
+                               #   frame mapping via the LED sync anchor (app/sync_led.py)
+  sync_led.py                  # video/MIDI sync anchoring: LED flash detection, sync_align.json
+                               #   persistence (manual > auto > start-times fallback)
   profiles.py                  # list_profiles - discover data/keyboard-profile/<name>/ folders
   music_recording.py           # song save/load (meta.json/fingering.json), raw capture, sync marks
   song_library.py              # combined data/music/ + data/sequence/ listing for song pickers
@@ -298,7 +370,15 @@ app/
                                #   data/MainUserStudy/<participant>/TrialStructure.json with
                                #   per-trial status for crash-resume
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
-                               #   and the pilot study's trial runner
+                               #   and the pilot study's trial runner; summarize() computes the
+                               #   report's per-trial outcome measures (three FA views, RT
+                               #   stratification, per-finger stats, threshold sensitivity)
+  participant_export.py        # one participant's trials/events as unified rows (the adapter the
+                               #   analysis + CSV export share); disk-first quiz-dir resolution
+                               #   (highest -rN retake wins)
+  participant_analysis.py      # GUI-free cross-trial computations (pandas, participant-agnostic):
+                               #   speed-accuracy trade-off, event outcome classification, finger
+                               #   confusion, wrong-key distance - unit-tested in test-script/
   haptic_cue.py                # per-finger vibration cue driver used by the haptic quiz and the
                                #   pilot study's condition C trials
   keyboard/
@@ -309,8 +389,11 @@ app/
     detector.py                 # Canny edge detection used by the calibration wizard
   gui/                          # PyQt windows/pages for the scripts above (incl. the sequence
                                 #   generator window, metrics viewer, validation dialog, cue window,
-                                #   and the pilot-study windows: participant schedule, formal-session
-                                #   controller, trial runner, participant-facing experiment cue screen)
+                                #   the pilot-study windows: participant schedule, formal-session
+                                #   controller, trial runner, participant-facing experiment cue
+                                #   screen; and the analysis windows: quiz_analysis_window,
+                                #   quiz_detail_window, event_review_window, video_sync_window,
+                                #   participant_analysis_window)
 ```
 
 `archive/` holds earlier, now-superseded prototypes of this same detector
