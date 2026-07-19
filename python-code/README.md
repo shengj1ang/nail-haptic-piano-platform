@@ -9,41 +9,52 @@ are built on.
 
 ```
 app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
-launcher.py                     entry point - hub window for every tool below, grouped by stage
+launcher.py                     entry point - hub window for every tool below, grouped into the same
+                                 numbered sections used throughout this README (1 Initial Setup ...
+                                 7 Data Analysis; section 8 Tele-training is an empty placeholder).
+                                 Section 1 also holds the launcher-only Visual Guidance Cue Selection
+                                 window (app/gui/cue_selection_window.py), which persists the quiz cue
+                                 style (dot/hand) to config.json
 
-setup_camera_wizard.py          entry point - camera selection/orientation (stage 1: initial setup)
-setup_keyboard_wizard.py        entry point - app/ calibration wizard (stage 1: initial setup)
-setup_midi_mapping_wizard.py    entry point - app/ MIDI mapping wizard (stage 1: initial setup)
+setup_camera_wizard.py          entry point - camera selection/orientation (section 1: initial setup)
+setup_keyboard_wizard.py        entry point - app/ calibration wizard (section 1: initial setup)
+setup_midi_mapping_wizard.py    entry point - app/ MIDI mapping wizard (section 1: initial setup)
 
-test_keyboard_preview.py        entry point - app/ profile preview/sanity-check (stage 2: feature testing)
-test_finger_accuracy.py         entry point - live finger/key detector (stage 2: feature testing, see app/)
+test_keyboard_preview.py        entry point - app/ profile preview/sanity-check (section 2: feature testing)
+test_finger_accuracy.py         entry point - live finger/key detector (section 2: feature testing, see app/)
 test_virtual_piano_led.py       manual-test UI (PySide6): on-screen piano that lights the physical LED
-                                 strips (stage 2: feature testing)
-test_haptic_vibrator.py         manual-test UI: per-finger vibration motor check (stage 2: feature testing)
-
-music_recording_wizard.py       entry point - records a song (video+MIDI) and saves a fingering-annotated
-                                 score under data/music/<song>/ (stage 3: recording & playback)
-music_playback.py               manual-test UI (PySide6): replays a saved song on an on-screen 88-key
-                                 piano + finger dots (stage 3: recording & playback, see app/music_recording.py)
+                                 strips (section 2: feature testing)
+test_haptic_vibrator.py         manual-test UI: per-finger vibration motor check (section 2: feature testing)
 
 experiment_sequence_wizard.py   entry point - generates the controlled bimanual stimulus sequences for
-                                 the pilot study (30-event, difficulty alpha/beta/gamma, seeded, with
+                                 the main user study (30-event, difficulty alpha/beta/gamma, seeded, with
                                  built-in difficulty validation) and saves them under data/sequence/ -
-                                 see SEQUENCE_GENERATOR_ALGORITHM.md (stage 4: experiment)
-student_quiz.py                 entry point - cue-response quiz with VISUAL finger cue (stage 4: experiment)
-student_quiz_haptic.py          entry point - same quiz with HAPTIC finger cue (stage 4: experiment)
+                                 see SEQUENCE_GENERATOR_ALGORITHM.md (section 3: experiment sequence design)
+
+music_recording_wizard.py       entry point - records a song (video+MIDI) and saves a fingering-annotated
+                                 score under data/music/<song>/ (section 4: recording & playback)
+music_playback.py               manual-test UI (PySide6): replays a saved song on an on-screen 88-key
+                                 piano + finger dots (section 4: recording & playback, see app/music_recording.py)
+
+student_quiz.py                 entry point - cue-response quiz with VISUAL finger cue (section 5: practice & assessment)
+student_quiz_haptic.py          entry point - same quiz with HAPTIC finger cue (section 5: practice & assessment)
 quiz_analysis.py                entry point - batch offline analysis of saved quiz sessions: outcome
                                  metrics table, LED sync alignment, per-event review/correction,
-                                 participant CSV export (stage 5: data analysis)
+                                 carry-over review, participant CSV export (section 7: data analysis)
 
-config.json                     app/ settings (auto-created), active profile
+config.json                     app/ settings (auto-created): camera/MIDI, active_keyboard_profile,
+                                 visual_cue_style
 data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
 data/music/<song>/               saved teacher recordings (see app/music_recording.py)
 data/sequence/<name>/            generated stimulus sequences (same meta.json/fingering.json layout as
                                  data/music/, see app/sequence_generator.py)
-data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results; raw/ also
-                                 holds sync_align.json - the trial's confirmed LED sync anchor -
-                                 and sync_detect.json, the audit trail of the anchor last used)
+data/sequence_validation/<batch>/   difficulty-validation output for a generated sequence batch
+                                 (app/stimulus_validation.py, viewable in the Sequence/Music Metrics window)
+data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis results; results.json
+                                 carries per-event validity - "valid"/"invalid_carryover" - set during
+                                 the manual carry-over review; raw/ also holds sync_align.json - the
+                                 trial's confirmed LED sync anchor - and sync_detect.json, the audit
+                                 trail of the anchor last used)
 data/MainUserStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
                                  schedule + live progress (see app/pilot_study.py); the Formal
                                  Experiment Session (launcher section 6, no standalone script)
@@ -96,7 +107,7 @@ physical setup:
    range (a paint-bucket style fill, bounded by Canny edges). This gets
    saved as a *profile* - `data/keyboard-profile/<profile_name>/keyboard_template.json` plus
    `keyboard_key_map.png`, a pixel map where each pixel's value is the key
-   id it belongs to (0 for background).
+   id it belongs to plus one (0 for background).
 2. Map MIDI notes to those keys: press the keys in order 1, 2, 3, ... and
    whatever MIDI note number each one actually sends gets recorded next to
    the template, as `midi_mapping.json`.
@@ -137,7 +148,7 @@ Run these from inside `python-code/`.
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
 | `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
 | `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
-| `quiz_analysis.py` | Batch offline analysis of saved quiz sessions: a checkable multi-quiz table with the report's full per-trial outcome measures, LED-anchored video/MIDI sync alignment (auto + manual), per-trial detail / per-event review-and-correction windows, and one-click per-participant CSV export - see [Data analysis](#data-analysis-launcher-section-7). |
+| `quiz_analysis.py` | Batch offline analysis of saved quiz sessions: a checkable multi-quiz table with the report's full per-trial outcome measures, LED-anchored video/MIDI sync alignment (auto + manual), per-trial detail / per-event review-and-correction windows (including the carry-over validity review), and one-click per-participant CSV export - see [Data analysis](#data-analysis-launcher-section-7). |
 | launcher section 6 (no standalone scripts) | The main user study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Main user study](#main-user-study-launcher-section-6). |
 | launcher section 7, Participant Analysis (no standalone script) | Cross-trial single-participant analysis (`app/gui/participant_analysis_window.py`): condition/difficulty/learning charts, speed-accuracy trade-off, event-level error breakdown, finger confusion matrices, per-finger profiles - with 300 dpi figure + tidy CSV export. |
 | `test_haptic_vibrator.py` | Manual test - drive each finger's vibration motor individually. |
@@ -222,9 +233,10 @@ data). The analysis workflow, all reachable from launcher section
    measures as columns: Key Accuracy, the three finger-accuracy views
    (FA main = key∧finger over all events - the primary measure; FA |
    key ok; Note Accuracy | finger ok), stratified reaction times,
-   timeouts/wrong-key/false-start counts, unresolved/ambiguous detection
-   rates, same-hand vs hand-switch splits, per-finger FA/TE (L1-L5,
-   R1-R5), and FA under alternative thresholds θ ∈ {0.30..0.50}.
+   timeouts/wrong-key counts, the carry-over review state, QC extra-press
+   counts, unresolved/ambiguous detection rates, same-hand vs hand-switch
+   splits, per-finger FA/TE (L1-L5, R1-R5), and FA under alternative
+   thresholds θ ∈ {0.30..0.50}.
 
    - **Video sync**: mapping MIDI timestamps to video frames goes
      through `app/sync_led.py` - the trial's LED flash is auto-detected
@@ -236,8 +248,14 @@ data). The analysis workflow, all reachable from launcher section
      re-detection. Per-trial camera start-up error is real: −0.2 s to
      +0.55 s measured across the pilot data.
    - **Analyze selected (from video)** runs the MediaPipe pipeline +
-     review-video render per checked quiz; **(data only)** re-summarizes
-     straight from a (possibly hand-corrected) `results.json`.
+     review-video render per checked quiz - behind a confirmation
+     dialog, because it overwrites the detected-finger fields in
+     `results.json` (manual finger corrections are lost; carry-over
+     validity verdicts are kept). **Auto-align selected** (also behind a
+     confirmation) persists fresh LED-flash detections as `sync_align.json`,
+     skipping anything already aligned. **(data only)** is unguarded: it
+     just re-summarizes straight from a (possibly hand-corrected)
+     `results.json` and persists the headline numbers to `meta.json`.
    - **Double-click a quiz** for the per-trial detail window
      (`app/gui/quiz_detail_window.py`): all 30 events with verdicts,
      borderline-probability highlighting, a finger confusion matrix and
@@ -246,9 +264,21 @@ data). The analysis workflow, all reachable from launcher section
      (`app/gui/event_review_window.py`) - corrections change
      `actual_finger` only (softmax kept as the audit trail) and are
      flagged in a Manual column.
+   - **Carry-over review**: a matched response faster than 100 ms
+     (`CARRYOVER_RT_THRESHOLD_S`) cannot be a reaction to its cue - pilot
+     data shows these are the tail of the previous event's presses
+     crossing the 0.4 s inter-event gap. Such events are flagged
+     "review!" in the detail window's Validity column (counted as
+     `suspected_carryover`), never auto-labelled anticipation.
+     **Right-click the event row** to confirm one as `invalid_carryover`
+     (or restore it): confirmed events are excluded from every statistic
+     - RT and accuracy alike - and reported as `excluded_carryover`.
+     Unmatched raw presses (near-simultaneous double-hits + inter-trial
+     strays) are QC/debug info only (`qc_*` export columns, the detail
+     window's QC line); they never enter the main outcome measures.
    - **Export participant data** writes `<P>_trials.csv` /
-     `<P>_events.csv` (no wall-clock timestamps - RTs and verdicts only)
-     next to the participant's `TrialStructure.json`.
+     `<P>_events.csv` (no wall-clock timestamps - RTs, verdicts and
+     validity only) next to the participant's `TrialStructure.json`.
 
 2. **Participant Analysis** (`app/gui/participant_analysis_window.py`) -
    cross-trial, within-subject: nine tabs (overview, learning
@@ -277,12 +307,14 @@ data/keyboard-profile/<profile_name>/
   midi_mapping.json        # key_id -> MIDI note number (+ note name), from step 2
 ```
 
-`data/` also holds other kinds of experiment data alongside these
-calibration profiles (e.g. `data/user-log/`, `data/user-profile/`), each in
-its own subfolder.
+`data/` also holds the experiment data alongside these calibration
+profiles, each kind in its own subfolder (`music/`, `sequence/`,
+`sequence_validation/`, `quiz/`, `MainUserStudy/` - see the layout at the
+top of this file).
 
 Multiple profiles can coexist (different desks, cameras, keyboards); every
-tool has a dropdown or `active_profile` in `config.json` to pick between them.
+tool has a dropdown or `active_keyboard_profile` in `config.json` to pick
+between them.
 
 ### Using it as a library
 
@@ -296,8 +328,8 @@ from app import (
 )
 
 cfg = Config.load()
-template = KeyboardTemplate.load(f"data/keyboard-profile/{cfg.active_profile}/keyboard_template.json")
-mapping = MidiMapping.load(f"data/keyboard-profile/{cfg.active_profile}/midi_mapping.json")
+template = KeyboardTemplate.load(f"data/keyboard-profile/{cfg.active_keyboard_profile}/keyboard_template.json")
+mapping = MidiMapping.load(f"data/keyboard-profile/{cfg.active_keyboard_profile}/midi_mapping.json")
 
 tracker = HandTracker()
 midi = MidiListener()          # picks the first available port if none given
@@ -315,10 +347,10 @@ with Camera(cfg.camera) as cam:
 
 #### Record now, analyze later
 
-`MidiListener` timestamps every event (seconds since the listener started -
-the same convention `HandTracker` uses for its own video timestamps), so a
-session's MIDI can be logged and matched against a recorded video afterward
-instead of processed live:
+`MidiListener` timestamps every event with an absolute epoch `time.time()`
+(the project-wide convention - see [Data analysis](#data-analysis-launcher-section-7)),
+so a session's MIDI can be logged and matched against a recorded video
+afterward instead of processed live:
 
 ```python
 from app import MidiListener, save_midi_log, analyze_recording
@@ -331,15 +363,19 @@ save_midi_log(midi.pop_events(), "session1_notes.json")
 results = analyze_recording(
     video_path="session1.mp4",
     midi_log_path="session1_notes.json",
-    profile_name="desk_webcam",
+    keyboard_profile_name="desk_webcam",
+    sync_path="session1_sync.json",   # SyncInfo - see below
 )
 for r in results:
     print(r)   # FingerMatch(note=..., key_id=..., finger=..., inside=...) or None
 ```
 
-`video_path` and `midi_log_path` must share a time origin (start recording
-the video and the `MidiListener` at the same moment) since each MIDI event
-is matched to hand positions in the video by that shared timestamp.
+Epoch event times are mapped to video frames through `sync_path` - a saved
+`app.music_recording.SyncInfo` (video/MIDI start times plus the sync LED
+flash times), which `app/sync_led.py` anchors on the flash it detects in
+the footage; this is exactly how the recording/quiz tools save their
+`raw/sync.json`. Without `sync_path`, event times are assumed to already
+be video-relative seconds (the legacy pre-epoch convention only).
 
 `Camera` also accepts a video file path in place of a live camera index
 (`CameraConfig.index` takes either) - useful for replaying a recording
@@ -372,7 +408,11 @@ app/
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
                                #   and the pilot study's trial runner; summarize() computes the
                                #   report's per-trial outcome measures (three FA views, RT
-                               #   stratification, per-finger stats, threshold sensitivity)
+                               #   stratification, per-finger stats, threshold sensitivity) and
+                               #   excludes human-confirmed invalid_carryover events, reporting
+                               #   suspected/excluded carry-over counts; count_extra_presses()
+                               #   is the QC-only unmatched-press breakdown (double-hits vs
+                               #   inter-trial strays)
   participant_export.py        # one participant's trials/events as unified rows (the adapter the
                                #   analysis + CSV export share); disk-first quiz-dir resolution
                                #   (highest -rN retake wins)
@@ -420,10 +460,10 @@ directly in any script that needs "MIDI note -> light the right LED"
 without pulling in a GUI.
 
 `test_virtual_piano_led.py` is a thin PySide6 wrapper around the above,
-for manual testing: pick a profile, and an on-screen 25-key piano mirrors
-it. Press and hold a virtual key (or the matching real MIDI key) and the
-corresponding LED(s) on the physical Teensy WS2812 strips light up; release
-to turn them off.
+for manual testing: pick a profile, and an on-screen piano mirroring that
+profile's calibrated keys appears. Press and hold a virtual key (or the
+matching real MIDI key) and the corresponding LED(s) on the physical
+Teensy WS2812 strips light up; release to turn them off.
 
 ```bash
 python test_virtual_piano_led.py
@@ -481,7 +521,7 @@ logic from `common/`.
 
 | Script | Purpose |
 |---|---|
-| `demo_async.py` | Demonstrates asynchronous motor control - starts one motor, injects others while it's still running, to show non-blocking behavior. |
+| `demo_send_motor_command_async.py` | Demonstrates asynchronous motor control - starts one motor, injects others while it's still running, to show non-blocking behavior. |
 | `demo_keyboard_control.py` | Real-time keyboard control - maps keys A-`;` to motors 0-9, supports multiple simultaneous key presses. |
 | `detect_live_motor.py` | Real-time microphone-based detection tool for tuning vibration-detection parameters (threshold, frequency band). |
 | `measure_latency.py` | Single-motor latency measurement - triggers a motor, detects the acoustic onset, estimates end-to-end latency. |
@@ -489,8 +529,8 @@ logic from `common/`.
 | `test_led_array.py` | Manual LED test script - lights specific pixels on specific strips to sanity-check wiring/colors. |
 | `midi_probe.py` | Ground-truth calibration probe - prints the MIDI note number for each physical key as you press it, left to right. |
 | `MIDI.py` | Minimal listener that prints every incoming MIDI message on two ports. |
-| `plot_acc_from_ACC_stream.py` | Live-plots `ACC,x,y,z` accelerometer lines streamed over serial. |
-| `plot_acc_from_ACC_stream_autostart.py` | Same, but also sends the serial commands to start/stop the stream automatically. |
+| `plot_acc_from_ACC_stream_autostart.py` | Live-plots `ACC,x,y,z` accelerometer lines streamed over serial, sending the start/stop stream commands automatically. |
+| `test_participant_analysis.py` | Unit tests for `app/participant_analysis.py` (the GUI-free cross-trial computation layer). |
 
 `latency_results/` holds the plots/summary generated by the latency scripts;
 `video_demo/` holds recorded demo videos of the latency tests.
