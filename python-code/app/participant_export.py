@@ -43,6 +43,7 @@ from .quiz import (
     load_quiz_results,
     quiz_dir,
     quiz_raw_dir,
+    suspected_carryover,
 )
 from .sync_led import load_sync_alignment
 
@@ -123,8 +124,6 @@ def _trial_row(participant: str, trial: dict, quiz_name: str, meta: QuizMeta, s:
         "timeout_rate": s["timeout_rate"],
         "wrong_key": s["wrong_key"],
         "key_ok_wrong_finger": s["key_ok_wrong_finger"],
-        "false_starts": s["extra"]["extra_presses"] if s.get("extra") else None,
-        "anticipation": s["anticipation"],
         "wrong_key_mean_semitones": s["wrong_key_stats"]["mean_abs_semitones"],
         "wrong_key_below": s["wrong_key_stats"]["below"],
         "wrong_key_above": s["wrong_key_stats"]["above"],
@@ -135,6 +134,17 @@ def _trial_row(participant: str, trial: dict, quiz_name: str, meta: QuizMeta, s:
         "mean_top_margin": s["confidence"]["mean_top_margin"],
         "borderline_events": s["confidence"]["borderline"],
         "manual_corrections": s["manual_corrections"],
+        # Carry-over review state (see app.quiz.suspected_carryover):
+        # suspected = matched RT < 100 ms awaiting a manual verdict;
+        # excluded = manually confirmed carry-over, already removed from
+        # every statistic in this row.
+        "suspected_carryover": s["suspected_carryover"],
+        "excluded_carryover": s["excluded_carryover"],
+        # QC/debug only - unmatched raw presses (double-hits + inter-trial
+        # strays). NOT false starts/anticipation; keep out of main plots.
+        "qc_extra_presses": s["extra"]["extra_presses"] if s.get("extra") else None,
+        "qc_double_hits": s["extra"]["double_hits"] if s.get("extra") else None,
+        "qc_inter_trial_presses": s["extra"]["inter_trial_presses"] if s.get("extra") else None,
         # Hand transitions
         "same_hand_n": s["same_hand"]["n"],
         "same_hand_fa": s["same_hand"]["fa_main"],
@@ -181,6 +191,10 @@ def _event_rows(participant: str, trial: dict, quiz_name: str, results) -> List[
             "target_finger_probability": r.target_finger_probability,
             "manually_corrected": (not r.timed_out) and finger_manually_corrected(r),
             "rt_s": r.timing_error_s,
+            # Carry-over audit trail: invalid events are excluded from the
+            # trial-level statistics but still exported here.
+            "validity": r.validity,
+            "suspected_carryover": suspected_carryover(r),
         }
         probs = r.finger_probabilities or {}
         for f in FINGER_LABELS:

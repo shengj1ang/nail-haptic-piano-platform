@@ -133,6 +133,10 @@ class QuizResult:
     # Pixel position of the detected fingertip at the keypress moment, so the
     # review video (app.review_video) can mark it without re-running MediaPipe.
     actual_finger_point: Optional[List[int]] = None
+    # "valid" | "invalid_carryover". Only ever set by a human (quiz detail
+    # window) after reviewing a suspected carry-over response - see
+    # suspected_carryover(). Invalid events are excluded from summarize().
+    validity: str = "valid"
 
 
 def save_quiz_results(results: List[QuizResult], path: Path) -> None:
@@ -196,13 +200,41 @@ SENSITIVITY_THRESHOLDS = [0.30, 0.35, 0.45, 0.50]
 # in the review video during the manual audit.
 BORDERLINE_MARGIN = 0.05
 
-# A keypress this soon after cue onset is faster than a planned reaction -
-# the participant was almost certainly moving before the cue.
-ANTICIPATION_THRESHOLD_S = 0.1
+# A matched response this soon after cue onset is faster than a planned
+# reaction - the movement almost certainly started before the cue (typically
+# the tail of the previous event's presses carrying over the inter-trial
+# gap). Such events are flagged suspected_carryover for manual review; they
+# are never auto-labelled anticipation, and only a human can invalidate one
+# (QuizResult.validity = VALIDITY_INVALID_CARRYOVER).
+CARRYOVER_RT_THRESHOLD_S = 0.1
+
+# QuizResult.validity values. Invalid events were manually confirmed as
+# carry-over from the previous event and are excluded from every summary
+# statistic (RT and accuracy alike); they stay in results.json for audit.
+VALIDITY_VALID = "valid"
+VALIDITY_INVALID_CARRYOVER = "invalid_carryover"
+
+# Unmatched raw presses within this window of a matched keypress are
+# near-simultaneous multi-key presses (the scorer keeps only the earliest);
+# anything farther is an inter-trial press in the gap between events.
+DOUBLE_HIT_WINDOW_S = 0.06
 
 
 def _mean(values: List[float]) -> Optional[float]:
     return statistics.mean(values) if values else None
+
+
+def suspected_carryover(r: QuizResult) -> bool:
+    """This event's matched response was implausibly fast (RT below
+    CARRYOVER_RT_THRESHOLD_S) and hasn't been ruled on yet - it needs a
+    manual look (review video) to decide whether it was really the tail of
+    the previous event's presses. Confirmed ones get validity =
+    VALIDITY_INVALID_CARRYOVER and stop being "suspected"."""
+    return (
+        r.validity == VALIDITY_VALID
+        and r.timing_error_s is not None
+        and r.timing_error_s < CARRYOVER_RT_THRESHOLD_S
+    )
 
 
 def summarize(results: List[QuizResult]) -> Dict[str, object]:
@@ -223,7 +255,13 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
 
     Cross-trial aggregation (per participant / condition / all data) is
     deliberately not here - single-trial numbers only.
+
+    Events manually invalidated as carry-over (validity =
+    VALIDITY_INVALID_CARRYOVER) are excluded from every statistic below -
+    RT and accuracy alike - and only reported as excluded_carryover.
     """
+    excluded_carryover = sum(1 for r in results if r.validity == VALIDITY_INVALID_CARRYOVER)
+    results = [r for r in results if r.validity != VALIDITY_INVALID_CARRYOVER]
     total = len(results)
     hits = sum(1 for r in results if r.note_correct)
     misses = sum(1 for r in results if r.timed_out)
@@ -340,9 +378,9 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
         "borderline": sum(1 for p in target_probs if abs(p - FINGER_PROBABILITY_THRESHOLD) <= BORDERLINE_MARGIN),
     }
 
-    anticipation = sum(
-        1 for r in results if r.timing_error_s is not None and r.timing_error_s < ANTICIPATION_THRESHOLD_S
-    )
+    # Implausibly fast matched responses still awaiting a manual verdict -
+    # see suspected_carryover(). Never auto-counted as anticipation.
+    suspected = sum(1 for r in results if suspected_carryover(r))
 
     # Target-vs-detected finger confusion counts (None = unresolved), for
     # the per-trial detail view's confusion matrix.
@@ -387,18 +425,26 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
         "second_half": second_half,
         "wrong_key_stats": wrong_key_stats,
         "confidence": confidence,
-        "anticipation": anticipation,
+        "suspected_carryover": suspected,
+        "excluded_carryover": excluded_carryover,
         "confusion": confusion,
         "manual_corrections": sum(1 for r in responded if finger_manually_corrected(r)),
     }
 
 
 def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optional[Dict[str, int]]:
-    """False starts / extra keypresses: note_on events in the raw MIDI log
-    (midi_raw.json) that were never matched to a cue event. The quiz
-    runner only records the press it matched to each cue, so double
-    presses, corrections, and presses outside every response window are
-    only visible here. None if the raw log is missing."""
+    """QC/debug info only - never part of the main outcome measures.
+
+    Extra presses: note_on events in the raw MIDI log (midi_raw.json) that
+    were never matched to a cue event. The quiz runner only records the
+    press it matched to each cue, so these are only visible here. They are
+    deliberately NOT called false starts or anticipation: pilot data shows
+    almost all of them are either near-simultaneous multi-key presses
+    (the scorer keeps the earliest key - "double_hits", within
+    DOUBLE_HIT_WINDOW_S of a matched keypress) or stray presses in the gap
+    between events ("inter_trial_presses"), i.e. the tail of the previous
+    response, not an early reaction to the next cue. None if the raw log
+    is missing."""
     try:
         with open(midi_raw_path) as f:
             events = json.load(f)
@@ -410,9 +456,11 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
     # 5 ms - both timestamps come from the same MIDI clock, so they agree
     # to float precision; the tolerance just absorbs rounding).
     unmatched = list(note_ons)
+    matched_times: List[float] = []
     for r in results:
         if r.keypress_time is None or r.actual_note is None:
             continue
+        matched_times.append(r.keypress_time)
         best = None
         for e in unmatched:
             if e["note"] == r.actual_note and abs(e["abs_time"] - r.keypress_time) <= 0.005:
@@ -420,7 +468,18 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
                     best = e
         if best is not None:
             unmatched.remove(best)
-    return {"note_on_total": len(note_ons), "extra_presses": len(unmatched)}
+
+    double_hits = sum(
+        1
+        for e in unmatched
+        if any(abs(e["abs_time"] - t) <= DOUBLE_HIT_WINDOW_S for t in matched_times)
+    )
+    return {
+        "note_on_total": len(note_ons),
+        "extra_presses": len(unmatched),
+        "double_hits": double_hits,
+        "inter_trial_presses": len(unmatched) - double_hits,
+    }
 
 
 def finger_manually_corrected(r: QuizResult) -> bool:
@@ -437,8 +496,8 @@ def finger_manually_corrected(r: QuizResult) -> bool:
 
 
 def full_summary(quiz_name: str, results: List[QuizResult]) -> Dict[str, object]:
-    """summarize() plus the raw-MIDI extras (false starts, under the
-    "extra" key; None when midi_raw.json is missing) - everything the
+    """summarize() plus the raw-MIDI QC extras (unmatched presses, under
+    the "extra" key; None when midi_raw.json is missing) - everything the
     analysis table or the per-trial detail view needs, computed fresh
     from the disk-backed per-event data."""
     s = summarize(results)

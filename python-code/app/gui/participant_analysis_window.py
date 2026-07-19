@@ -266,7 +266,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         )
         rows_html = ["<table border='0' cellspacing='0' cellpadding='4'>"
                      "<tr><th align='left'>Condition</th><th>Key Acc</th><th>FA main</th><th>FA|key</th>"
-                     "<th>RT (key ok)</th><th>Timeouts</th><th>False starts</th></tr>"]
+                     "<th>RT (key ok)</th><th>Timeouts</th><th>Excluded carry-over</th></tr>"]
         for c in CONDITIONS:
             ts = by_c[c]
             if not ts:
@@ -278,7 +278,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                 f"<td align='center'>{_fmt_pct(_mean([t['fa_given_key'] for t in ts if t['analyzed']]))}</td>"
                 f"<td align='center'>{_fmt_ms(_mean([t['rt_correct_key_s'] for t in ts]))}</td>"
                 f"<td align='center'>{sum(t['misses'] for t in ts)}</td>"
-                f"<td align='center'>{sum(t['false_starts'] or 0 for t in ts)}</td></tr>"
+                f"<td align='center'>{sum(t['excluded_carryover'] for t in ts)}</td></tr>"
             )
         rows_html.append("</table>")
         lines.append("".join(rows_html))
@@ -898,7 +898,7 @@ class ParticipantAnalysisWindow(QMainWindow):
     def _build_quality(self, trials: List[dict]):
         fig = Figure(figsize=(9, 3.4))
         ax = fig.subplots(1, 1)
-        cats = ["Timeouts", "Wrong key", "False starts", "Manual corrections"]
+        cats = ["Timeouts", "Wrong key", "Extra presses (QC)", "Manual corrections"]
         width = 0.25
         x = np.arange(len(cats))
         lines = []
@@ -907,7 +907,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             vals = [
                 sum(t["misses"] for t in ts),
                 sum(t["wrong_key"] for t in ts),
-                sum(t["false_starts"] or 0 for t in ts),
+                sum(t["qc_extra_presses"] or 0 for t in ts),
                 sum(t["manual_corrections"] for t in ts),
             ]
             ax.bar(x + (i - 1) * width, vals, width, color=CONDITION_COLORS[c], label=c)

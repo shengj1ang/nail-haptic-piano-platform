@@ -123,9 +123,14 @@ def _build_metric_columns():
          lambda m, s: str(s["misses"])),
         ("Wrong key", "Responded events whose key didn't match the target.", False,
          lambda m, s: str(s["wrong_key"])),
-        ("False starts", "note_on presses in the raw MIDI log never matched to a cue event - double "
-                         "presses, corrections, presses outside every response window. n/a if "
-                         "midi_raw.json is missing.", False,
+        ("Carry-over", "Suspected carry-over responses (matched RT < 100 ms, need manual review in the "
+                       "detail window) / manually confirmed ones (excluded from all stats).", False,
+         lambda m, s: f"{s['suspected_carryover']}? / {s['excluded_carryover']} excl"
+         if (s["suspected_carryover"] or s["excluded_carryover"]) else ""),
+        ("QC extra presses", "QC only - note_on presses in the raw MIDI log never matched to a cue event: "
+                             "near-simultaneous double-hits plus inter-trial strays (the tail of the "
+                             "previous response). NOT false starts or anticipation; kept out of the main "
+                             "outcome measures. n/a if midi_raw.json is missing.", True,
          lambda m, s: str(s["extra"]["extra_presses"]) if s.get("extra") else "n/a"),
         ("Key ok, wrong finger", "Correct-key events that failed the finger threshold rule.", True,
          lambda m, s: str(s["key_ok_wrong_finger"])),
@@ -465,8 +470,25 @@ class QuizAnalysisWindow(QMainWindow):
         """LED flash detection + auto-alignment save, over every checked quiz. Existing
         alignments (manual included) are left untouched; untrusted
         detections are reported per row and not persisted."""
+        names = self._checked_names()
+        if not names:
+            return
+        answer = QMessageBox.warning(
+            self,
+            "Auto-align selected quizzes?",
+            f"This will run LED flash detection on the {len(names)} checked quiz(zes) and save each "
+            "trusted detection as that quiz's alignment (sync_align.json). Every later video analysis "
+            "will use the saved alignment.\n\n"
+            "Quizzes already aligned (manual alignments included) are skipped, so nothing existing is "
+            "overwritten. Detection reads each raw video and can take a while.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
         aligned = skipped = failed = 0
-        for name in self._checked_names():
+        for name in names:
             row = self._row_of(name)
             raw = quiz_raw_dir(name)
             if not (raw / RAW_SYNC_FILENAME).exists():
@@ -551,9 +573,24 @@ class QuizAnalysisWindow(QMainWindow):
     # Batch driver
 
     def _start_batch(self) -> None:
-        self._queue = self._checked_names()
-        if not self._queue:
+        names = self._checked_names()
+        if not names:
             return
+        answer = QMessageBox.warning(
+            self,
+            "Analyze selected from video?",
+            f"This will run the full video pipeline on the {len(names)} checked quiz(zes): MediaPipe "
+            "finger matching over the raw video, then a re-rendered review video.\n\n"
+            "It OVERWRITES each quiz's detected-finger fields in results.json - any manual finger "
+            "corrections made in the event review window are LOST and must be redone. (Carry-over "
+            "validity verdicts are kept.) review.mp4 is replaced. This can take a long time.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._queue = names
         self._batch_total = len(self._queue)
         self._batch_failed = 0
         self.analyze_btn.setEnabled(False)

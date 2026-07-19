@@ -8,10 +8,13 @@ BORDERLINE_MARGIN of the threshold) are highlighted so you know which
 events to check. Double-clicking an event opens the per-event review
 window (app/gui/event_review_window.py): playback around the keypress
 and correction of the detected finger; hand-corrected events are flagged
-in the Manual column. Below the table: the target-vs-detected finger
-confusion matrix and the distribution/trend statistics that don't fit
-the main table (timing spread, within-trial trend, wrong-key spatial
-profile, detection confidence, false starts).
+in the Manual column. Suspected carry-over responses (matched RT below
+CARRYOVER_RT_THRESHOLD_S) are flagged in the Validity column; right-click
+the row to confirm one as invalid carry-over (excluded from all stats) or
+to restore it. Below the table: the target-vs-detected finger confusion
+matrix and the distribution/trend statistics that don't fit the main
+table (timing spread, within-trial trend, wrong-key spatial profile,
+detection confidence, QC press counts).
 """
 
 from typing import Optional
@@ -25,6 +28,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QTableWidget,
     QTableWidgetItem,
@@ -35,14 +39,19 @@ from PySide6.QtWidgets import (
 from ..finger_matching import FINGER_PROBABILITY_THRESHOLD
 from ..quiz import (
     BORDERLINE_MARGIN,
+    CARRYOVER_RT_THRESHOLD_S,
     META_FILENAME,
     RESULTS_FILENAME,
+    VALIDITY_INVALID_CARRYOVER,
+    VALIDITY_VALID,
     QuizMeta,
     finger_manually_corrected,
     full_summary,
     load_quiz_results,
     note_name,
     quiz_dir,
+    save_quiz_results,
+    suspected_carryover,
 )
 from .event_review_window import EventReviewWindow
 
@@ -52,6 +61,8 @@ COLOR_WRONG_KEY = QColor(255, 220, 220)
 COLOR_WRONG_FINGER = QColor(255, 238, 215)
 COLOR_BORDERLINE = QColor(255, 250, 190)
 COLOR_MANUAL = QColor(220, 235, 255)
+COLOR_SUSPECTED = QColor(255, 210, 160)  # carry-over suspect - review me
+COLOR_INVALID = QColor(205, 205, 205)  # manually excluded from all stats
 
 EVENT_COLUMNS = [
     "#",
@@ -64,6 +75,7 @@ EVENT_COLUMNS = [
     "Finger ✓",
     "RT",
     "Manual",
+    "Validity",
 ]
 
 
@@ -106,6 +118,9 @@ class QuizDetailWindow(QMainWindow):
 
         events_table = self._build_events_table(results)
         events_table.cellDoubleClicked.connect(self._open_event_review)
+        events_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        events_table.customContextMenuRequested.connect(self._show_event_menu)
+        self._events_table = events_table
 
         bottom = QHBoxLayout()
         bottom.addWidget(self._build_confusion_box(summary), 1)
@@ -135,6 +150,32 @@ class QuizDetailWindow(QMainWindow):
         self._build()
         self.changed.emit(self.quiz_name)
 
+    def _show_event_menu(self, pos) -> None:
+        """Right-click an event row: the manual carry-over verdict. Only a
+        human ever sets validity - the code merely flags suspects (RT <
+        CARRYOVER_RT_THRESHOLD_S) for this review."""
+        row = self._events_table.rowAt(pos.y())
+        if row < 0:
+            return
+        results = load_quiz_results(quiz_dir(self.quiz_name) / RESULTS_FILENAME)
+        if row >= len(results):
+            return
+        r = results[row]
+        if r.timed_out:
+            return  # no matched response - nothing to rule on
+        menu = QMenu(self)
+        if r.validity == VALIDITY_INVALID_CARRYOVER:
+            action = menu.addAction("Restore event (mark valid again)")
+            new_validity = VALIDITY_VALID
+        else:
+            action = menu.addAction("Confirm as invalid carry-over (exclude from RT && accuracy)")
+            new_validity = VALIDITY_INVALID_CARRYOVER
+        if menu.exec(self._events_table.viewport().mapToGlobal(pos)) is action:
+            r.validity = new_validity
+            save_quiz_results(results, quiz_dir(self.quiz_name) / RESULTS_FILENAME)
+            self._build()
+            self.changed.emit(self.quiz_name)
+
     # ------------------------------------------------------------------
 
     def _build_events_table(self, results) -> QTableWidget:
@@ -150,9 +191,12 @@ class QuizDetailWindow(QMainWindow):
             p = r.target_finger_probability
             borderline = p is not None and abs(p - FINGER_PROBABILITY_THRESHOLD) <= BORDERLINE_MARGIN
             manual = not r.timed_out and finger_manually_corrected(r)
+            invalid = r.validity == VALIDITY_INVALID_CARRYOVER
+            suspected = suspected_carryover(r)
+            validity_text = "excluded" if invalid else ("review!" if suspected else "")
             if r.timed_out:
                 cells = [str(r.index), r.target_note_name, "—", "—", r.target_finger or "—",
-                         "—", "—", "—", "timeout", ""]
+                         "—", "—", "—", "timeout", "", validity_text]
                 tint: Optional[QColor] = COLOR_TIMEOUT
             else:
                 cells = [
@@ -166,8 +210,11 @@ class QuizDetailWindow(QMainWindow):
                     "—" if r.finger_correct is None else ("✓" if r.finger_correct else "✗"),
                     _ms(r.timing_error_s),
                     "✎ manual" if manual else "",
+                    validity_text,
                 ]
-                if not r.note_correct:
+                if invalid:
+                    tint = COLOR_INVALID
+                elif not r.note_correct:
                     tint = COLOR_WRONG_KEY
                 elif r.finger_correct is False:
                     tint = COLOR_WRONG_FINGER
@@ -186,13 +233,26 @@ class QuizDetailWindow(QMainWindow):
                         f"Within ±{BORDERLINE_MARGIN:.2f} of the θ={FINGER_PROBABILITY_THRESHOLD:.2f} "
                         "threshold - verdict could flip; check this event in the review video."
                     )
-                if manual and col == len(cells) - 1:
+                if manual and col == 9:
                     item.setBackground(COLOR_MANUAL)
                     item.setToolTip(
                         "Actual Finger was hand-corrected in the event review window: it no longer "
                         "matches the stored softmax argmax (the probabilities are kept unmodified as "
                         "the audit trail)."
                     )
+                if col == len(cells) - 1:
+                    if invalid:
+                        item.setToolTip(
+                            "Manually confirmed carry-over from the previous event - excluded from "
+                            "every statistic (RT and accuracy). Right-click to restore."
+                        )
+                    elif suspected:
+                        item.setBackground(COLOR_SUSPECTED)
+                        item.setToolTip(
+                            f"RT < {CARRYOVER_RT_THRESHOLD_S * 1000:.0f} ms - too fast for a reaction "
+                            "to this cue; likely the tail of the previous event's presses. Check the "
+                            "review video, then right-click to mark it invalid carry-over."
+                        )
                 table.setItem(row, col, item)
         return table
 
@@ -260,10 +320,17 @@ class QuizDetailWindow(QMainWindow):
             "<b>Detection confidence</b>: n/a (not analyzed)",
             f"mean top-1/top-2 margin {conf['mean_top_margin']:.2f}" if conf["mean_top_margin"] is not None else "",
             f"<b>Borderline events</b> (θ±{BORDERLINE_MARGIN:.2f}): {conf['borderline']} — audit these first",
-            f"<b>Anticipation</b> (RT &lt; 100 ms): {summary['anticipation']}",
+            f"<b>Suspected carry-over</b> (matched RT &lt; {CARRYOVER_RT_THRESHOLD_S * 1000:.0f} ms, needs manual "
+            f"review — right-click the event row): {summary['suspected_carryover']}",
+            f"<b>Excluded carry-over</b> (manually confirmed, removed from all stats): "
+            f"{summary['excluded_carryover']}",
             f"<b>Manually corrected events</b>: {summary['manual_corrections']}",
-            "<b>False starts</b> (unmatched raw presses): "
-            + (str(extra["extra_presses"]) + f" (of {extra['note_on_total']} total presses)" if extra else "n/a"),
+            "<b>QC — unmatched raw presses</b> (not scored, not anticipation): "
+            + (
+                f"{extra['extra_presses']} ({extra['double_hits']} simultaneous double-hits, "
+                f"{extra['inter_trial_presses']} inter-trial strays, of {extra['note_on_total']} total presses)"
+                if extra else "n/a"
+            ),
         ]
         label = QLabel("<br>".join(line for line in lines if line))
         label.setWordWrap(True)
