@@ -81,9 +81,12 @@ from note_led_map import WHITE_LEDS
 LED_FLASH_DELAY_MS = 300
 LED_FLASH_DURATION_MS = 800
 
-# The sync mark only needs one LED to flash, not the whole rig - the first
-# white key is as good a landmark as any for finding it in the footage.
-SYNC_LED_STRIP, SYNC_LED_IDX = WHITE_LEDS[0][0]
+# The sync mark flashes the first five white keys so it stays visible in
+# the footage even when a hand covers the leftmost key. Auto-detection
+# (app/sync_led.py) only ever looks at the first key's region, so that key
+# must be switched first - on and off - to keep its actual pulse aligned
+# with the recorded led_on/off times; the others trail by serial latency.
+SYNC_LED_PIXELS = [key[0] for key in WHITE_LEDS[:5]]
 COUNTDOWN_S = 5.0
 GAP_S = 0.4  # brief pause between one note's result and the next cue
 
@@ -411,14 +414,18 @@ class QuizWindow(QMainWindow):
         if self.phase != "flashing":
             return
         self.led_on_time = time.time()
-        self.led.set_pixel(SYNC_LED_STRIP, SYNC_LED_IDX, 255, 255, 255, 255)
+        for strip, idx in SYNC_LED_PIXELS:
+            self.led.set_pixel(strip, idx, 255, 255, 255, 255)
         QTimer.singleShot(LED_FLASH_DURATION_MS, self._flash_leds_off)
 
     def _flash_leds_off(self) -> None:
         if self.phase != "flashing":
             return
-        self.led.set_pixel(SYNC_LED_STRIP, SYNC_LED_IDX, 0, 0, 0, 0)
+        strip0, idx0 = SYNC_LED_PIXELS[0]
+        self.led.set_pixel(strip0, idx0, 0, 0, 0, 0)
         self.led_off_time = time.time()
+        for strip, idx in SYNC_LED_PIXELS[1:]:
+            self.led.set_pixel(strip, idx, 0, 0, 0, 0)
         self._begin_countdown()
 
     def _begin_countdown(self) -> None:

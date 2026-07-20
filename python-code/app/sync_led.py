@@ -17,8 +17,9 @@ from which every absolute event timestamp maps to its true frame:
 
     frame(t) = flash_on_frame + (t - led_on_time) * fps
 
-Detection: the sync LED is always the first white key's LED
-(student_quiz.SYNC_LED_STRIP/IDX = key_id 0), so its pixel region comes
+Detection: the flash lights the first five white keys for visibility, but
+the first key (student_quiz.SYNC_LED_PIXELS[0] = key_id 0) is switched
+first and is the only one detection looks at, so its pixel region comes
 straight from the keyboard profile's key map. A box matched filter with
 the known flash duration (led_off_time - led_on_time) slides over that
 region's per-frame brightness, searching only within ±0.5 s of the
