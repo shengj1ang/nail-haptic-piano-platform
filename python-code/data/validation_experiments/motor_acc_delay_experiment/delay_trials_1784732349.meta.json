@@ -1,0 +1,48 @@
+{
+  "experiment": "motor_acc_delay",
+  "saved_at": 1784732349,
+  "firmware": "haptic-piano v2.9.0",
+  "parameters": {
+    "actuator_type": "ERM",
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "amp": 64,
+    "vib_duration_s": 0.2,
+    "num_trials": 10,
+    "baseline_duration_s": 1.0,
+    "inter_trial_rest_s": 1.0,
+    "search_timeout_s": 3.0,
+    "pwm_freq_hz": 5000,
+    "detection": "per_axis_delta_adaptive_threshold",
+    "min_threshold_counts": 40,
+    "noise_mult": 3.0,
+    "consecutive_hits": 1,
+    "onset_criterion": "2 consecutive samples > max(25, 2.0 x baseline p95)",
+    "onset_mult": 2.0,
+    "onset_min_counts": 25.0,
+    "onset_consecutive": 2,
+    "crossing_estimate": "linear_interpolation",
+    "mounting": "suspended_free_hanging",
+    "still_window_s": 0.5,
+    "still_max_dev": 60.0,
+    "acc_interval_ms": 1
+  },
+  "files": {
+    "csv": "delay_trials_1784732349.csv",
+    "samples_csv": "delay_samples_1784732349.csv",
+    "png": "delay_summary_1784732349.png"
+  },
+  "result": {
+    "n_ok": 10,
+    "n_timeout": 0,
+    "n_onset": 9,
+    "onset_mean_ms": 1.371510357382783,
+    "onset_sd_ms": 0.8737210711271741,
+    "onset_min_ms": 0.39514826205625825,
+    "onset_max_ms": 2.922574247032569,
+    "mean_delay_ms": 1.3864561566909988,
+    "sd_delay_ms": 0.7054936810964526,
+    "min_delay_ms": 0.5151920976408482,
+    "max_delay_ms": 2.2109880013376757
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "experiment": "motor_acc_delay",
+  "saved_at": 1776436900,
+  "firmware": "haptic-piano v2.1.0",
+  "parameters": {
+    "actuator_type": "ERM",
+    "motor_index": 10,
+    "acc_sensor_id": 0,
+    "amp": 64,
+    "vib_duration_s": 0.2,
+    "num_trials": 10,
+    "baseline_duration_s": 1.0,
+    "inter_trial_rest_s": 1.0,
+    "search_timeout_s": 3.0,
+    "threshold": 150,
+    "consecutive_hits": 1,
+    "acc_interval_ms": 2
+  },
+  "files": {
+    "csv": "delay_trials_1776436900.csv",
+    "samples_csv": null,
+    "png": "delay_summary_1776436900.png",
+    "console_log": "delay_log_1776436900.txt"
+  },
+  "result": {
+    "n_ok": 10,
+    "n_timeout": 0,
+    "mean_delay_ms": 8.575,
+    "sd_delay_ms": 1.926570066782473,
+    "min_delay_ms": 5.76,
+    "max_delay_ms": 11.75
+  },
+  "backfilled": true,
+  "timestamp_approximate": true
+}

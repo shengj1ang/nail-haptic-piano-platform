@@ -22,6 +22,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -42,6 +43,7 @@ from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
     lra_frequency_sweep,
 )
+from validation_experiments.motor_acc_delay_experiment import motor_acc_delay
 from validation_experiments.rig import SweepAborted, open_rig, send
 
 # Test-buzz pulse fired at the selected motor ("P idx count amp on off"),
@@ -130,6 +132,17 @@ class _SweepWindowBase(QMainWindow):
     MODULE = None       # validation_experiments module with run_experiment/render_csv
     PNG_GLOB = ""       # e.g. "frequency_response_*.png" - the module's plot files
     CSV_GLOB = ""       # e.g. "sweep_*.csv" - the module's data files
+    # Physical-mounting instructions shown under the description; the
+    # default is the sweeps' desk-mounted protocol - experiments with a
+    # different protocol (e.g. the suspended delay test) override it.
+    SETUP_HINT = (
+        "<b>Physical setup:</b> the accelerometer must be glued/taped to "
+        "the motor under test so the two move as one unit, and the pair "
+        "must be fixed to a rigid desk surface. A loose sensor or a "
+        "free-floating rig invalidates every measurement. Use \"Test "
+        "Buzz\" to confirm the selected motor port drives the actuator "
+        "the sensor is attached to."
+    )
 
     def __init__(self, cfg=None):
         super().__init__()
@@ -143,14 +156,7 @@ class _SweepWindowBase(QMainWindow):
         description = QLabel(self.DESCRIPTION)
         description.setWordWrap(True)
 
-        setup_hint = QLabel(
-            "<b>Physical setup:</b> the accelerometer must be glued/taped to "
-            "the motor under test so the two move as one unit, and the pair "
-            "must be fixed to a rigid desk surface. A loose sensor or a "
-            "free-floating rig invalidates every measurement. Use \"Test "
-            "Buzz\" to confirm the selected motor port drives the actuator "
-            "the sensor is attached to."
-        )
+        setup_hint = QLabel(self.SETUP_HINT)
         setup_hint.setWordWrap(True)
 
         self.motor_spin = QSpinBox()
@@ -257,6 +263,11 @@ class _SweepWindowBase(QMainWindow):
         """Experiment-specific kwargs forwarded to run_experiment()."""
         return {}
 
+    def _pre_buzz_cmds(self, motor: int) -> list:
+        """Commands sent right before a Test Buzz pulse (e.g. setting
+        the PWM frequency the selected actuator needs)."""
+        return []
+
     def _summary_text(self, summary: dict) -> str:
         raise NotImplementedError
 
@@ -332,6 +343,8 @@ class _SweepWindowBase(QMainWindow):
         if acc_ser is not None:
             motor = self.motor_spin.value()
             try:
+                for cmd in self._pre_buzz_cmds(motor):
+                    send(acc_ser, cmd, wait_s=0.0)
                 send(acc_ser, f"P {motor} 1 {TEST_BUZZ_AMP} {TEST_BUZZ_MS} 0",
                      wait_s=0.0)
             except Exception as e:
@@ -352,6 +365,8 @@ class _SweepWindowBase(QMainWindow):
                 return
         motor = self.motor_spin.value()
         try:
+            for cmd in self._pre_buzz_cmds(motor):
+                send(self._test_ser, cmd, wait_s=0.0)
             # Async firmware pulse - fire and forget, no X needed.
             send(self._test_ser, f"P {motor} 1 {TEST_BUZZ_AMP} {TEST_BUZZ_MS} 0",
                  wait_s=0.0)
@@ -559,6 +574,101 @@ class AmplitudeSweepWindow(_SweepWindowBase):
     def _summary_text(self, summary: dict, saved: bool) -> str:
         text = (f"recommended amp: {summary['recommended_amp']} "
                 f"({summary['recommended_rms_ms2']:.2f} m/s² RMS).")
+        if saved:
+            text += (f" Saved {os.path.basename(summary['csv_path'])} and "
+                     f"{os.path.basename(summary['png_path'])}.")
+        return text
+
+
+class MotorAccDelayWindow(_SweepWindowBase):
+    TITLE = "Motor → ACC Delay (Command Latency)"
+    MODULE = motor_acc_delay
+    PNG_GLOB = "delay_summary_*.png"
+    CSV_GLOB = "delay_trials_*.csv"
+    SETUP_HINT = (
+        "<b>Physical setup (this test only):</b> glue the accelerometer to "
+        "the motor under test, then <b>suspend the pair freely in the air</b> "
+        "(e.g. hanging from its own wires) - do NOT fix it to the desk: desk "
+        "mounting damps the vibration below reliable detection. Any starting "
+        "orientation is fine; each trial automatically <b>waits until the rig "
+        "hangs still</b> before measuring, so just let it settle after "
+        "hanging it (and after each buzz). Use \"Test Buzz\" to confirm the "
+        "selected motor port drives the actuator the sensor is attached to."
+    )
+    DESCRIPTION = (
+        "Measures the command-to-vibration latency of an actuator with two "
+        "standard onset metrics per trial: MOTION ONSET (CUSUM change-point "
+        "detection - the first instant the signal departs from baseline "
+        "noise, fair to both impulsive ERM starts and gradual LRA ring-ups) "
+        "and DETECTION-LEVEL CROSSING "
+        f"({motor_acc_delay.NOISE_MULT}× noise p95 - includes the LRA's "
+        "resonant ring-up); both instants sub-sample refined by linear "
+        f"interpolation. {motor_acc_delay.NUM_TRIALS} trials at amp="
+        f"{motor_acc_delay.AMP}, ~{motor_acc_delay.estimated_duration_s():.0f} "
+        f"s plus settling. Requires firmware ≥ v2.9.0 "
+        f"({motor_acc_delay.ACC_INTERVAL_MS} ms stream at 1.344 kHz ODR). "
+        "CSV + trace/summary figure + meta are saved to "
+        "data/validation_experiments/motor_acc_delay_experiment/."
+    )
+
+    def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        self.actuator_combo = QComboBox()
+        self.actuator_combo.addItems(list(motor_acc_delay.ACTUATOR_MOTORS))
+        self.actuator_combo.setToolTip(
+            "Actuator under test - selecting one also sets its wiring-"
+            "convention motor port (LRA → 11, ERM → 10); the port can "
+            "still be overridden afterwards")
+        self.actuator_combo.currentTextChanged.connect(self._on_actuator_changed)
+        config_row.addWidget(QLabel("Actuator:"))
+        config_row.addWidget(self.actuator_combo)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.actuator_combo)
+
+        self.still_spin = QSpinBox()
+        self.still_spin.setRange(10, 500)
+        self.still_spin.setValue(int(motor_acc_delay.STILL_MAX_DEV))
+        self.still_spin.setSuffix(" counts")
+        self.still_spin.setToolTip(
+            "Stillness gate: each trial waits until the 0.5 s-window p95 "
+            "deviation drops below this. A genuinely still hanging rig "
+            "reads ~30-45 counts, real swinging well over 100 - raise this "
+            "if the log shows the p95 plateauing just above the limit while "
+            "the rig looks still (that plateau is this rig's noise floor).")
+        config_row.addWidget(QLabel("Stillness limit:"))
+        config_row.addWidget(self.still_spin)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.still_spin)
+
+    def _on_actuator_changed(self, actuator: str) -> None:
+        self.motor_spin.setValue(motor_acc_delay.ACTUATOR_MOTORS[actuator])
+
+    def _pre_buzz_cmds(self, motor: int) -> list:
+        # An ERM never starts on the 224 Hz LRA boot default - give the
+        # selected actuator its required PWM frequency before buzzing.
+        freq = motor_acc_delay.ACTUATOR_PWM_HZ.get(
+            self.actuator_combo.currentText(), motor_acc_delay.DEFAULT_PWM_FREQ)
+        return [f"F {motor} {freq}"]
+
+    def _extra_run_kwargs(self) -> dict:
+        return {"actuator_type": self.actuator_combo.currentText(),
+                "still_max_dev": float(self.still_spin.value())}
+
+    def _summary_text(self, summary: dict, saved: bool) -> str:
+        parts = []
+        if summary.get("onset_mean_ms") is not None:
+            sd = summary.get("onset_sd_ms")
+            parts.append(f"motion onset {summary['onset_mean_ms']:.2f} ms"
+                         + (f" (SD {sd:.2f})" if sd is not None else ""))
+        if summary.get("mean_delay_ms") is not None:
+            sd = summary.get("sd_delay_ms")
+            parts.append(f"detection-level crossing "
+                         f"{summary['mean_delay_ms']:.2f} ms"
+                         + (f" (SD {sd:.2f})" if sd is not None else ""))
+        if parts:
+            text = (f"{summary['actuator_type']}: " + ", ".join(parts)
+                    + f", n={summary['n_ok']}.")
+        else:
+            text = f"{summary.get('actuator_type', '?')}: no successful detections."
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")

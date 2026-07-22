@@ -1,0 +1,47 @@
+{
+  "experiment": "motor_acc_delay",
+  "saved_at": 1784732666,
+  "firmware": "haptic-piano v2.9.0",
+  "parameters": {
+    "actuator_type": "LRA",
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "amp": 64,
+    "vib_duration_s": 0.2,
+    "num_trials": 10,
+    "baseline_duration_s": 1.0,
+    "inter_trial_rest_s": 1.0,
+    "search_timeout_s": 3.0,
+    "pwm_freq_hz": 224,
+    "detection": "per_axis_delta_adaptive_threshold",
+    "min_threshold_counts": 40,
+    "noise_mult": 3.0,
+    "consecutive_hits": 1,
+    "onset_criterion": "CUSUM change-point (Page 1954): slack 1.0 sigma, alarm 10.0 sigma of baseline deviation noise; onset = start of the alarmed excursion",
+    "cusum_slack_sigma": 1.0,
+    "cusum_alarm_sigma": 10.0,
+    "crossing_estimate": "linear_interpolation",
+    "mounting": "suspended_free_hanging",
+    "still_window_s": 0.5,
+    "still_max_dev": 60.0,
+    "acc_interval_ms": 1
+  },
+  "files": {
+    "csv": "delay_trials_1784732666.csv",
+    "samples_csv": "delay_samples_1784732666.csv",
+    "png": "delay_summary_1784732666.png"
+  },
+  "result": {
+    "n_ok": 10,
+    "n_timeout": 0,
+    "n_onset": 10,
+    "onset_mean_ms": 5.875228898366913,
+    "onset_sd_ms": 2.8544034890966197,
+    "onset_min_ms": 0.18075000843964517,
+    "onset_max_ms": 8.699582976987585,
+    "mean_delay_ms": 6.255413962694913,
+    "sd_delay_ms": 1.51264385093201,
+    "min_delay_ms": 3.6624167447248435,
+    "max_delay_ms": 8.428081908643438
+  }
+}

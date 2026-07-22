@@ -80,9 +80,11 @@ validation_experiments/         small hardware-validation experiments, separate 
                                  (section 9: validation experiments) - one subfolder per experiment
                                  plus the shared rig.py serial helpers; GUI wrappers in
                                  app/gui/validation_experiment_window.py. Currently:
-                                 lra_resonance_intensity_calibration/ (frequency + amplitude sweeps,
-                                 full write-up in its README.md); runs are saved as timestamped
-                                 CSV/PNG/meta.json triples under data/validation_experiments/<experiment>/
+                                 lra_resonance_intensity_calibration/ (frequency + amplitude sweeps)
+                                 and motor_acc_delay_experiment/ (LRA/ERM command-to-vibration
+                                 latency), each with a full write-up in its README.md; runs are saved
+                                 as timestamped CSV/PNG/meta.json sets under
+                                 data/validation_experiments/<experiment>/
 test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
 read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old bare "x,y,z" serial
                                  format, pre-unified-firmware) - reference only, see its README;

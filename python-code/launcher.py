@@ -57,6 +57,7 @@ from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.validation_experiment_window import (
     AmplitudeSweepWindow,
     FrequencySweepWindow,
+    MotorAccDelayWindow,
 )
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
@@ -137,6 +138,7 @@ SECTIONS = [
         [
             ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
             ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
+            ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
         ],
     ),
 ]

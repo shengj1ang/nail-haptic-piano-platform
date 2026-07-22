@@ -146,8 +146,10 @@ static void printStatusLine() {
 }
 
 static void configureLIS3DH(uint8_t sensor) {
-  // 400 Hz data rate + XYZ enable
-  writeReg(sensor, REG_CTRL1, 0x77);
+  // 1.344 kHz data rate (HR/normal mode) + XYZ enable - raised from
+  // 400 Hz (0x77) in v2.9.0 so the delay experiment can stream at 1 ms
+  // without duplicate samples (~0.74 ms sensor period).
+  writeReg(sensor, REG_CTRL1, 0x97);
   // High-resolution mode, +/-2g, BDU on (0x88 sets bit7: the X/Y/Z output
   // registers only update between reads, preventing high/low byte tearing)
   writeReg(sensor, REG_CTRL4, 0x88);

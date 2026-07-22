@@ -52,7 +52,7 @@ Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additi
 First contact checklist:
 
 1. Flash `teensy_driver.ino`, open the serial port (any baud).
-2. Send `E` → expect `E haptic-piano v2.8.0`.
+2. Send `E` → expect `E haptic-piano v2.9.0`.
 3. Send `A WHOAMI` → expect one line per CS slot; a fitted sensor answers `0x33`, e.g. `ACC WHOAMI 0 0x33` with empty slots reading something else (typically `0xFF`).
 4. Send `S 1 64` → motor 0 vibrates at the project-default intensity; `X` stops everything.
 5. Send `L 0 0 255 0 0 128` then `U` → first pixel of strip 0 lights red.
@@ -120,7 +120,7 @@ COMMAND arguments...
 | Command | Description |
 |------|------|
 | `X` | stop all motors immediately |
-| `E` | echo firmware identity, e.g. `E haptic-piano v2.8.0` (name + version) |
+| `E` | echo firmware identity, e.g. `E haptic-piano v2.9.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
 | `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
 | `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `experiments/lra_frequency_sweep`) |
@@ -267,7 +267,7 @@ CS0 LOW  -> read sensor 0 -> CS0 HIGH   -> print ACC,0,...
 CS1 LOW  -> read sensor 1 -> CS1 HIGH   -> print ACC,1,...
 ```
 
-Consecutive sensors in one tick are read ~25 µs apart — 1% of the sensor's 2.5 ms sample period, so the per-tick lines can be treated as simultaneous samples.
+Consecutive sensors in one tick are read ~25 µs apart — a few percent of the sensor's ~0.74 ms sample period, so the per-tick lines can be treated as simultaneous samples.
 
 Wiring note: keep the shared bus lines short and star-shaped rather than one long daisy-chain; if readings get flaky with several sensors attached, increase `spiDelayShort()` slightly (a slower clock costs almost nothing at these sample rates).
 
@@ -284,7 +284,7 @@ The LIS3DH is read over a **bit-banged SPI bus** (mode 3) on ordinary GPIO pins,
 
 (Historical note: the original implementation used `digitalWrite` with 3 µs delays, which made every sample block the loop for ~0.8 ms and visibly jittered motor pulse timing while streaming.)
 
-The practical rate floor is the sensor itself, not the bus: the LIS3DH is configured for a **400 Hz output data rate** (`CTRL1 = 0x77`), so streaming faster than 2.5 ms per sample just reads duplicate values. Either keep `A START` intervals at ≥ 3 ms, or raise the ODR to 1.344 kHz (`CTRL1 = 0x97`) if faster streaming is needed. Recommended rate: **2–10 ms**.
+The practical rate floor is the sensor itself, not the bus: since v2.9.0 the LIS3DH is configured for a **1.344 kHz output data rate** (`CTRL1 = 0x97`, ~0.74 ms per sample; v2.8.0 and earlier used 400 Hz / `CTRL1 = 0x77`), so `A START 1` streams fresh samples. Recommended rate: **1–10 ms**; the motor→ACC delay experiment uses 1 ms for onset resolution, the calibration sweeps 3 ms.
 
 Two further upgrade paths, deliberately not taken yet:
 
