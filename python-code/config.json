@@ -24,6 +24,9 @@
   "midi": {
     "port_name": "SE25 MIDI1"
   },
+  "accelerometer": {
+    "sensor_id": 0
+  },
   "finger_matching": {
     "softmax_temperature_px": 25.0,
     "probability_threshold": 0.4

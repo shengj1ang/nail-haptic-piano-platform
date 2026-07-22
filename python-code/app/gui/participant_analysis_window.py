@@ -62,7 +62,6 @@ from ..participant_analysis import (
 from ..participant_export import collect_participant_data
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..pilot_study import list_participants
-from ..quiz import FINGER_LABELS
 
 CATEGORY_COLORS = {
     CAT_CK_CF: "#4a9d5b",
@@ -306,7 +305,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         ax2.set_ylabel("ms")
         ax2.set_title("Mean RT, correct-key events (±SD across trials)")
         fig.tight_layout()
-        return "".join(f"<p>{l}</p>" for l in lines), [("overview", fig)]
+        return "".join(f"<p>{line}</p>" for line in lines), [("overview", fig)]
 
     # ------------------------------------------------------------------
     # Learning progression
@@ -507,7 +506,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                          f"{len(excluded)} ({per_c}).")
         lines.append("No regression or connecting lines on purpose: 9 trials per condition are too few "
                      "for a trustworthy fit, and the three centroids stand on their own.")
-        return "".join(f"<p>{l}</p>" for l in lines), [("tradeoff", fig)]
+        return "".join(f"<p>{line}</p>" for line in lines), [("tradeoff", fig)]
 
     # ------------------------------------------------------------------
     # Event-level error breakdown (+ wrong-key distance)
@@ -624,7 +623,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                      "\"wrong finger\"; under the primary FA definition they count as incorrect. "
                      "Timeouts have no keypress and stay outside the key/finger cells. "
                      "Descriptive only — group-level inference is reported separately.")
-        caption = "".join(f"<p>{l}</p>" for l in lines)
+        caption = "".join(f"<p>{line}</p>" for line in lines)
         return caption, [("errors_composition", fig_a),
                          ("errors_counts", fig_b),
                          ("errors_wrongkey_distance", fig_c)]
@@ -716,7 +715,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                      + "; ".join(pair_lines) + ".")
         lines.append("Single-participant patterns — not generalisable finger-physiology claims. "
                      "Descriptive only — group-level inference is reported separately.")
-        caption_html = "".join(f"<p>{l}</p>" for l in lines)
+        caption_html = "".join(f"<p>{line}</p>" for line in lines)
 
         # Custom tab: view selector over three prebuilt canvases; the
         # row-normalized view is the default.

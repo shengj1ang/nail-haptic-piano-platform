@@ -16,8 +16,6 @@ audit trail that marks the event as manually corrected (see
 app.quiz.finger_manually_corrected).
 """
 
-from typing import List, Optional
-
 import cv2
 import numpy as np
 from PySide6.QtCore import Qt, QTimer, Signal

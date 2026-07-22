@@ -117,22 +117,42 @@ python lra_frequency_sweep.py    # ~1.5 min, prints f0
 python lra_amplitude_sweep.py    # ~35 s, prints recommended amp
 ```
 
+Alternatively, open them from `launcher.py`, section "9. Validation
+Experiments" - the GUI windows (`app/gui/validation_experiment_window.py`)
+are thin Start/Stop + progress-bar + log wrappers around the same
+`run_experiment()` functions and write identical output files. They also
+preview the latest saved response curve from `output/` on open, can
+re-render the chart from any saved sweep CSV ("Load Chart from CSV...",
+rendered to a temp file so `output/` is never modified), and expose the
+motor-port / ACC-sensor-id choice (defaults 0/0, matching the wiring
+described above).
+
 Both scripts auto-detect the rig (USB VID:PID `16C0:0483`, confirmed by
 the `E` → `E haptic-piano ...` handshake), and on exit — including
 Ctrl+C — stop all motors, restore the boot-default frequency and stop
-the accelerometer stream. Outputs are timestamped into `output/`:
+the accelerometer stream. Outputs are timestamped into
+`python-code/data/validation_experiments/lra_resonance_intensity_calibration/`
+(referred to as `<data>/` below):
 
 | File | Content |
 |------|------|
 | `sweep_<ts>.csv` / `frequency_response_<ts>.png` | Experiment 1 data and plot |
 | `amp_sweep_<ts>.csv` / `amplitude_response_<ts>.png` | Experiment 2 data and plot |
+| `sweep_<ts>.meta.json` / `amp_sweep_<ts>.meta.json` | Per-run record: full parameter set (motor/sensor/amp or freq + timing constants), firmware identity, linked csv/png filenames, and the headline result |
+
+`<ts>` is the Unix epoch timestamp in seconds at save time (the
+project-wide timestamp convention), so runs never overwrite each other
+and sort chronologically by filename. "Load Chart from CSV" in the GUI
+reads the sibling meta to re-render an old run with the parameters it
+was actually measured at (the two pre-meta runs have backfilled meta
+files, flagged `"backfilled": true`).
 
 ## 3. Results (runs of 2026-07-15)
 
 ### 3.1 Experiment 1 — resonant frequency
 
-Data `output/sweep_20260715_152236.csv`, plot
-`output/frequency_response_20260715_152236.png`.
+Data `<data>/sweep_1784125356.csv`, plot
+`<data>/frequency_response_1784125356.png`.
 
 - **f₀ = 224 Hz** (fine-pass peak: `rms_delta = 111.1` counts,
   `peak_delta = 298` counts).
@@ -145,8 +165,8 @@ Data `output/sweep_20260715_152236.csv`, plot
 
 ### 3.2 Experiment 2 — amplitude at 224 Hz
 
-Data `output/amp_sweep_20260715_153925.csv`, plot
-`output/amplitude_response_20260715_153925.png`.
+Data `<data>/amp_sweep_1784126365.csv`, plot
+`<data>/amplitude_response_1784126365.png`.
 
 - **Recommended `amp = 64`** → 0.49 m/s² RMS, the centre of the target
   band. In-band alternatives: `amp = 60` (0.40) and `amp = 68` (0.57).

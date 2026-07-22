@@ -31,7 +31,8 @@ Everything connected today, in one table:
 | 34 | Accel SPI MOSI | shared bus |
 | 35 | Accel SPI MISO | shared bus |
 | 36 | Accel CS, sensor 0 | one CS per sensor; `CS_PINS[]` in `accel_driver.cpp` |
-| 37, 38 | Reserved: CS for accel sensors 1, 2 | free GPIO until used |
+| 37 | Accel CS, sensor 1 | in `CS_PINS[]` since v2.8.0 - probed at boot, skipped if no sensor attached |
+| 38 | Accel CS, sensor 2 | in `CS_PINS[]` since v2.8.0 - probed at boot, skipped if no sensor attached |
 | USB | Serial link to host | 115200 nominal (native USB — the baud value is ignored; actual throughput is USB speed) |
 
 All 12 motor pins (0–11) are initialized and fully addressable by every motor command (`P`/`S`/`F`). The two channels beyond the ten fingers (10/11) are a **deliberate redundancy design**: the firmware is not hard-limited to ten fingers (room for secondary development), and if a finger port is damaged the motor can be moved to 10 or 11 and remapped host-side — no firmware re-flash needed. Pins 12–15 are intentionally left out of the motor set (12 reserved for SPI, 13 carries the onboard LED).
@@ -51,8 +52,8 @@ Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additi
 First contact checklist:
 
 1. Flash `teensy_driver.ino`, open the serial port (any baud).
-2. Send `E` → expect `E haptic-piano v2.7.0`.
-3. Send `A WHOAMI` → expect `ACC WHOAMI 0 0x33` (0x33 = LIS3DH found).
+2. Send `E` → expect `E haptic-piano v2.8.0`.
+3. Send `A WHOAMI` → expect one line per CS slot; a fitted sensor answers `0x33`, e.g. `ACC WHOAMI 0 0x33` with empty slots reading something else (typically `0xFF`).
 4. Send `S 1 64` → motor 0 vibrates at the project-default intensity; `X` stops everything.
 5. Send `L 0 0 255 0 0 128` then `U` → first pixel of strip 0 lights red.
 
@@ -119,7 +120,7 @@ COMMAND arguments...
 | Command | Description |
 |------|------|
 | `X` | stop all motors immediately |
-| `E` | echo firmware identity, e.g. `E haptic-piano v2.7.0` (name + version) |
+| `E` | echo firmware identity, e.g. `E haptic-piano v2.8.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
 | `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
 | `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `experiments/lra_frequency_sweep`) |
@@ -237,16 +238,27 @@ Probe only ports that passed step 1: sending bytes to an unknown serial device c
 The firmware supports **multiple LIS3DH accelerometers on one shared SPI bus** — SCK (33) / MOSI (34) / MISO (35) are common to all sensors, and each sensor has its own chip-select (CS) pin. Only one CS is low at a time. The CS pins live in one array in `accel_driver.cpp`:
 
 ```cpp
-static const uint8_t CS_PINS[] = {36};
+static const uint8_t CS_PINS[] = {36, 37, 38};   // sensor id = array index
 ```
 
 ### Adding a sensor
 
-Only one sensor is fitted today. Adding another is a three-step change:
+Since v2.8.0 three CS slots are pre-declared (36 → id 0, 37 → id 1,
+38 → id 2), so up to three sensors need **no firmware change**: wire the
+new sensor's SCK/MOSI/MISO onto the shared bus and its CS to 37 or 38,
+and it appears as sensor 1 or 2 on the next boot (or after `A WHOAMI` /
+`A START`, both of which re-probe). Absent slots simply stay undetected
+and are skipped by streaming — `ACC ERROR NOT_FOUND` only appears when
+*no* slot answers. `A WHOAMI` lists one line per slot; a fitted sensor
+answers `0x33`.
 
-1. Wire the new sensor's SCK/MOSI/MISO onto the shared bus and its CS to a free GPIO (37 and 38 are reserved for this).
-2. Append that pin to `CS_PINS[]` in `accel_driver.cpp`.
-3. Re-flash. `A WHOAMI` should now list one `0x33` line per sensor — detection, streaming and every `A` command pick up the extra sensors automatically; nothing else changes.
+This also means a single sensor can be moved between CS pins to test
+the host-side sensor-id path (e.g. moving CS from 36 to 37 makes the
+same physical sensor stream as `ACC,1,...`).
+
+To go beyond three sensors, append another free GPIO to `CS_PINS[]` in
+`accel_driver.cpp` and re-flash — detection, streaming and every `A`
+command pick up the extra slots automatically; nothing else changes.
 
 Sensors are read back-to-back each streaming tick, one CS low at a time:
 

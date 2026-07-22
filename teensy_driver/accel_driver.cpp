@@ -6,11 +6,13 @@ static const uint8_t PIN_SCK  = 33;
 static const uint8_t PIN_MOSI = 34;
 static const uint8_t PIN_MISO = 35;
 
-// Chip-select pins, one per LIS3DH on the shared SPI bus. Only one sensor
-// is fitted today - to add more, wire each new sensor's CS to a free GPIO
-// (e.g. 37, 38), append the pin here and re-flash; detection, streaming
-// and every 'A' command pick up the extra sensors automatically.
-static const uint8_t CS_PINS[] = {36};
+// Chip-select pins, one per LIS3DH on the shared SPI bus. Sensor id =
+// index in this array (36 -> id 0, 37 -> id 1, 38 -> id 2). All three
+// slots are probed at boot / A WHOAMI / A START; absent sensors simply
+// stay undetected and are skipped by streaming, so a sensor can be
+// wired to any of these CS pins without re-flashing. To go beyond
+// three, append another free GPIO here and re-flash.
+static const uint8_t CS_PINS[] = {36, 37, 38};
 static const uint8_t NUM_ACCEL = sizeof(CS_PINS) / sizeof(CS_PINS[0]);
 
 // LIS3DH registers

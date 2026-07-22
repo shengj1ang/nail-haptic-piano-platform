@@ -11,7 +11,8 @@ are built on.
 app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
 launcher.py                     entry point - hub window for every tool below, grouped into the same
                                  numbered sections used throughout this README (1 Initial Setup ...
-                                 7 Data Analysis; section 8 Tele-training is an empty placeholder).
+                                 7 Data Analysis, 9 Validation Experiments; section 8 Tele-training
+                                 is an empty placeholder).
                                  Section 1 also holds the launcher-only Visual Guidance Cue Selection
                                  window (app/gui/cue_selection_window.py), which persists the quiz cue
                                  style (dot/hand) to config.json
@@ -25,6 +26,9 @@ test_finger_accuracy.py         entry point - live finger/key detector (section 
 test_virtual_piano_led.py       manual-test UI (PySide6): on-screen piano that lights the physical LED
                                  strips (section 2: feature testing)
 test_haptic_vibrator.py         manual-test UI: per-finger vibration motor check (section 2: feature testing)
+app/gui/accelerometer_window.py manual-test UI (launcher-only): live X/Y/Z plot of one LIS3DH from the
+                                 rig's ACC stream, sensor id selectable + persisted to config.json
+                                 (accelerometer.sensor_id) (section 2: feature testing)
 
 experiment_sequence_wizard.py   entry point - generates the controlled bimanual stimulus sequences for
                                  the main user study (30-event, difficulty alpha/beta/gamma, seeded, with
@@ -55,6 +59,8 @@ data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis 
                                  the manual carry-over review; raw/ also holds sync_align.json - the
                                  trial's confirmed LED sync anchor - and sync_detect.json, the audit
                                  trail of the anchor last used)
+data/validation_experiments/<experiment>/   timestamped CSV/PNG/meta.json runs of the validation
+                                 experiments (see validation_experiments/ below)
 data/MainUserStudy/<participant>/   TrialStructure.json - the participant's randomised 27-trial
                                  schedule + live progress (see app/pilot_study.py); the Formal
                                  Experiment Session (launcher section 6, no standalone script)
@@ -70,7 +76,17 @@ note_audio.py                   reusable, GUI-free: MIDI note -> audio tone play
 
 common/                         shared low-level modules (serial/motor/LED), used by both
                                  test_virtual_piano_led.py and test-script/
+validation_experiments/         small hardware-validation experiments, separate from the main study
+                                 (section 9: validation experiments) - one subfolder per experiment
+                                 plus the shared rig.py serial helpers; GUI wrappers in
+                                 app/gui/validation_experiment_window.py. Currently:
+                                 lra_resonance_intensity_calibration/ (frequency + amplitude sweeps,
+                                 full write-up in its README.md); runs are saved as timestamped
+                                 CSV/PNG/meta.json triples under data/validation_experiments/<experiment>/
 test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
+read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old bare "x,y,z" serial
+                                 format, pre-unified-firmware) - reference only, see its README;
+                                 the live tool for the current rig is Accelerometer Live View above
 archive/                        early FingerAccuracy prototypes, kept for reference only
 runtime                         Python Environment in Windows, python 3.11.9, do not use or read or change this diretory when in development
 venv.bat                        Do not read/write this file

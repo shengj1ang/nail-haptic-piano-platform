@@ -385,7 +385,7 @@ class GroupAnalysisWindow(QMainWindow):
         legend_note = ("<i>Figures: thin grey lines = individual participants (within-subject "
                        "pairing), diamonds = group mean, bars = 95% CI across participants.</i>")
         lines.append(legend_note)
-        return "".join(f"<p>{l}</p>" for l in lines), [fig1, fig2]
+        return "".join(f"<p>{line}</p>" for line in lines), [fig1, fig2]
 
     # ------------------------------------------------------------------
     # Condition x Difficulty
@@ -698,7 +698,7 @@ class GroupAnalysisWindow(QMainWindow):
                      "supplements. Inferential statistics (Friedman / paired Wilcoxon) stay on "
                      "the <b>Contrasts</b> tab — this page makes no significance claims.")
         lines.append(" ".join(notes))
-        return "".join(f"<p>{l}</p>" for l in lines)
+        return "".join(f"<p>{line}</p>" for line in lines)
 
     def _save_figures(self) -> None:
         """Export figures + data (participant-window pattern): 300 dpi

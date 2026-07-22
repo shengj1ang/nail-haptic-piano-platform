@@ -1,0 +1,69 @@
+{
+  "experiment": "lra_amplitude_sweep",
+  "saved_at": 1784126365,
+  "firmware": null,
+  "parameters": {
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "freq_hz": 224,
+    "amp_values": [
+      4,
+      8,
+      12,
+      16,
+      20,
+      24,
+      28,
+      32,
+      36,
+      40,
+      44,
+      48,
+      52,
+      56,
+      60,
+      64,
+      68,
+      72,
+      76,
+      80,
+      84,
+      88,
+      92,
+      96,
+      100,
+      104,
+      108,
+      112,
+      116,
+      120,
+      124,
+      128
+    ],
+    "target_band_ms2": [
+      0.4,
+      0.6
+    ],
+    "target_ms2": 0.5,
+    "ms2_per_count": 0.00980665,
+    "baseline_s": 0.3,
+    "settle_s": 0.15,
+    "measure_s": 0.4,
+    "rest_s": 0.15,
+    "acc_interval_ms": 3
+  },
+  "files": {
+    "csv": "amp_sweep_1784126365.csv",
+    "png": "amplitude_response_1784126365.png"
+  },
+  "result": {
+    "recommended_amp": 64,
+    "recommended_rms_ms2": 0.49321457272900104,
+    "in_band_amps": [
+      60,
+      64,
+      68
+    ]
+  },
+  "backfilled": true
+}

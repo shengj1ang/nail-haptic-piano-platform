@@ -540,7 +540,6 @@ class ReviewPage(QWizardPage):
 
     def _finish_save(self, matches: list) -> None:
         info = self._wizard.info_page
-        record = self._wizard.record_page
 
         try:
             # self._trimmed_notes is the same length/order as self._notes (only

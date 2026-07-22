@@ -39,6 +39,7 @@ SECTION_COLUMNS = 3
 APP_ICON = Path(__file__).resolve().parent / "app" / "assets" / "image" / "icon.png"
 
 from app.config import Config
+from app.gui.accelerometer_window import AccelerometerWindow
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.camera_selection_window import CameraSelectionWindow
 from app.gui.cue_selection_window import CueSelectionWindow
@@ -53,6 +54,10 @@ from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
+from app.gui.validation_experiment_window import (
+    AmplitudeSweepWindow,
+    FrequencySweepWindow,
+)
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
@@ -77,6 +82,7 @@ SECTIONS = [
             ("Live Finger Detection", FingerDetectorWindow),
             ("Virtual Piano + LED Test", PianoWindow),
             ("Haptic Vibrator Test", HapticTestWindow),
+            ("Accelerometer Live View", AccelerometerWindow),
         ],
     ),
     (
@@ -122,6 +128,16 @@ SECTIONS = [
         # "Tele-training Guidance Modes").
         "8. Tele-training",
         [],
+    ),
+    (
+        # Small hardware-validation experiments (validation_experiments/)
+        # that informed the platform's design constants - kept separate
+        # from the Main User Study protocol.
+        "9. Validation Experiments",
+        [
+            ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
+            ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
+        ],
     ),
 ]
 

@@ -1,0 +1,30 @@
+{
+  "experiment": "lra_frequency_sweep",
+  "saved_at": 1784125356,
+  "firmware": null,
+  "parameters": {
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "amp": 128,
+    "coarse_start_hz": 100,
+    "coarse_stop_hz": 350,
+    "coarse_step_hz": 5,
+    "fine_span_hz": 10,
+    "fine_step_hz": 1,
+    "baseline_s": 0.3,
+    "settle_s": 0.15,
+    "measure_s": 0.4,
+    "rest_s": 0.15,
+    "acc_interval_ms": 3
+  },
+  "files": {
+    "csv": "sweep_1784125356.csv",
+    "png": "frequency_response_1784125356.png"
+  },
+  "result": {
+    "resonance_hz": 224,
+    "rms_delta": 111.06824195418987,
+    "peak_delta": 297.99406326760095
+  },
+  "backfilled": true
+}

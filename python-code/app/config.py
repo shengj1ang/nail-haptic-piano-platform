@@ -48,6 +48,18 @@ class MidiConfig:
 
 
 @dataclass
+class AccelerometerConfig:
+    """Which LIS3DH on the vibration rig the accelerometer tools follow.
+
+    The firmware streams every sensor interleaved ("ACC,<id>,x,y,z"); this
+    is the <id> the Accelerometer Live View filters on, set from that
+    window's selector and used as the default sensor in the validation
+    sweep windows."""
+
+    sensor_id: int = 0
+
+
+@dataclass
 class FingerMatchingConfig:
     """Softmax scoring of "which fingertip pressed this key" (see
     app.finger_matching, where these are read at import time). One shared
@@ -80,6 +92,7 @@ class Config:
     keyboard_detection: KeyboardDetectionConfig = field(default_factory=KeyboardDetectionConfig)
     wizard: WizardConfig = field(default_factory=WizardConfig)
     midi: MidiConfig = field(default_factory=MidiConfig)
+    accelerometer: AccelerometerConfig = field(default_factory=AccelerometerConfig)
     finger_matching: FingerMatchingConfig = field(default_factory=FingerMatchingConfig)
     seeds: SeedConfig = field(default_factory=SeedConfig)
     # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
@@ -106,6 +119,7 @@ class Config:
             keyboard_detection=KeyboardDetectionConfig(**data.get("keyboard_detection", {})),
             wizard=WizardConfig(**data.get("wizard", {})),
             midi=MidiConfig(**data.get("midi", {})),
+            accelerometer=AccelerometerConfig(**data.get("accelerometer", {})),
             finger_matching=FingerMatchingConfig(**data.get("finger_matching", {})),
             seeds=SeedConfig(**data.get("seeds", {})),
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
@@ -118,6 +132,7 @@ class Config:
             "keyboard_detection": asdict(self.keyboard_detection),
             "wizard": asdict(self.wizard),
             "midi": asdict(self.midi),
+            "accelerometer": asdict(self.accelerometer),
             "finger_matching": asdict(self.finger_matching),
             "seeds": asdict(self.seeds),
             "active_keyboard_profile": self.active_keyboard_profile,
