@@ -69,7 +69,7 @@ MS2_PER_COUNT = 0.001 * 9.80665
 TARGET_BAND_MS2 = (0.4, 0.6)
 TARGET_MS2 = 0.5
 
-# Data lives under python-code/data/ like every other experiment output.
+# Data lives under main/data/ like every other experiment output.
 OUTPUT_DIR = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..",
     "data", "validation_experiments", "lra_resonance_intensity_calibration"))

@@ -35,7 +35,8 @@ FINGER_TO_MOTOR = {
 
 # Calibrated cue strength: at the LRA's 224 Hz resonance, amp=64 measures
 # 0.49 m/s^2 RMS - the middle of the 0.4-0.6 m/s^2 "clearly perceptible,
-# not annoying" target band. See experiments/lra_frequency_sweep/README.md.
+# not annoying" target band. See
+# validation_experiments/lra_resonance_intensity_calibration/README.md.
 HAPTIC_AMPLITUDE = 64
 
 

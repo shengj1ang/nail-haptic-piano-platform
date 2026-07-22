@@ -2,7 +2,7 @@
 the Participant Analysis window's Trade-off / Errors / Confusion tabs)
 plus the FA-main denominator invariant in app.quiz.summarize.
 
-Run from python-code/:  python test-script/test_participant_analysis.py
+Run from main/:  python test-script/test_participant_analysis.py
 """
 
 import sys

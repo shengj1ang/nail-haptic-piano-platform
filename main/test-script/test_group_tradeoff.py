@@ -2,7 +2,7 @@
 layer behind the Group Analysis Trade-off tab) plus an offscreen render
 test of the tab itself.
 
-Run from python-code/:  python test-script/test_group_tradeoff.py
+Run from main/:  python test-script/test_group_tradeoff.py
 """
 
 import math

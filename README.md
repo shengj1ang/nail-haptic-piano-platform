@@ -10,75 +10,83 @@ software for the controlled pilot study defined in
 It includes:
 - asynchronous multi-motor control firmware (Teensy) + WS2812 LED control
 - Python calibration/detection pipeline (camera + MIDI + MediaPipe) — see
-  [python-code/README.md](python-code/README.md)
+  [main/README.md](main/README.md)
 - constrained bimanual stimulus-sequence generator with difficulty
   validation and seeded reproducibility — see
-  [python-code/SEQUENCE_GENERATOR_ALGORITHM.md](python-code/SEQUENCE_GENERATOR_ALGORITHM.md)
+  [main/SEQUENCE_GENERATOR_ALGORITHM.md](main/SEQUENCE_GENERATOR_ALGORITHM.md)
 - cue-response quiz tools (visual / haptic finger cues) with full-session
-  recording and offline finger-matching analysis
+  recording and offline finger-matching analysis, plus the main-user-study
+  runner and analysis windows (launcher sections 6-7)
+- repeatable hardware validation/calibration experiments (LRA resonance +
+  intensity sweeps, motor→ACC delay) with GUI wrappers in launcher section 9
+  — see [main/validation_experiments/](main/validation_experiments/)
 - audio-based latency measurement and analysis utilities
-- planned pilot-study protocol summary: [experiments/main_user_study/README.md](experiments/main_user_study/README.md)
+- the pilot-study protocol is defined in `../final_report_2026/method/method.tex`
 
 ---
 
 ## Project Structure
 ```
-
 root/
-├── teensy_driver/       # Arduino / Teensy firmware
-├── python-code/         # Python control platform and analysis tools
-├── 3d-model/            # 3D SolidWorks model for the case of the hardware
-│   ├── app/             # UI app package: calibration + MIDI finger-detection pipeline
-│   ├── test_finger_accuracy.py, launcher.py, setup_*.py, music_*.py  # entry points for app/
-│   ├── test_virtual_piano_led.py # UI app: on-screen piano / LED preview (manual test)
-│   ├── profile_led_mapper.py # reusable, GUI-free: profile + MIDI note -> LED positions
-│   ├── note_led_map.py  # this LED rig's fixed wiring (position -> LED pixels)
-│   ├── test-script/     # Older, non-UI control/testing/analysis scripts
-│   └── common/          # Shared low-level modules (controller, led_controller, serial_utils)
-├── README.md
-
-
+├── teensy_driver/   # Teensy 4.1 firmware: motors (PWM, async), WS2812 LEDs,
+│                    #   LIS3DH accelerometers — full serial protocol in its README
+├── main/            # Python platform (renamed from python-code): launcher hub,
+│   │                #   calibration wizards, quiz + main-study tools, analysis
+│   ├── app/                     # UI package: camera+MIDI finger-detection pipeline, GUIs
+│   ├── launcher.py, setup_*.py, student_quiz*.py, quiz_analysis.py  # entry points
+│   ├── common/                  # shared low-level serial/motor/LED modules
+│   ├── validation_experiments/  # repeatable calibration experiments + shared rig helpers
+│   ├── data/                    # calibration profiles, sequences, quiz/study/validation data
+│   ├── test-script/             # older non-UI control/testing/latency scripts
+│   └── read_data_from_accelerometer/  # legacy LIS3DH reader (reference, see its README)
+├── archived/        # superseded prototypes + completed one-off studies (see its README):
+│                    #   early firmware sketches, FingerAccuracy prototypes,
+│                    #   human_reaction / attachment_verification study records
+├── 3d_model/        # SolidWorks models for the hardware case
+└── README.md
 ```
 
 ---
 
 ## Arduino Firmware (teensy_driver)
 
-The firmware runs on the microcontroller and handles:
+The firmware (identity `haptic-piano`, check with `E`) runs on a Teensy 4.1
+and handles three subsystems over one USB serial connection:
 
-- PWM output for up to 10 motors  
-- non-blocking scheduling (each motor runs independently)  
-- serial command parsing  
+- PWM output for 12 motor pins (10 finger motors + LRA/ERM test channels),
+  non-blocking async scheduling, per-pin PWM frequency (boot default 224 Hz,
+  the LRA's measured resonance)
+- two WS2812 LED strips (framebuffer + DMA output)
+- up to three LIS3DH accelerometers on a shared SPI bus (1.344 kHz ODR,
+  streamed as `ACC,<id>,x,y,z`)
 
-### Key Design
-
-- Each motor has its own state machine  
-- No blocking delay is used  
-- Multiple motors can run different patterns simultaneously  
-
-### Supported Commands
+### Command summary (full protocol: [teensy_driver/README.md](teensy_driver/README.md))
 ```
-X
-→ stop all motors
-
-E
-→ return firmware version
-
-P    <on_ms> <off_ms>
-→ run pulse task on one motor
-
-S  
-→ immediate override (debug / manual control)
+X                          stop all motors
+E                          firmware identity/version
+P idx count amp on off     async pulse pattern on one motor
+S mask amp                 set motors by bitmask (full-state, persists)
+F idx freq                 set PWM frequency of a motor pin
+L / B / C / U              LED set-pixel / brightness / clear / show
+A START|STOP|RATE|WHOAMI   accelerometer streaming and probing
 ```
 ---
 
-## Python Code (python-code)
+## Python Code (main)
 
-UI-based tools live directly under `python-code/`: the [app](python-code/app) package (calibration + MIDI detection pipeline, see [python-code/README.md](python-code/README.md)) and [test_virtual_piano_led.py](python-code/test_virtual_piano_led.py) (on-screen piano / LED preview).
+Everything is reachable from the hub window (`python launcher.py`, nine
+sections from initial setup through data analysis and validation
+experiments); every tool also works standalone. See
+[main/README.md](main/README.md) for the complete layout and per-tool
+documentation.
 
-Two subfolders hold everything else:
+- [app/](main/app) — the UI package: camera + MIDI finger-detection
+  pipeline, quiz/pilot-study/analysis windows
+- `validation_experiments/` — repeatable calibration experiments (LRA
+  sweeps, motor→ACC delay) with per-run CSV/PNG/meta outputs under
+  `data/validation_experiments/`
 - `test-script/` — older, non-UI control, testing, and analysis scripts
-- `common/` — shared low-level modules used by both `app/` and `test-script/`
+- `common/` — shared low-level modules used across the platform
 
 ---
 
@@ -106,7 +114,7 @@ Features:
 
 ---
 
-### test-script/demo_async.py
+### test-script/demo_send_motor_command_async.py
 
 Demonstrates asynchronous motor control.
 

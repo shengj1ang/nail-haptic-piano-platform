@@ -1,7 +1,7 @@
 """Unit tests for app.group_analysis (the GUI-free aggregation and
 statistics layer behind the Group Analysis window).
 
-Run from python-code/:  python test-script/test_group_analysis.py
+Run from main/:  python test-script/test_group_analysis.py
 """
 
 import csv

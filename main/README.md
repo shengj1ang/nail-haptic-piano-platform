@@ -1,4 +1,4 @@
-# python-code
+# main (python code)
 
 Python side of a piano practice / learning experiment setup: camera+MIDI
 finger-accuracy detection, a virtual piano that drives LED feedback, and the
@@ -89,7 +89,8 @@ test-script/                    older, non-UI motor/LED/latency/MIDI scripts + t
 read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old bare "x,y,z" serial
                                  format, pre-unified-firmware) - reference only, see its README;
                                  the live tool for the current rig is Accelerometer Live View above
-archive/                        early FingerAccuracy prototypes, kept for reference only
+../archived/python-prototypes/  the former archive/ folder: early FingerAccuracy prototypes,
+                                 one-off utilities, and old bug reports - reference only
 runtime                         Python Environment in Windows, python 3.11.9, do not use or read or change this diretory when in development
 venv.bat                        Do not read/write this file
 launcher.bat                    Do not read/write this file
@@ -153,7 +154,7 @@ is bundled in this folder already.
 
 ### Pipeline scripts
 
-Run these from inside `python-code/`.
+Run these from inside `main/`.
 
 | Script | Purpose |
 |---|---|
@@ -240,7 +241,7 @@ from `launcher.py`, section "6. Main User Study":
 
 Every stored time in the codebase is an absolute Unix epoch timestamp
 (`time.time()` floats - no ISO strings, no recorder-relative clocks;
-`archive/migrate_to_epoch_timestamps.py` converted the pre-existing
+`../archived/python-prototypes/migrate_to_epoch_timestamps.py` converted the pre-existing
 data). The analysis workflow, all reachable from launcher section
 "7. Data Analysis":
 
@@ -453,7 +454,7 @@ app/
                                 #   participant_analysis_window)
 ```
 
-`archive/` holds earlier, now-superseded prototypes of this same detector
+`../archived/python-prototypes/` holds earlier, now-superseded prototypes of this same detector
 (`detect_finger_with_MIDI_keyboard_v2/v3/v4.py` plus their pickled models),
 kept only for reference.
 

@@ -203,7 +203,8 @@ first ring-up cycles before any signal clears the sensor noise floor.
 Interpretation for the study: **onset latency was never a selection
 criterion for the actuator** — the LRA was chosen for perceptual
 clarity, comfort and nail-mounted wearability (see
-`human_reaction_experiment`), and this measurement's role is to bound
+`archived/human_reaction_experiment`), and this measurement's
+role is to bound
 the systematic error of using the haptic command timestamp as cue
 onset. That bound is < 10 ms for either actuator — well over an order
 of magnitude below reaction-time scales — and near-constant within
@@ -223,7 +224,7 @@ as the LRA sweeps.
 
 ## 6. Outputs
 
-`python-code/data/validation_experiments/motor_acc_delay_experiment/`,
+`main/data/validation_experiments/motor_acc_delay_experiment/`,
 `<ts>` = Unix epoch seconds at save time:
 
 | File | Content |

@@ -131,7 +131,7 @@ Both scripts auto-detect the rig (USB VID:PID `16C0:0483`, confirmed by
 the `E` → `E haptic-piano ...` handshake), and on exit — including
 Ctrl+C — stop all motors, restore the boot-default frequency and stop
 the accelerometer stream. Outputs are timestamped into
-`python-code/data/validation_experiments/lra_resonance_intensity_calibration/`
+`main/data/validation_experiments/lra_resonance_intensity_calibration/`
 (referred to as `<data>/` below):
 
 | File | Content |

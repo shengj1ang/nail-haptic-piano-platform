@@ -65,7 +65,7 @@ REST_S = 0.15            # motor-off rest between steps
 
 DEFAULT_PWM_FREQ = 224   # restored to the pin when the sweep ends (firmware boot default)
 
-# Data lives under python-code/data/ like every other experiment output.
+# Data lives under main/data/ like every other experiment output.
 OUTPUT_DIR = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..",
     "data", "validation_experiments", "lra_resonance_intensity_calibration"))

@@ -90,7 +90,7 @@ Design principles:
 
 ### Python Host Layer
 
-Python communicates through USB serial and can send commands, log data and plot accelerometer streams. Example tools (`python-code/`):
+Python communicates through USB serial and can send commands, log data and plot accelerometer streams. Example tools (`main/`):
 
 ```
 common/controller.py                        motor control (VibratorController)
@@ -123,7 +123,7 @@ COMMAND arguments...
 | `E` | echo firmware identity, e.g. `E haptic-piano v2.9.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
 | `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
-| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `experiments/lra_frequency_sweep`) |
+| `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `main/validation_experiments/lra_resonance_intensity_calibration`) |
 
 Notes:
 
@@ -147,7 +147,7 @@ An LRA is a spring–mass resonator and behaves completely differently:
 - **It ignores DC.** With this unipolar (single-transistor) drive, the LRA responds to the *AC fundamental* of the PWM square wave, whose amplitude is proportional to `sin(π · amp/255)`. So intensity is **not** linear in `amp`: it peaks at `amp ≈ 128` (50% duty) and falls back to zero at `amp = 255` (pure DC). Measurement further showed **stroke saturation above `amp ≈ 88`** — output plateaus, so the useful intensity range is roughly **0–90**.
 - **The PWM frequency must sit at the LRA's resonant frequency f₀.** For this project's LRA the mounted resonance was **measured at 224 Hz** (the boot default since v2.7.0); coin LRAs in general sit somewhere in 150–250 Hz. The resonance is narrow (high Q, measured usable region ~221–231 Hz): a few Hz off the peak costs a large fraction of the output, no matter how high `amp` is. Frequency is therefore useless as an intensity knob — detuning is unrepeatable (f₀ drifts with load and temperature) and changes the perceived pitch of the vibration, which confounds intensity experiments.
 
-**Calibrated values (see `experiments/lra_frequency_sweep/README.md` for the full method, data and standards rationale):**
+**Calibrated values (see `main/validation_experiments/lra_resonance_intensity_calibration/README.md` for the full method, data and standards rationale):**
 
 | Quantity | Value | Where it lives |
 |------|------|------|
@@ -155,7 +155,7 @@ An LRA is a spring–mass resonator and behaves completely differently:
 | Default cue intensity | **`amp = 64`** → 0.49 m/s² RMS, centre of the 0.4–0.6 m/s² "clearly perceptible, not annoying" band | `HAPTIC_AMPLITUDE` in `app/haptic_cue.py`, `pulse()` defaults in `common/controller.py`, experiment `AMP` constants |
 
 **Re-calibrating after a hardware change.**
-f₀ is mount-specific, so re-run the calibration whenever the LRA is remounted or swapped — the dedicated scripts in `experiments/lra_frequency_sweep/` automate the whole procedure (frequency sweep at `amp = 128`, then amplitude sweep at f₀, both measured with the accelerometer subsystem and saved as CSV + plot). The manual equivalent, if ever needed: sweep `F <port> <freq>` at `amp = 128` while recording RMS acceleration (`A START`), lock the peak frequency, then sweep `amp` to map intensity.
+f₀ is mount-specific, so re-run the calibration whenever the LRA is remounted or swapped — the dedicated scripts in `main/validation_experiments/lra_resonance_intensity_calibration/` automate the whole procedure (frequency sweep at `amp = 128`, then amplitude sweep at f₀, both measured with the accelerometer subsystem and saved as CSV + plot). The manual equivalent, if ever needed: sweep `F <port> <freq>` at `amp = 128` while recording RMS acceleration (`A START`), lock the peak frequency, then sweep `amp` to map intensity.
 
 #### PWM timer sharing (Teensy 4.1)
 
