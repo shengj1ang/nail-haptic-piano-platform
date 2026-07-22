@@ -3,8 +3,9 @@
 Select any subset of exported Main User Study participants and get the
 group-level picture over the same within-subject design the
 single-participant window shows: condition and difficulty comparisons,
-paired condition contrasts, learning/order trends, event-outcome
-composition, homologous per-finger profiles, and a data-quality audit.
+paired condition contrasts, a descriptive speed-accuracy trade-off,
+learning/order trends, event-outcome composition, homologous per-finger
+profiles, and a data-quality audit.
 
 All computation lives in app.group_analysis, which reads the
 reviewed-and-exported <participant>_{trials,events}.csv files (the
@@ -22,8 +23,9 @@ Design rules enforced here:
   - every Analyse click recomputes from disk for exactly the current
     selection - no cached results survive a selection change.
 
-Deliberately no export buttons in this first version - results are
-reviewed in-window first.
+Export ("Export figures + data", participant-window pattern) currently
+covers the Trade-off tab's figures and tidy CSVs; the other tabs stay
+review-in-window only for now.
 """
 
 from typing import Dict, List
@@ -34,6 +36,8 @@ from matplotlib.patches import Patch
 from PySide6.QtCore import Qt
 from scipy import stats as sstats
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -48,6 +52,8 @@ from PySide6.QtWidgets import (
 )
 
 from .. import group_analysis as ga
+from .. import group_tradeoff as gt
+from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..participant_analysis import (
     CAT_CK_WF,
     CATEGORIES,
@@ -96,6 +102,14 @@ class GroupAnalysisWindow(QMainWindow):
         none_btn.clicked.connect(lambda: self._set_all_checks(False))
         analyze_btn = QPushButton("Analyse selected participants")
         analyze_btn.clicked.connect(self._analyze)
+        self.save_figs_btn = QPushButton("Export figures + data")
+        self.save_figs_btn.setToolTip(
+            "Write the group trade-off figures as 300 dpi PNG + SVG plus the underlying "
+            "tidy CSVs to data/MainUserStudy/group_figures/ (same export pattern as the "
+            "single-participant window)."
+        )
+        self.save_figs_btn.setEnabled(False)
+        self.save_figs_btn.clicked.connect(self._save_figures)
 
         left = QWidget()
         left.setFixedWidth(300)
@@ -108,6 +122,7 @@ class GroupAnalysisWindow(QMainWindow):
         row.addWidget(none_btn)
         left_layout.addLayout(row)
         left_layout.addWidget(analyze_btn)
+        left_layout.addWidget(self.save_figs_btn)
 
         # --- right: header + tabs -----------------------------------------
         self.header_label = QLabel("Included in analysis: none (N = 0)")
@@ -179,6 +194,11 @@ class GroupAnalysisWindow(QMainWindow):
 
     def _analyze(self) -> None:
         self.tabs.clear()
+        # slug -> Figure, every registered figure is exported
+        # (participant-window pattern); slug -> DataFrame for the tidy CSVs.
+        self._figures: Dict[str, Figure] = {}
+        self._datasets: Dict[str, object] = {}
+        self.save_figs_btn.setEnabled(False)
         selection = self._checked_participants()
         if not selection:
             self.header_label.setText("Included in analysis: none (N = 0)")
@@ -215,10 +235,12 @@ class GroupAnalysisWindow(QMainWindow):
         self._add_tab("Overview", *self._build_overview())
         self._add_tab("Condition × Difficulty", *self._build_condition_difficulty())
         self._add_tab("Contrasts", *self._build_contrasts())
+        self._add_tradeoff_tab()
         self._add_tab("Learning / Order", *self._build_learning())
         self._add_tab("Errors", *self._build_errors())
         self._add_tab("Fingers", *self._build_fingers())
         self._add_tab("Quality", *self._build_quality())
+        self.save_figs_btn.setEnabled(True)
 
     @staticmethod
     def _condition_titles(trial_rows: List[dict]) -> Dict[str, str]:
@@ -515,6 +537,185 @@ class GroupAnalysisWindow(QMainWindow):
             parts.append("Pairwise Wilcoxon contrasts omitted "
                          f"(Friedman p {_fmt_p(fried['p'])} gives no reason to pursue them).")
         return "<i>" + "<br>".join(parts) + "</i>"
+
+    # ------------------------------------------------------------------
+    # Trade-off (descriptive; computed in app.group_tradeoff)
+
+    def _add_tradeoff_tab(self) -> None:
+        """Descriptive group speed-accuracy trade-off: one large 2D main
+        figure, two exploratory 3D supplements below it, with display
+        toggles for busy plots. Registers the figures and tidy CSVs for
+        Export figures + data."""
+        self._tradeoff = gt.compute(self._data.trial_rows, self._data.included)
+        self._datasets.update(gt.export_datasets(self._tradeoff))
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        caption = QLabel(self._tradeoff_caption())
+        caption.setWordWrap(True)
+        caption.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(caption)
+
+        toggles = QHBoxLayout()
+        toggles.addWidget(QLabel("Show:"))
+        self.tr_points_check = QCheckBox("Trial points")
+        self.tr_pcent_check = QCheckBox("Participant centroids")
+        self.tr_gcent_check = QCheckBox("Group centroids / CI")
+        self.tr_connect_check = QCheckBox("Connect B → C within participant")
+        for check in (self.tr_points_check, self.tr_pcent_check,
+                      self.tr_gcent_check, self.tr_connect_check):
+            check.setChecked(True)  # default everything on; untick trial
+            # points when a larger N makes the clouds too dense.
+            check.toggled.connect(self._refresh_tradeoff_figures)
+            toggles.addWidget(check)
+        toggles.addWidget(QLabel("Error bars:"))
+        self.tr_errbar_combo = QComboBox()
+        self.tr_errbar_combo.addItems(["95% t-CI", "±SD"])
+        self.tr_errbar_combo.setToolTip(
+            "Group-centroid error bars, both across PARTICIPANT centroids: 95% t-CI is the "
+            "inferentially honest default but is very wide at small N (t = 12.7 at N = 2); "
+            "±SD shows descriptive spread and stays readable. Trials are never pooled either way."
+        )
+        self.tr_errbar_combo.currentIndexChanged.connect(self._refresh_tradeoff_figures)
+        toggles.addWidget(self.tr_errbar_combo)
+        toggles.addStretch(1)
+        layout.addLayout(toggles)
+
+        # 2D on top (full width), the two 3D supplements side by side
+        # below; the fixed-height canvases shrink horizontally when the
+        # window narrows.
+        self._tradeoff_fig_box = QVBoxLayout()
+        layout.addLayout(self._tradeoff_fig_box)
+        layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        self.tabs.addTab(scroll, "Trade-off")
+        self._refresh_tradeoff_figures()
+
+    def _refresh_tradeoff_figures(self) -> None:
+        """(Re)build the three figures under the current toggles and
+        swap them into the tab; the export registry sees exactly what is
+        on screen."""
+        options = gt.TradeoffOptions(
+            show_trial_points=self.tr_points_check.isChecked(),
+            show_participant_centroids=self.tr_pcent_check.isChecked(),
+            show_group_centroids=self.tr_gcent_check.isChecked(),
+            connect_b_to_c=self.tr_connect_check.isChecked(),
+            error_bars="sd" if self.tr_errbar_combo.currentIndex() == 1 else "ci",
+        )
+        figs = gt.build_figures(self._tradeoff, cond_titles=self._cond_titles,
+                                colors=CONDITION_COLORS, options=options)
+        self._figures["group_tradeoff_2d"] = figs["group_tradeoff_2d"]
+        self._figures["group_tradeoff_by_difficulty_3d"] = figs["group_tradeoff_by_difficulty_3d"]
+        self._figures["group_tradeoff_by_participant_3d"] = figs["group_tradeoff_by_participant_3d"]
+
+        self._clear_layout(self._tradeoff_fig_box)
+
+        def make_canvas(fig):
+            canvas = ScrollFriendlyCanvas(fig)
+            canvas.setFixedHeight(int(fig.get_figheight() * 100))
+            canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            return canvas
+
+        self._tradeoff_fig_box.addWidget(make_canvas(figs["group_tradeoff_2d"]))
+        row = QHBoxLayout()
+        row.addWidget(make_canvas(figs["group_tradeoff_by_difficulty_3d"]))
+        row.addWidget(make_canvas(figs["group_tradeoff_by_participant_3d"]))
+        self._tradeoff_fig_box.addLayout(row)
+
+    @staticmethod
+    def _clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+            elif item.layout() is not None:
+                GroupAnalysisWindow._clear_layout(item.layout())
+
+    def _tradeoff_caption(self) -> str:
+        data = self._tradeoff
+        points = data.points
+        n_included = int(points["included"].sum()) if len(points) else 0
+        summary = gt.group_summary(data.gcent)
+
+        lines = [
+            f"<h3>Group speed–accuracy trade-off — N = {len(data.participants)} "
+            f"({', '.join(data.participants)})</h3>",
+            f"{len(points)} trials loaded, {n_included} plotted; each small point is one "
+            "participant × condition × trial (up to 9 per participant and condition): "
+            "x = mean RT of that trial's correct-key events (ms), y = the trial's Main Finger "
+            "Accuracy (%), both under the single-participant definitions (existing timeout, "
+            "carry-over and correct-key rules; confirmed carry-over events are excluded). "
+            "In the 3D supplements z is the difficulty level (α/β/γ) or the participant.",
+            "Hollow rings = participant × condition centroids (mean over that participant's "
+            "included trials); large diamonds = group centroids computed FROM the participant "
+            "centroids (every participant weighs equally — trials and events are never pooled "
+            "across participants), error bars = 95% t-CI over participants by default, "
+            "switchable to ±SD (both need ≥ 2; the t-CI is wide at small N by construction — "
+            "t(0.975, n−1) = 12.7 at N = 2 — while ±SD shows descriptive spread only). "
+            "Trials without a valid correct-key RT or without an analyzed FA are excluded and "
+            "counted below, never plotted as 0.",
+            "<b>Colour coding:</b> condition sets the hue (A grey, B blue, C orange). In the "
+            "difficulty 3D figure, lightness and marker shape code the level (α light/circle, "
+            "β mid/triangle, γ dark/square) within the condition hue; in the participant 3D "
+            "figure, the marker codes the condition (A circle, B square, C diamond) and "
+            "lightness codes the participant (same rank in A/B/C), with the z position and ID "
+            "label as the primary grouping cue.",
+        ]
+
+        cond_lines = []
+        for c in CONDITIONS:
+            if c in summary["conditions"]:
+                s = summary["conditions"][c]
+                cond_lines.append(f"{self._cond_titles[c]}: mean RT {s['rt_ms']:.0f} ms, "
+                                  f"mean FA {s['fa_pct']:.0f}% (n = {s['n']} participants)")
+            else:
+                cond_lines.append(f"{self._cond_titles[c]}: no participant with plottable trials")
+        if summary["delta_c_minus_b"]:
+            d = summary["delta_c_minus_b"]
+            cond_lines.append(f"<b>C − B:</b> FA {d['fa_pct']:+.1f} pp, RT {d['rt_ms']:+.0f} ms.")
+        if summary["verdict"]:
+            cond_lines.append(f"<b>{summary['verdict']}</b>")
+        lines.append("<b>Group means (participant-weighted):</b><br>" + "<br>".join(cond_lines))
+
+        notes = []
+        excluded = points[~points["included"]] if len(points) else points
+        if len(excluded):
+            per_c = ", ".join(f"{c}: {n}" for c, n in excluded.groupby("condition").size().items())
+            notes.append(f"Excluded trials (no valid RT / not analyzed): {len(excluded)} ({per_c}).")
+        missing = gt.missing_cells(data)
+        if missing:
+            notes.append("Cells without any plottable trial (skipped, never zero-filled): "
+                         + ", ".join(missing) + ".")
+        if len(data.gcent) and (data.gcent["n_participants"] < 2).any():
+            notes.append("Cells with fewer than 2 participants show a mean but no CI/SD bar.")
+        if data.participants and len(data.participants) < ga.MIN_TEST_N:
+            notes.append("Below the inferential-N threshold everything on this page is "
+                         "descriptive only.")
+        notes.append("The 2D figure is the main view; the 3D figures are exploratory "
+                     "supplements. Inferential statistics (Friedman / paired Wilcoxon) stay on "
+                     "the <b>Contrasts</b> tab — this page makes no significance claims.")
+        lines.append(" ".join(notes))
+        return "".join(f"<p>{l}</p>" for l in lines)
+
+    def _save_figures(self) -> None:
+        """Export figures + data (participant-window pattern): 300 dpi
+        PNG + SVG per registered figure plus the tidy CSVs, under
+        data/MainUserStudy/group_figures/."""
+        out_dir = STUDY_DATA_DIR / "group_figures"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        figs = csvs = 0
+        for slug, fig in self._figures.items():
+            fig.savefig(out_dir / f"{slug}.png", dpi=300, bbox_inches="tight")
+            fig.savefig(out_dir / f"{slug}.svg", bbox_inches="tight")
+            figs += 1
+        for slug, df in self._datasets.items():
+            df.to_csv(out_dir / f"{slug}.csv", index=False)
+            csvs += 1
+        self.status_label.setText(
+            f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs to {out_dir}")
 
     # ------------------------------------------------------------------
     # Learning / order

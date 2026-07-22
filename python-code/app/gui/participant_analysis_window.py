@@ -24,7 +24,6 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -115,11 +114,6 @@ class ParticipantAnalysisWindow(QMainWindow):
         refresh_btn.clicked.connect(self._refresh_participants)
         analyze_btn = QPushButton("Analyze")
         analyze_btn.clicked.connect(self._analyze)
-        self.paper_mode_check = QCheckBox("Paper mode")
-        self.paper_mode_check.setToolTip(
-            "Export only the paper-designated figures (accuracy/learning/trade-off/errors/confusion "
-            "B&C); supplement figures (RT boxplots, 3-panel confusion, timing, quality) are skipped."
-        )
         self.save_figs_btn = QPushButton("Export figures + data")
         self.save_figs_btn.setToolTip(
             "Write every chart as a 300 dpi PNG plus the underlying tidy CSVs under "
@@ -136,7 +130,6 @@ class ParticipantAnalysisWindow(QMainWindow):
         top.addWidget(self.participant_combo, 1)
         top.addWidget(refresh_btn)
         top.addWidget(analyze_btn)
-        top.addWidget(self.paper_mode_check)
         top.addWidget(self.save_figs_btn)
 
         self.tabs = QTabWidget()
@@ -179,9 +172,8 @@ class ParticipantAnalysisWindow(QMainWindow):
 
         self.tabs.clear()
         self._participant = participant
-        # slug -> (Figure, role); role "paper" figures survive Paper mode
-        # export, "supplement" ones are skipped by it.
-        self._figures: Dict[str, tuple] = {}
+        # slug -> Figure; every registered figure is exported.
+        self._figures: Dict[str, Figure] = {}
         # slug -> tidy DataFrame written next to the figures on export.
         self._datasets: Dict[str, object] = {}
         self._add_tab("Overview", *self._build_overview(participant, trials))
@@ -200,31 +192,26 @@ class ParticipantAnalysisWindow(QMainWindow):
         <participant>_<slug>.* so the report can cite files verbatim."""
         out_dir = STUDY_DATA_DIR / self._participant / "figures"
         out_dir.mkdir(parents=True, exist_ok=True)
-        paper_only = self.paper_mode_check.isChecked()
         figs = csvs = 0
-        for slug, (fig, role) in self._figures.items():
-            if paper_only and role != "paper":
-                continue
+        for slug, fig in self._figures.items():
             fig.savefig(out_dir / f"{self._participant}_{slug}.png", dpi=300, bbox_inches="tight")
             figs += 1
         for slug, df in self._datasets.items():
             df.to_csv(out_dir / f"{self._participant}_{slug}.csv", index=False)
             csvs += 1
-        mode = "paper figures only" if paper_only else "all figures"
-        self.status_label.setText(f"Exported {figs} PNGs ({mode}, 300 dpi) + {csvs} CSVs to {out_dir}")
+        self.status_label.setText(f"Exported {figs} PNGs (300 dpi) + {csvs} CSVs to {out_dir}")
 
     def _add_tab(self, title: str, caption_html: str, figspecs: List[tuple]) -> None:
-        """figspecs: list of (slug, Figure, role) - slug names the export
-        files, role is "paper" or "supplement"."""
-        for slug, fig, role in figspecs:
-            self._figures[slug] = (fig, role)
+        """figspecs: list of (slug, Figure) - slug names the export files."""
+        for slug, fig in figspecs:
+            self._figures[slug] = fig
         content = QWidget()
         layout = QVBoxLayout(content)
         caption = QLabel(caption_html)
         caption.setWordWrap(True)
         caption.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(caption)
-        for _slug, fig, _role in figspecs:
+        for _slug, fig in figspecs:
             canvas = ScrollFriendlyCanvas(fig)
             # Fixed height at the figure's designed size: the page then
             # overflows the viewport and scrolls vertically instead of
@@ -319,7 +306,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         ax2.set_ylabel("ms")
         ax2.set_title("Mean RT, correct-key events (±SD across trials)")
         fig.tight_layout()
-        return "".join(f"<p>{l}</p>" for l in lines), [("overview", fig, "supplement")]
+        return "".join(f"<p>{l}</p>" for l in lines), [("overview", fig)]
 
     # ------------------------------------------------------------------
     # Learning progression
@@ -417,7 +404,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             "<p><b>1st → 3rd occurrence:</b><br>" + "<br>".join(improvements) + "</p>"
         )
         fig1.tight_layout()
-        return caption, [("learning_session", fig1, "paper"), ("learning_withincell", fig2, "paper")]
+        return caption, [("learning_session", fig1), ("learning_withincell", fig2)]
 
     @staticmethod
     def _session_slope(ordered: List[dict], key: str, scale: float) -> float:
@@ -465,7 +452,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             "conditions separate is where guidance modality matters most for this participant.</p>"
             "<p>" + "<br>".join(summary_lines) + "</p>"
         )
-        return caption, [("difficulty", fig, "paper")]
+        return caption, [("difficulty", fig)]
 
     # ------------------------------------------------------------------
     # Speed-accuracy trade-off
@@ -520,7 +507,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                          f"{len(excluded)} ({per_c}).")
         lines.append("No regression or connecting lines on purpose: 9 trials per condition are too few "
                      "for a trustworthy fit, and the three centroids stand on their own.")
-        return "".join(f"<p>{l}</p>" for l in lines), [("tradeoff", fig, "paper")]
+        return "".join(f"<p>{l}</p>" for l in lines), [("tradeoff", fig)]
 
     # ------------------------------------------------------------------
     # Event-level error breakdown (+ wrong-key distance)
@@ -638,9 +625,9 @@ class ParticipantAnalysisWindow(QMainWindow):
                      "Timeouts have no keypress and stay outside the key/finger cells. "
                      "Descriptive only — group-level inference is reported separately.")
         caption = "".join(f"<p>{l}</p>" for l in lines)
-        return caption, [("errors_composition", fig_a, "paper"),
-                         ("errors_counts", fig_b, "paper"),
-                         ("errors_wrongkey_distance", fig_c, "supplement")]
+        return caption, [("errors_composition", fig_a),
+                         ("errors_counts", fig_b),
+                         ("errors_wrongkey_distance", fig_c)]
 
     # ------------------------------------------------------------------
     # Finger confusion matrices per condition
@@ -700,9 +687,9 @@ class ParticipantAnalysisWindow(QMainWindow):
             return fig
 
         fig_norm, fig_counts, fig_paper = make_fig(True), make_fig(False), make_paper_fig()
-        self._figures["confusion_paper"] = (fig_paper, "paper")
-        self._figures["confusion_rownorm"] = (fig_norm, "supplement")
-        self._figures["confusion_counts"] = (fig_counts, "supplement")
+        self._figures["confusion_paper"] = fig_paper
+        self._figures["confusion_rownorm"] = fig_norm
+        self._figures["confusion_counts"] = fig_counts
 
         lines = ["<h3>Finger confusion per condition</h3>",
                  "Rows = target finger, columns = final verified actual finger, physical order "
@@ -847,7 +834,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             "Bars use responded events only; unresolved finger verdicts count as incorrect.</p>"
             "<p>" + "; ".join(caption_notes) + "</p>"
         )
-        return caption, [("fingers_accuracy", fig, "paper"), ("fingers_rt_boxplot", fig2, "supplement")]
+        return caption, [("fingers_accuracy", fig), ("fingers_rt_boxplot", fig2)]
 
     # ------------------------------------------------------------------
     # Timing
@@ -890,7 +877,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             "yet differ in consistency — SD and p95 carry that.</p>"
             "<p>" + "<br>".join(stats_lines) + "</p>"
         )
-        return caption, [("timing_rt_distributions", fig, "supplement")]
+        return caption, [("timing_rt_distributions", fig)]
 
     # ------------------------------------------------------------------
     # Quality
@@ -933,4 +920,4 @@ class ParticipantAnalysisWindow(QMainWindow):
             "manually confirmed vs missing alignment.</p>"
             "<p>" + "<br>".join(lines) + "</p>"
         )
-        return caption, [("quality_audit", fig, "supplement")]
+        return caption, [("quality_audit", fig)]

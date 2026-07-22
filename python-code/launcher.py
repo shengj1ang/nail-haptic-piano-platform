@@ -31,10 +31,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# Sections are laid out left-to-right, top-to-bottom in a grid this many
-# columns wide, instead of one long vertical stack that runs off the
-# screen once there are more than a handful of sections/buttons.
-SECTION_COLUMNS = 2
+# Sections are laid out left-to-right, top-to-bottom, this many per row
+# (1 2 3 / 4 5 6 / 7 8 ...), so the window stays 3 rows tall instead of
+# running off the bottom of the screen as sections accumulate.
+SECTION_COLUMNS = 3
 
 APP_ICON = Path(__file__).resolve().parent / "app" / "assets" / "image" / "icon.png"
 
@@ -80,17 +80,17 @@ SECTIONS = [
         ],
     ),
     (
-        "3. Experiment Sequence Design",
-        [
-            ("Experiment Sequence Generator", SequenceGeneratorWindow),
-            ("Sequence/Music Metrics", SequenceMetricsWindow),
-        ],
-    ),
-    (
-        "4. Recording && Playback",
+        "3. Recording && Playback",
         [
             ("Song Recording Wizard", RecordingWizard),
             ("Song Playback", PlaybackWindow),
+        ],
+    ),
+    (
+        "4. Experiment Sequence Design",
+        [
+            ("Experiment Sequence Generator", SequenceGeneratorWindow),
+            ("Sequence/Music Metrics", SequenceMetricsWindow),
         ],
     ),
     (
@@ -246,7 +246,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(str(APP_ICON)))  # on macOS this also sets the Dock icon
     window = LauncherWindow(cfg)
-    window.resize(760, 640)  # 8 sections in a 2-column grid need the extra height
+    window.resize(1100, 740)  # 3 sections per column: wide, 3 rows tall
     window.show()
     sys.exit(app.exec())
 

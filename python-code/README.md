@@ -292,8 +292,7 @@ data). The analysis workflow, all reachable from launcher section
    from `app/participant_export.py`, with unit tests in
    `test-script/test_participant_analysis.py`. "Export figures + data"
    writes 300 dpi PNGs + tidy CSVs (`<P>_<slug>.png/.csv`) under
-   `data/MainUserStudy/<P>/figures/`; "Paper mode" limits the export to
-   the paper-designated figure set.
+   `data/MainUserStudy/<P>/figures/`.
 
    All participant-level readouts are descriptive; group-level inference
    is a separate, later step.
