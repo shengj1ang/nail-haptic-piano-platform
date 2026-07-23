@@ -217,10 +217,20 @@ python motor_acc_delay.py            # CLI, defaults: LRA on port 11
 ```
 
 or launcher → "9. Validation Experiments" → **Motor → ACC Delay
-(LRA/ERM)**: actuator dropdown (auto-sets the motor port), motor/ACC
-overrides, progress bar per trial, Test Buzz, embedded Accelerometer
-Live View, latest-run preview and Load-Chart-from-CSV — the same shell
-as the LRA sweeps.
+(LRA/ERM)**: actuator dropdown (selecting an actuator resets the
+motor port, PWM frequency and drive amp to that actuator's defaults —
+LRA → port 11 / 224 Hz / amp 64, ERM → port 10 / 5 kHz / amp 64; each
+can still be overridden afterwards), motor/ACC overrides, progress bar
+per trial, Test Buzz (sent at the selected PWM frequency), embedded
+Accelerometer Live View, latest-run preview and Load-Chart-from-CSV —
+the same shell as the LRA sweeps.
+
+**Drive amp is exposed for exploration, not for the headline number:**
+amp 64 is the calibrated ~0.5 m/s² cue the study delivers, so only
+amp-64 runs bound the study's timestamp error. A harder drive rings
+the LRA up faster and reads lower — a real effect, but of a cue the
+study never plays. Non-default-amp runs are flagged in the run log,
+the status line, and carry their amp in the meta/plot title.
 
 ## 6. Outputs
 

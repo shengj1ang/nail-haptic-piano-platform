@@ -83,7 +83,9 @@ ACC_SENSOR_ID = 0
 ACC_INTERVAL_MS = 1      # firmware >= v2.9.0: LIS3DH at 1.344 kHz, so a
                          # 1 ms stream carries fresh samples (older
                          # firmware streams duplicates beyond 2.5 ms)
-AMP = 64                 # project-default cue intensity
+AMP = 64                 # project-default cue intensity (the calibrated
+                         # ~0.5 m/s² level - the study-representative
+                         # latency is the one measured at THIS amp)
 VIB_DURATION_S = 0.20    # motor ON duration per trial
 
 NUM_TRIALS = 10
@@ -292,7 +294,8 @@ def _find_onset(rel_times: List[float], deltas: List[float],
 def run_single_trial(ser, trial_id: int, log: LogFn,
                      motor_index: int, acc_sensor_id: int,
                      should_stop: Callable[[], bool],
-                     still_max_dev: float = STILL_MAX_DEV) -> TrialResult:
+                     still_max_dev: float = STILL_MAX_DEV,
+                     amp: int = AMP) -> TrialResult:
     log(f"\n===== Trial {trial_id} =====")
     # The previous trial's buzz leaves the hanging rig swinging - gate
     # every trial on stillness before taking its baseline.
@@ -313,7 +316,7 @@ def run_single_trial(ser, trial_id: int, log: LogFn,
     post_samples = 0
 
     t_cmd = time.perf_counter()
-    send(ser, f"S {1 << motor_index} {AMP}", wait_s=0.0)
+    send(ser, f"S {1 << motor_index} {amp}", wait_s=0.0)
     t_off = t_cmd + VIB_DURATION_S
 
     while time.perf_counter() - t_cmd < SEARCH_TIMEOUT_S:
@@ -445,7 +448,8 @@ def delay_stats(results: List[TrialResult]) -> dict:
 
 
 def save_plot(path: str, results: List[TrialResult], actuator_type: str,
-              motor_index: int, threshold_hint: Optional[float] = None) -> None:
+              motor_index: int, threshold_hint: Optional[float] = None,
+              amp: int = AMP) -> None:
     stats = delay_stats(results)
     thresholds = [r.threshold for r in results if r.threshold > 0]
     threshold_line = (statistics.fmean(thresholds) if thresholds
@@ -469,7 +473,7 @@ def save_plot(path: str, results: List[TrialResult], actuator_type: str,
         ax1.axhline(stats["onset_mean_ms"], linestyle="-.",
                     label=f"Onset mean = {stats['onset_mean_ms']:.2f} ms")
     ax1.set_title(f"Motor command -> ACC latency "
-                  f"({actuator_type}, motor port {motor_index}, amp={AMP})")
+                  f"({actuator_type}, motor port {motor_index}, amp={amp})")
     ax1.set_xlabel("Trial")
     ax1.set_ylabel("Latency (ms)")
     ax1.grid(True)
@@ -507,7 +511,8 @@ def save_meta(csv_path: str, samples_path: Optional[str], png_path: str,
               stamp: str, firmware, motor_index: int, acc_sensor_id: int,
               actuator_type: str, results: List[TrialResult],
               still_max_dev: float = STILL_MAX_DEV,
-              pwm_freq_hz: int = DEFAULT_PWM_FREQ) -> str:
+              pwm_freq_hz: int = DEFAULT_PWM_FREQ,
+              amp: int = AMP) -> str:
     meta = {
         "experiment": "motor_acc_delay",
         "saved_at": int(stamp),
@@ -516,7 +521,7 @@ def save_meta(csv_path: str, samples_path: Optional[str], png_path: str,
             "actuator_type": actuator_type,
             "motor_index": motor_index,
             "acc_sensor_id": acc_sensor_id,
-            "amp": AMP,
+            "amp": amp,
             "vib_duration_s": VIB_DURATION_S,
             "num_trials": NUM_TRIALS,
             "baseline_duration_s": BASELINE_DURATION_S,
@@ -603,6 +608,7 @@ def render_csv(csv_path: str, out_png: str) -> dict:
     params = meta.get("parameters", {}) if meta else {}
     actuator_type = params.get("actuator_type", "LRA")
     motor_index = params.get("motor_index", MOTOR_INDEX)
+    amp = params.get("amp", AMP)
     # Old fixed-threshold runs recorded "threshold"; adaptive runs carry
     # per-trial thresholds in the CSV instead.
     threshold_hint = params.get("threshold")
@@ -618,10 +624,10 @@ def render_csv(csv_path: str, out_png: str) -> dict:
                     r.detect_rel_time = r.delay_ms / 1000.0
 
     save_plot(out_png, results, actuator_type, motor_index,
-              threshold_hint=threshold_hint)
+              threshold_hint=threshold_hint, amp=amp)
     stats = delay_stats(results)
-    stats.update({"actuator_type": actuator_type, "csv_path": csv_path,
-                  "png_path": out_png})
+    stats.update({"actuator_type": actuator_type, "amp": amp,
+                  "csv_path": csv_path, "png_path": out_png})
     return stats
 
 
@@ -641,14 +647,20 @@ def run_experiment(log: Optional[LogFn] = None,
                    motor_index: int = MOTOR_INDEX,
                    acc_sensor_id: int = ACC_SENSOR_ID,
                    actuator_type: str = "LRA",
-                   still_max_dev: float = STILL_MAX_DEV) -> dict:
+                   still_max_dev: float = STILL_MAX_DEV,
+                   amp: int = AMP,
+                   pwm_freq_hz: Optional[int] = None) -> dict:
     """Run the delay measurement and write the output files.
 
     log/progress/should_stop let a GUI wrapper stream the console
     output, drive a progress bar, and abort between trials;
     motor_index/acc_sensor_id/actuator_type pick the actuator under
     test (LRA on port 11, ERM on port 10 by wiring convention);
-    still_max_dev adjusts the stillness gate for the rig's noise floor.
+    still_max_dev adjusts the stillness gate for the rig's noise floor;
+    amp is the PWM drive amplitude (default: the calibrated cue level -
+    runs at any other amp measure a DIFFERENT cue than the study
+    delivers); pwm_freq_hz overrides the per-actuator drive frequency
+    (None = ACTUATOR_PWM_HZ default: LRA 224 Hz resonant, ERM 5 kHz).
     Returns a summary dict with both onset and crossing statistics.
     """
     log = log if log is not None else print
@@ -656,7 +668,11 @@ def run_experiment(log: Optional[LogFn] = None,
     should_stop = should_stop if should_stop is not None else (lambda: False)
 
     log(f"Motor -> ACC delay test: {actuator_type} on motor port "
-        f"{motor_index}, amp={AMP}, {NUM_TRIALS} trials")
+        f"{motor_index}, amp={amp}, {NUM_TRIALS} trials")
+    if amp != AMP:
+        log(f"NOTE: amp {amp} differs from the calibrated cue level ({AMP}) "
+            "- this run measures a different cue than the study delivers, "
+            "so its latency does not bound the study's timestamp error.")
     log("Suspend the motor+sensor pair freely in the air (any orientation); "
         "each trial waits until it hangs still before measuring.")
     log(f"Estimated duration: ~{estimated_duration_s():.0f} s plus "
@@ -668,7 +684,8 @@ def run_experiment(log: Optional[LogFn] = None,
         send(ser, "X")
         # ERM needs kHz-range PWM to start (see ACTUATOR_PWM_HZ); the LRA
         # stays on its resonant boot default.
-        pwm_freq_hz = ACTUATOR_PWM_HZ.get(actuator_type, DEFAULT_PWM_FREQ)
+        if pwm_freq_hz is None:
+            pwm_freq_hz = ACTUATOR_PWM_HZ.get(actuator_type, DEFAULT_PWM_FREQ)
         send(ser, f"F {motor_index} {pwm_freq_hz}")
         log(f"PWM frequency on port {motor_index}: {pwm_freq_hz} Hz "
             f"({actuator_type})")
@@ -682,7 +699,8 @@ def run_experiment(log: Optional[LogFn] = None,
             results.append(run_single_trial(ser, trial_id, log,
                                             motor_index, acc_sensor_id,
                                             should_stop,
-                                            still_max_dev=still_max_dev))
+                                            still_max_dev=still_max_dev,
+                                            amp=amp))
             progress(trial_id, NUM_TRIALS)
             if trial_id < NUM_TRIALS:
                 time.sleep(INTER_TRIAL_REST_S)
@@ -722,18 +740,18 @@ def run_experiment(log: Optional[LogFn] = None,
         png_path = os.path.join(OUTPUT_DIR, f"delay_summary_{stamp}.png")
         save_trials_csv(csv_path, results)
         save_samples_csv(samples_path, results)
-        save_plot(png_path, results, actuator_type, motor_index)
+        save_plot(png_path, results, actuator_type, motor_index, amp=amp)
         meta_path = save_meta(csv_path, samples_path, png_path, stamp,
                               getattr(ser, "rig_identity", None),
                               motor_index, acc_sensor_id, actuator_type,
                               results, still_max_dev=still_max_dev,
-                              pwm_freq_hz=pwm_freq_hz)
+                              pwm_freq_hz=pwm_freq_hz, amp=amp)
         log(f"Data:  {csv_path}")
         log(f"Plot:  {png_path}")
         log(f"Meta:  {meta_path}")
 
-        stats.update({"actuator_type": actuator_type, "csv_path": csv_path,
-                      "png_path": png_path})
+        stats.update({"actuator_type": actuator_type, "amp": amp,
+                      "csv_path": csv_path, "png_path": png_path})
         return stats
     finally:
         try:

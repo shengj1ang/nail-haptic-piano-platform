@@ -624,6 +624,38 @@ class MotorAccDelayWindow(_SweepWindowBase):
         config_row.addSpacing(12)
         self._config_inputs.append(self.actuator_combo)
 
+        self.amp_spin = QSpinBox()
+        self.amp_spin.setRange(1, 255)
+        self.amp_spin.setValue(motor_acc_delay.AMP)
+        self.amp_spin.setToolTip(
+            "PWM drive amplitude (0-255 duty scale). The default "
+            f"{motor_acc_delay.AMP} is the calibrated ~0.5 m/s² cue level - "
+            "the latency at THIS amp is the one that bounds the study's "
+            "timestamp error. Higher amps ring the LRA up faster and will "
+            "read lower, but measure a different cue than the study "
+            "delivers; use them for exploration only.")
+        config_row.addWidget(QLabel("Drive amp:"))
+        config_row.addWidget(self.amp_spin)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.amp_spin)
+
+        self.freq_spin = QSpinBox()
+        self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
+        self.freq_spin.setSuffix(" Hz")
+        self.freq_spin.setValue(motor_acc_delay.ACTUATOR_PWM_HZ[
+            self.actuator_combo.currentText()])
+        self.freq_spin.setToolTip(
+            "PWM drive frequency; follows the actuator selection "
+            "automatically (LRA → 224 Hz resonance, ERM → 5 kHz so the "
+            "chopped drive acts as smooth DC - an ERM never starts at "
+            "224 Hz). Override only with a reason: an off-resonance LRA "
+            "or a sub-kHz ERM invalidates the measurement. Restored to "
+            "the boot default when the run ends.")
+        config_row.addWidget(QLabel("PWM freq:"))
+        config_row.addWidget(self.freq_spin)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.freq_spin)
+
         self.still_spin = QSpinBox()
         self.still_spin.setRange(10, 500)
         self.still_spin.setValue(int(motor_acc_delay.STILL_MAX_DEV))
@@ -640,18 +672,22 @@ class MotorAccDelayWindow(_SweepWindowBase):
         self._config_inputs.append(self.still_spin)
 
     def _on_actuator_changed(self, actuator: str) -> None:
+        # Selecting an actuator resets every actuator-dependent parameter
+        # to that actuator's defaults (each can still be overridden after).
         self.motor_spin.setValue(motor_acc_delay.ACTUATOR_MOTORS[actuator])
+        self.freq_spin.setValue(motor_acc_delay.ACTUATOR_PWM_HZ[actuator])
+        self.amp_spin.setValue(motor_acc_delay.AMP)
 
     def _pre_buzz_cmds(self, motor: int) -> list:
         # An ERM never starts on the 224 Hz LRA boot default - give the
-        # selected actuator its required PWM frequency before buzzing.
-        freq = motor_acc_delay.ACTUATOR_PWM_HZ.get(
-            self.actuator_combo.currentText(), motor_acc_delay.DEFAULT_PWM_FREQ)
-        return [f"F {motor} {freq}"]
+        # buzz the same PWM frequency the run would use.
+        return [f"F {motor} {self.freq_spin.value()}"]
 
     def _extra_run_kwargs(self) -> dict:
         return {"actuator_type": self.actuator_combo.currentText(),
-                "still_max_dev": float(self.still_spin.value())}
+                "still_max_dev": float(self.still_spin.value()),
+                "amp": self.amp_spin.value(),
+                "pwm_freq_hz": self.freq_spin.value()}
 
     def _summary_text(self, summary: dict, saved: bool) -> str:
         parts = []
@@ -664,11 +700,16 @@ class MotorAccDelayWindow(_SweepWindowBase):
             parts.append(f"detection-level crossing "
                          f"{summary['mean_delay_ms']:.2f} ms"
                          + (f" (SD {sd:.2f})" if sd is not None else ""))
+        label = summary.get("actuator_type", "?")
+        # Flag non-default drive so exploratory runs are never mistaken
+        # for the calibrated-cue measurement.
+        amp = summary.get("amp")
+        if amp is not None and amp != motor_acc_delay.AMP:
+            label += f" (amp {amp}, NOT the calibrated cue)"
         if parts:
-            text = (f"{summary['actuator_type']}: " + ", ".join(parts)
-                    + f", n={summary['n_ok']}.")
+            text = f"{label}: " + ", ".join(parts) + f", n={summary['n_ok']}."
         else:
-            text = f"{summary.get('actuator_type', '?')}: no successful detections."
+            text = f"{label}: no successful detections."
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")
