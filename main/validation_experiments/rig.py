@@ -140,3 +140,4 @@ def collect_magnitudes(ser: serial.Serial, duration_s: float,
         x, y, z = sample
         mags.append(math.sqrt(x * x + y * y + z * z))
     return mags
+    ser.reset_input_buffer()  # drop samples from before this window
