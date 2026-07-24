@@ -59,6 +59,7 @@ from app.gui.validation_experiment_window import (
     FrequencySweepWindow,
     MotorAccDelayWindow,
 )
+from app.gui.wiring_guide_window import WiringGuideWindow
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
@@ -70,6 +71,7 @@ SECTIONS = [
     (
         "1. Initial Setup",
         [
+            ("Wiring Guide", WiringGuideWindow),
             ("Camera Selection Wizard", CameraSelectionWindow),
             ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
             ("MIDI Mapping Wizard", MidiMappingWizard),

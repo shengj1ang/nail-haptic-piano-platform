@@ -163,6 +163,140 @@ static bool detectSensor(uint8_t sensor) {
   return g_accel.detected[sensor];
 }
 
+// ===== Brute-force wiring scan (A SCAN) ==============================
+// One-time diagnostic: the four accel wires are plugged onto pins
+// 33/34/35/36 in an unknown order, and this finds which permutation
+// makes a LIS3DH answer WHO_AM_I=0x33. Unlike the streaming path, the
+// pin roles here are runtime values (not the PIN_* constants), so it
+// uses its own plain digitalWrite/digitalRead bit-bang with generous
+// 5 us phases - correctness over speed, this runs while the user is at
+// the bench wiring, not in the realtime loop. When done it restores the
+// normal bus/CS pin state and re-probes, so a correctly wired sensor is
+// usable immediately without a reboot.
+static const uint8_t SCAN_PINS[4] = {33, 34, 35, 36};
+
+static inline void scanDelay() {
+  delayMicroseconds(5);
+}
+
+static uint8_t scanSpiTransfer(uint8_t sck, uint8_t mosi, uint8_t miso,
+                               uint8_t data) {
+  uint8_t rx = 0;
+  for (int i = 7; i >= 0; --i) {
+    digitalWrite(sck, HIGH);          // CPOL=1 idle high
+    scanDelay();
+    digitalWrite(mosi, (data >> i) & 0x01);
+    scanDelay();
+    digitalWrite(sck, LOW);           // falling edge
+    scanDelay();
+    rx <<= 1;
+    if (digitalRead(miso)) rx |= 1;   // sample MISO
+    scanDelay();
+  }
+  digitalWrite(sck, HIGH);            // return clock to idle high
+  scanDelay();
+  return rx;
+}
+
+static uint8_t scanReadReg(uint8_t cs, uint8_t sck, uint8_t mosi,
+                           uint8_t miso, uint8_t reg) {
+  digitalWrite(cs, LOW);
+  scanDelay();
+  scanSpiTransfer(sck, mosi, miso, 0x80 | reg);   // read single register
+  uint8_t v = scanSpiTransfer(sck, mosi, miso, 0x00);
+  digitalWrite(cs, HIGH);
+  scanDelay();
+  return v;
+}
+
+// Drive one candidate role assignment; the three scan pins not chosen as
+// outputs are held as pulled-up inputs so an idle pin can't fight a driver.
+static void scanConfigurePins(uint8_t cs, uint8_t sck, uint8_t mosi,
+                              uint8_t miso) {
+  for (uint8_t i = 0; i < 4; i++) pinMode(SCAN_PINS[i], INPUT_PULLUP);
+  pinMode(cs, OUTPUT);
+  pinMode(sck, OUTPUT);
+  pinMode(mosi, OUTPUT);
+  pinMode(miso, INPUT_PULLUP);
+  digitalWrite(cs, HIGH);
+  digitalWrite(sck, HIGH);            // MODE3 idle high
+  digitalWrite(mosi, LOW);
+}
+
+// Put the four scan pins and every CS line back to their normal driver
+// state, then re-probe so a good sensor streams straight away.
+static void restoreAfterScan() {
+  pinMode(PIN_SCK, OUTPUT);
+  pinMode(PIN_MOSI, OUTPUT);
+  pinMode(PIN_MISO, INPUT_PULLUP);
+  digitalWrite(PIN_SCK, HIGH);
+  digitalWrite(PIN_MOSI, LOW);
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) {
+    pinMode(CS_PINS[s], OUTPUT);
+    digitalWrite(CS_PINS[s], HIGH);
+  }
+  delay(5);
+  for (uint8_t s = 0; s < NUM_ACCEL; s++) detectSensor(s);
+}
+
+static void handleScan() {
+  // Never interleave scan output with a live stream.
+  g_accel.streamEnabled = false;
+  Serial.println("ACC SCAN BEGIN");
+
+  uint8_t hits = 0;
+
+  // a=CS, b=SCK, c=MOSI, d=MISO - all 24 permutations of the four pins.
+  for (int a = 0; a < 4; a++) {
+    for (int b = 0; b < 4; b++) {
+      if (b == a) continue;
+      for (int c = 0; c < 4; c++) {
+        if (c == a || c == b) continue;
+        for (int d = 0; d < 4; d++) {
+          if (d == a || d == b || d == c) continue;
+
+          uint8_t cs   = SCAN_PINS[a];
+          uint8_t sck  = SCAN_PINS[b];
+          uint8_t mosi = SCAN_PINS[c];
+          uint8_t miso = SCAN_PINS[d];
+
+          scanConfigurePins(cs, sck, mosi, miso);
+          delay(20);
+
+          // Three stable reads reject a one-off noise match.
+          uint8_t v1 = scanReadReg(cs, sck, mosi, miso, REG_WHO_AM_I);
+          delay(2);
+          uint8_t v2 = scanReadReg(cs, sck, mosi, miso, REG_WHO_AM_I);
+          delay(2);
+          uint8_t v3 = scanReadReg(cs, sck, mosi, miso, REG_WHO_AM_I);
+
+          bool match = (v1 == LIS3DH_ID && v2 == LIS3DH_ID && v3 == LIS3DH_ID);
+          if (match) hits++;
+
+          Serial.print("ACC SCAN CS=");
+          Serial.print(cs);
+          Serial.print(" SCK=");
+          Serial.print(sck);
+          Serial.print(" MOSI=");
+          Serial.print(mosi);
+          Serial.print(" MISO=");
+          Serial.print(miso);
+          Serial.print(" WHOAMI=0x");
+          if (v1 < 16) Serial.print('0');
+          Serial.print(v1, HEX);
+          if (match) Serial.print(" MATCH");
+          Serial.println();
+        }
+      }
+    }
+  }
+
+  restoreAfterScan();
+
+  Serial.print("ACC SCAN DONE hits=");
+  Serial.println(hits);
+}
+
 void accelInit() {
   pinMode(PIN_SCK, OUTPUT);
   pinMode(PIN_MOSI, OUTPUT);
@@ -242,8 +376,13 @@ void handleAccelCommand(char* p) {
 
   if (!*p || startsWithToken(p, "HELP")) {
     if (canWriteLine(128)) {
-      Serial.println("ACC CMDS: A HELP | A WHOAMI | A READ | A START [ms] | A STOP | A RATE ms | A STATUS");
+      Serial.println("ACC CMDS: A HELP | A WHOAMI | A READ | A START [ms] | A STOP | A RATE ms | A STATUS | A SCAN");
     }
+    return;
+  }
+
+  if (startsWithToken(p, "SCAN")) {
+    handleScan();
     return;
   }
 

@@ -25,8 +25,8 @@ Everything connected today, in one table:
 | 11 | LRA test channel + spare motor channel (PWM) | used in the actuator-comparison experiments; doubles as the spare if a finger port fails |
 | 12 | Reserved for SPI | not initialized by the firmware (pin 12 is SPI0 MISO) |
 | 13 | Free | not initialized by the firmware; carries the onboard orange LED (and SPI0 SCK) |
-| 24 | WS2812 LED strip 0 data | 60 LEDs (`NUM_LEDS_0`) |
-| 29 | WS2812 LED strip 1 data | 60 LEDs (`NUM_LEDS_1`) |
+| 24 | WS2812 LED strip 0 data | cut to length; firmware addresses up to `NUM_LEDS_0` (60) |
+| 29 | WS2812 LED strip 1 data | cut to length; firmware addresses up to `NUM_LEDS_1` (60) |
 | 33 | Accel SPI SCK | shared bus |
 | 34 | Accel SPI MOSI | shared bus |
 | 35 | Accel SPI MISO | shared bus |
@@ -42,17 +42,17 @@ All 12 motor pins (0–11) are initialized and fully addressable by every motor 
 | Rail | Powers | Source | Notes |
 |------|------|------|------|
 | 10 V | Motor power (drive side of the driver board) | External supply through a boost module | this is the rail the PWM chops, so effective motor voltage = `amp/255 × 10 V`; full duty (`amp = 255`) puts the full 10 V on a motor — keep `amp` within values validated for your motors. Check the boost module's current rating against all motors running at once |
-| 5 V | WS2812 LED strips | External 5 V supply | 2×60 LEDs can draw up to ~7 A at full white — never from USB; put a 1000 µF capacitor across the strip power input and a 330 Ω resistor in each data line |
+| 5 V | WS2812 LED strips | Teensy `Vin` pin (5 V) | LED current scales with strip length — cut the strips to the length you actually need; put a 1000 µF capacitor across the strip power input and a 330 Ω resistor in each data line |
 | 3.3 V | Motor driver board logic (chip supply) + LIS3DH accelerometer(s) | Teensy `3.3V` pin | matches the Teensy's 3.3 V PWM/SPI signal levels; the LIS3DH is a 3.3 V part and Teensy 4.1 pins are **not 5 V tolerant** |
 | GND | everything | common | tie **all** grounds together (Teensy, boost module output, LED supply, driver board, sensors); without a shared ground the data signals have no return path and nothing works reliably |
-| — | Teensy itself | USB | peripherals take their power directly from the external supplies and never back-feed the Teensy. If you do want to power the Teensy from VIN externally while USB is also plugged in, cut the VIN–VUSB pad first (standard Teensy practice) |
+| — | Teensy itself | USB | The Teensy runs off USB; `Vin` carries that same 5 V by default (VIN–VUSB linked), and that is the 5 V the LED strips tap — size the strips so the USB 5 V can source their current. The external 10 V motor rail is separate and never back-feeds the Teensy. To instead power the Teensy from an external `Vin` supply while USB is also plugged in, cut the VIN–VUSB pad first (standard Teensy practice) |
 
 Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additional sensor adds only its own CS wire, the other five are taps onto the shared bus/rails.
 
 First contact checklist:
 
 1. Flash `teensy_driver.ino`, open the serial port (any baud).
-2. Send `E` → expect `E haptic-piano v2.9.0`.
+2. Send `E` → expect `E haptic-piano v2.10.0`.
 3. Send `A WHOAMI` → expect one line per CS slot; a fitted sensor answers `0x33`, e.g. `ACC WHOAMI 0 0x33` with empty slots reading something else (typically `0xFF`).
 4. Send `S 1 64` → motor 0 vibrates at the project-default intensity; `X` stops everything.
 5. Send `L 0 0 255 0 0 128` then `U` → first pixel of strip 0 lights red.
@@ -120,7 +120,7 @@ COMMAND arguments...
 | Command | Description |
 |------|------|
 | `X` | stop all motors immediately |
-| `E` | echo firmware identity, e.g. `E haptic-piano v2.9.0` (name + version) |
+| `E` | echo firmware identity, e.g. `E haptic-piano v2.10.0` (name + version) |
 | `P idx count amp on_ms off_ms` | pulse motor `idx`: `count` cycles of `on_ms` on / `off_ms` off at amplitude `amp` (0–255) |
 | `S mask amp` | set motors by bitmask (bits 0–11): every pin whose bit is set in `mask` runs at amplitude `amp` (0–255), all others stop. Persists until the next command |
 | `F idx freq` | set the PWM frequency (Hz) of motor pin `idx` (0–11); `idx = -1` sets all 12 pins at once. Valid range 50–20000 Hz. Persists until reboot (boot default: **224 Hz** — the LRA's measured resonance, see `main/validation_experiments/lra_resonance_intensity_calibration`) |
@@ -202,6 +202,28 @@ All commands operate on every sensor in `CS_PINS`:
 | `A STOP` | stop streaming |
 | `A RATE <ms>` | change stream rate |
 | `A STATUS` | print driver status, incl. `detected=<found>/<total>` |
+| `A SCAN` | brute-force the accelerometer wiring on pins 33/34/35/36 (see *Wiring scan* below) |
+
+#### Wiring scan (`A SCAN`)
+
+A one-time diagnostic for when the accelerometer's four bus wires (SCK, MOSI, MISO, CS) may be plugged into the wrong pins. With the sensor's four wires on pins **33/34/35/36 in any order**, `A SCAN` tries all 24 role permutations, and for each reads `WHO_AM_I` three times; the permutation that stably answers `0x33` is the correct mapping. The scan then restores the normal bus/CS pin state and re-probes, so a correctly wired sensor is usable immediately (no reboot).
+
+Output is one line per permutation, the correct one flagged `MATCH`, bracketed by `BEGIN`/`DONE`:
+
+```
+ACC SCAN BEGIN
+ACC SCAN CS=36 SCK=33 MOSI=34 MISO=35 WHOAMI=0x33 MATCH
+ACC SCAN CS=36 SCK=33 MOSI=35 MISO=34 WHOAMI=0xFF
+...
+ACC SCAN DONE hits=1
+```
+
+The standard wiring is `33=SCK, 34=MOSI, 35=MISO, 36=CS` — a `MATCH` on exactly that line means the wiring is correct; a `MATCH` on any other line tells you which wire is where so you can re-plug to the standard. `hits=0` means no LIS3DH answered on those four pins (check 3.3 V / GND / contacts, and that the sensor's CS is on 36, not 37/38, during the scan). The host-side **Wiring Guide** (launcher section 1) drives this command and interprets the result visually against a labelled Teensy 4.1 pinout.
+
+Notes:
+
+- `A SCAN` only covers pins **33–36**, so during a scan the sensor's CS must be on 36 (its normal home for sensor id 0). Sensors parked on CS 37/38 are held deselected and simply won't answer.
+- The scan bit-bangs its own slow (~5 µs/phase) SPI on runtime-chosen pins, so it briefly blocks the main loop (~1 s total) — expected, since it is meant to run at the bench, not during an experiment.
 
 #### Output format
 

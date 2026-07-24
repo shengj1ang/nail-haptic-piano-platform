@@ -4,7 +4,7 @@
 #include "accel_driver.h"
 
 #define FW_NAME "haptic-piano"
-#define FW_VERSION "v2.9.0"
+#define FW_VERSION "v2.10.0"
 
 // ===== serial buffer =====
 static char lineBuf[128];
