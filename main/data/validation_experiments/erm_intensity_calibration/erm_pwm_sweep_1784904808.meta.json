@@ -1,0 +1,32 @@
+{
+  "experiment": "erm_pwm_frequency_sweep",
+  "saved_at": 1784904808,
+  "firmware": "haptic-piano v2.10.0",
+  "parameters": {
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "amp": 128,
+    "freq_start_hz": 100,
+    "freq_stop_hz": 16000,
+    "n_freqs": 25,
+    "adopted_pwm_hz": 5000,
+    "ms2_per_count": 0.00980665,
+    "baseline_s": 0.3,
+    "settle_s": 0.3,
+    "measure_s": 0.5,
+    "rest_s": 0.2,
+    "acc_interval_ms": 1,
+    "plateau_n": 3,
+    "rms_tol": 0.15,
+    "freq_tol_hz": 25.0
+  },
+  "files": {
+    "csv": "erm_pwm_sweep_1784904808.csv",
+    "png": "erm_pwm_response_1784904808.png"
+  },
+  "result": {
+    "min_adequate_pwm_hz": 16000,
+    "plateau_rms_ms2": 0.2158770627377048,
+    "plateau_rotor_freq_hz": 305.56146517570374
+  }
+}

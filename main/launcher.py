@@ -56,6 +56,8 @@ from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.validation_experiment_window import (
     AmplitudeSweepWindow,
+    ErmIntensitySweepWindow,
+    ErmPwmFrequencySweepWindow,
     FrequencySweepWindow,
     MotorAccDelayWindow,
 )
@@ -63,6 +65,7 @@ from app.gui.wiring_guide_window import WiringGuideWindow
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
+from test_haptic_single_motor import SingleMotorHapticWindow
 from test_haptic_vibrator import HapticTestWindow
 from test_virtual_piano_led import PianoWindow
 
@@ -85,6 +88,7 @@ SECTIONS = [
             ("Live Finger Detection", FingerDetectorWindow),
             ("Virtual Piano + LED Test", PianoWindow),
             ("Haptic Vibrator Test", HapticTestWindow),
+            ("Single-Motor Haptic Bench", SingleMotorHapticWindow),
             ("Accelerometer Live View", AccelerometerWindow),
         ],
     ),
@@ -140,6 +144,8 @@ SECTIONS = [
         [
             ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
             ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
+            ("ERM PWM-Frequency Sweep (Drive Adequacy)", ErmPwmFrequencySweepWindow),
+            ("ERM Amplitude Sweep (Intensity)", ErmIntensitySweepWindow),
             ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
         ],
     ),

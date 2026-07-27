@@ -39,6 +39,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.accelerometer_window import AccelerometerWindow
+from validation_experiments.erm_intensity_calibration import (
+    erm_intensity_sweep,
+    erm_pwm_frequency_sweep,
+)
 from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
     lra_frequency_sweep,
@@ -574,6 +578,124 @@ class AmplitudeSweepWindow(_SweepWindowBase):
     def _summary_text(self, summary: dict, saved: bool) -> str:
         text = (f"recommended amp: {summary['recommended_amp']} "
                 f"({summary['recommended_rms_ms2']:.2f} m/s² RMS).")
+        if saved:
+            text += (f" Saved {os.path.basename(summary['csv_path'])} and "
+                     f"{os.path.basename(summary['png_path'])}.")
+        return text
+
+
+class ErmIntensitySweepWindow(_SweepWindowBase):
+    # "Amplitude sweep" and "intensity sweep" are the same thing (stepping
+    # the drive amp to set cue intensity) - named to match the LRA one.
+    TITLE = "ERM Amplitude Sweep (Intensity)"
+    MODULE = erm_intensity_sweep
+    PNG_GLOB = "erm_response_*.png"
+    CSV_GLOB = "erm_sweep_*.csv"
+    DESCRIPTION = (
+        "Finds the ERM's drive amplitude for a clearly perceptible, comfortable "
+        "cue. An ERM has no resonance - its single knob (PWM duty amp, at a "
+        f"fixed {erm_intensity_sweep.PWM_HZ} Hz PWM so the drive acts as DC) "
+        "sets vibration amplitude and frequency together - so this steps amp "
+        f"{erm_intensity_sweep.AMP_VALUES[0]}-{erm_intensity_sweep.AMP_VALUES[-1]} "
+        "and recommends the value whose RMS acceleration lands in the "
+        f"{erm_intensity_sweep.TARGET_BAND_MS2[0]}-{erm_intensity_sweep.TARGET_BAND_MS2[1]} "
+        "m/s² target band (the same band as the LRA amplitude sweep, for a "
+        "matched cue). It also reports the rotor's startup amp and the "
+        "dominant vibration frequency at each amp (FFT of the ACC trace). "
+        f"Takes ~{erm_intensity_sweep.estimated_duration_s():.0f} s; CSV + "
+        "response curve are saved to "
+        "data/validation_experiments/erm_intensity_calibration/. Requires "
+        "firmware ≥ v2.9.0."
+    )
+
+    def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        self.freq_spin = QSpinBox()
+        self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
+        self.freq_spin.setValue(erm_intensity_sweep.PWM_HZ)
+        self.freq_spin.setSuffix(" Hz")
+        self.freq_spin.setToolTip(
+            "PWM drive frequency. The default "
+            f"{erm_intensity_sweep.PWM_HZ} Hz keeps the chopped drive acting "
+            "as smooth DC so the rotor spins; a sub-kHz value stalls an ERM "
+            "and invalidates the sweep. Restored to the boot default when the "
+            "sweep ends.")
+        config_row.addWidget(QLabel("PWM freq:"))
+        config_row.addWidget(self.freq_spin)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.freq_spin)
+
+    def _pre_buzz_cmds(self, motor: int) -> list:
+        # An ERM never starts on the 224 Hz LRA boot default - give the
+        # buzz the same kHz PWM frequency the sweep would use.
+        return [f"F {motor} {self.freq_spin.value()}"]
+
+    def _extra_run_kwargs(self) -> dict:
+        return {"pwm_hz": self.freq_spin.value()}
+
+    def _summary_text(self, summary: dict, saved: bool) -> str:
+        freq = summary.get("recommended_freq_hz")
+        freq_str = f", spinning at {freq:.0f} Hz" if freq is not None else ""
+        text = (f"recommended amp: {summary['recommended_amp']} "
+                f"({summary['recommended_rms_ms2']:.2f} m/s² RMS{freq_str}).")
+        if summary.get("startup_amp") is not None:
+            text += f" Rotor starts at amp {summary['startup_amp']}."
+        if saved:
+            text += (f" Saved {os.path.basename(summary['csv_path'])} and "
+                     f"{os.path.basename(summary['png_path'])}.")
+        return text
+
+
+class ErmPwmFrequencySweepWindow(_SweepWindowBase):
+    TITLE = "ERM PWM-Frequency Sweep (Drive Adequacy)"
+    MODULE = erm_pwm_frequency_sweep
+    PNG_GLOB = "erm_pwm_response_*.png"
+    CSV_GLOB = "erm_pwm_sweep_*.csv"
+    DESCRIPTION = (
+        "Fixes the drive amp and steps the PWM carrier frequency to find "
+        "the minimum PWM frequency at which the chopped drive acts as smooth "
+        "DC. NOTE: an ERM has no resonance - this is NOT a 'best vibration "
+        "frequency' search (that concept only applies to the LRA); it "
+        "validates the "
+        f"{erm_pwm_frequency_sweep.ADOPTED_PWM_HZ} Hz drive by showing where "
+        "RMS and rotor frequency plateau. Steps "
+        f"{erm_pwm_frequency_sweep.FREQ_START_HZ}-{erm_pwm_frequency_sweep.FREQ_STOP_HZ} Hz "
+        f"(log-spaced) at a fixed amp. Takes "
+        f"~{erm_pwm_frequency_sweep.estimated_duration_s():.0f} s; CSV + curve "
+        "are saved to data/validation_experiments/erm_intensity_calibration/. "
+        "Requires firmware ≥ v2.9.0."
+    )
+
+    def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        self.amp_spin = QSpinBox()
+        self.amp_spin.setRange(1, 254)   # 255 = constant-on DC: no PWM effect
+        self.amp_spin.setValue(erm_pwm_frequency_sweep.AMP)
+        self.amp_spin.setToolTip(
+            "Fixed PWM duty for the sweep (0-254 scale). The default "
+            f"{erm_pwm_frequency_sweep.AMP} = 50% duty is the maximum-chop "
+            "point, where the PWM frequency has the most leverage. It is "
+            "capped at 254 on purpose: at 255 (100% duty) the pin is "
+            "constant-on DC and the PWM frequency has no effect, so the "
+            "sweep would be flat.")
+        config_row.addWidget(QLabel("Fixed amp:"))
+        config_row.addWidget(self.amp_spin)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.amp_spin)
+
+    def _pre_buzz_cmds(self, motor: int) -> list:
+        # Confirm wiring at a kHz PWM the ERM actually spins on.
+        return [f"F {motor} {erm_pwm_frequency_sweep.ADOPTED_PWM_HZ}"]
+
+    def _extra_run_kwargs(self) -> dict:
+        return {"amp": self.amp_spin.value()}
+
+    def _summary_text(self, summary: dict, saved: bool) -> str:
+        min_pwm = summary.get("min_adequate_pwm_hz")
+        if min_pwm is None:
+            text = "rotor never moved - check wiring and drive amp."
+        else:
+            text = (f"min adequate PWM: {min_pwm} Hz "
+                    f"(plateau ~{summary['plateau_rms_ms2']:.2f} m/s², rotor "
+                    f"~{summary['plateau_rotor_freq_hz']:.0f} Hz).")
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")

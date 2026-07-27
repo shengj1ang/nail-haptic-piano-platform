@@ -140,4 +140,29 @@ def collect_magnitudes(ser: serial.Serial, duration_s: float,
         x, y, z = sample
         mags.append(math.sqrt(x * x + y * y + z * z))
     return mags
+
+
+def collect_samples(ser: serial.Serial, duration_s: float,
+                    sensor_id: int) -> List[Tuple[float, int, int, int]]:
+    """Read the ACC stream for duration_s and return (t, x, y, z) tuples.
+
+    t is the host-arrival time (time.monotonic seconds); x/y/z are raw
+    LIS3DH counts. Like collect_magnitudes but keeps the per-axis values
+    and a timestamp per sample, so a caller can both compute the |a|
+    magnitude (sqrt(x^2+y^2+z^2)) and estimate a vibration frequency from
+    the sample series. Host timestamps jitter per sample, but their mean
+    rate over the window equals the firmware ODR, which is what a
+    dominant-frequency estimate needs."""
     ser.reset_input_buffer()  # drop samples from before this window
+    samples: List[Tuple[float, int, int, int]] = []
+    deadline = time.monotonic() + duration_s
+    while time.monotonic() < deadline:
+        raw = ser.readline().decode("utf-8", errors="ignore").strip()
+        if not raw:
+            continue
+        sample = parse_acc_line(raw, sensor_id)
+        if sample is None:
+            continue
+        x, y, z = sample
+        samples.append((time.monotonic(), x, y, z))
+    return samples
