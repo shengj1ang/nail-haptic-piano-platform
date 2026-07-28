@@ -30,7 +30,8 @@
     "actual_finger_point": [
       580,
       233
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 1,
@@ -63,7 +64,8 @@
     "actual_finger_point": [
       527,
       228
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 2,
@@ -96,7 +98,8 @@
     "actual_finger_point": [
       696,
       224
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 3,
@@ -129,7 +132,8 @@
     "actual_finger_point": [
       571,
       234
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 4,
@@ -162,7 +166,8 @@
     "actual_finger_point": [
       468,
       145
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 5,
@@ -195,7 +200,8 @@
     "actual_finger_point": [
       703,
       222
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 6,
@@ -228,7 +234,8 @@
     "actual_finger_point": [
       731,
       226
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 7,
@@ -261,7 +268,8 @@
     "actual_finger_point": [
       703,
       245
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 8,
@@ -294,7 +302,8 @@
     "actual_finger_point": [
       687,
       253
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 9,
@@ -327,7 +336,8 @@
     "actual_finger_point": [
       654,
       229
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 10,
@@ -360,7 +370,8 @@
     "actual_finger_point": [
       475,
       233
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 11,
@@ -393,7 +404,8 @@
     "actual_finger_point": [
       524,
       266
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 12,
@@ -426,7 +438,8 @@
     "actual_finger_point": [
       684,
       231
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 13,
@@ -459,7 +472,8 @@
     "actual_finger_point": [
       743,
       245
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 14,
@@ -474,8 +488,8 @@
     "keypress_time": 1784297140.777801,
     "timing_error_s": 0.4908030033111572,
     "note_correct": true,
-    "actual_finger": "R3",
-    "finger_correct": false,
+    "actual_finger": "R4",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.017707707775726174,
       "R2": 0.22783066654537154,
@@ -492,7 +506,8 @@
     "actual_finger_point": [
       800,
       230
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 15,
@@ -507,8 +522,8 @@
     "keypress_time": 1784297141.8090298,
     "timing_error_s": 0.588890790939331,
     "note_correct": true,
-    "actual_finger": "R3",
-    "finger_correct": false,
+    "actual_finger": "R5",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.02094884521638395,
       "R2": 0.08923957054290022,
@@ -525,7 +540,8 @@
     "actual_finger_point": [
       671,
       286
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 16,
@@ -558,7 +574,8 @@
     "actual_finger_point": [
       519,
       310
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 17,
@@ -591,7 +608,8 @@
     "actual_finger_point": [
       516,
       241
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 18,
@@ -606,8 +624,8 @@
     "keypress_time": 1784297144.805773,
     "timing_error_s": 0.4851200580596924,
     "note_correct": true,
-    "actual_finger": "R2",
-    "finger_correct": false,
+    "actual_finger": "L1",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.2802453861222882,
       "R2": 0.4889318654748508,
@@ -624,7 +642,8 @@
     "actual_finger_point": [
       685,
       230
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 19,
@@ -657,7 +676,8 @@
     "actual_finger_point": [
       520,
       228
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 20,
@@ -672,8 +692,8 @@
     "keypress_time": 1784297146.809925,
     "timing_error_s": 0.6549460887908936,
     "note_correct": false,
-    "actual_finger": "L3",
-    "finger_correct": false,
+    "actual_finger": "L4",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.0019690589786034896,
       "R2": 0.0011256951549741378,
@@ -690,7 +710,8 @@
     "actual_finger_point": [
       553,
       244
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 21,
@@ -723,7 +744,8 @@
     "actual_finger_point": [
       532,
       220
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 22,
@@ -738,7 +760,7 @@
     "keypress_time": 1784297150.043641,
     "timing_error_s": 1.0205581188201904,
     "note_correct": true,
-    "actual_finger": "R3",
+    "actual_finger": "R4",
     "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.003029235709379593,
@@ -756,7 +778,8 @@
     "actual_finger_point": [
       663,
       220
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 23,
@@ -789,7 +812,8 @@
     "actual_finger_point": [
       635,
       232
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 24,
@@ -822,7 +846,8 @@
     "actual_finger_point": [
       677,
       247
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 25,
@@ -855,7 +880,8 @@
     "actual_finger_point": [
       728,
       220
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 26,
@@ -888,7 +914,8 @@
     "actual_finger_point": [
       687,
       249
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 27,
@@ -921,7 +948,8 @@
     "actual_finger_point": [
       725,
       228
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 28,
@@ -954,7 +982,8 @@
     "actual_finger_point": [
       566,
       228
-    ]
+    ],
+    "validity": "valid"
   },
   {
     "index": 29,
@@ -987,6 +1016,7 @@
     "actual_finger_point": [
       680,
       233
-    ]
+    ],
+    "validity": "valid"
   }
 ]
