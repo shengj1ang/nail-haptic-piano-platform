@@ -41,6 +41,7 @@ from ..quiz import (
     BORDERLINE_MARGIN,
     CARRYOVER_RT_THRESHOLD_S,
     META_FILENAME,
+    RAW_VIDEO_FILENAME,
     RESULTS_FILENAME,
     VALIDITY_INVALID_CARRYOVER,
     VALIDITY_VALID,
@@ -50,10 +51,12 @@ from ..quiz import (
     load_quiz_results,
     note_name,
     quiz_dir,
+    quiz_raw_dir,
     save_quiz_results,
     suspected_carryover,
 )
 from .event_review_window import EventReviewWindow
+from .missing_video import require_video
 
 # Row/cell tints for the event table (light, readable on white).
 COLOR_TIMEOUT = QColor(230, 230, 230)
@@ -136,6 +139,8 @@ class QuizDetailWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _open_event_review(self, row: int, _col: int) -> None:
+        if not require_video(self, quiz_raw_dir(self.quiz_name) / RAW_VIDEO_FILENAME):
+            return
         try:
             window = EventReviewWindow(self.quiz_name, row, self.meta.keyboard_profile_name)
         except Exception as e:

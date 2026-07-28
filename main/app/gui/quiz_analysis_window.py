@@ -72,6 +72,7 @@ from ..participant_export import export_paths, export_participant
 from ..pilot_study import list_participants
 from ..sync_led import load_sync_alignment, resolve_sync_anchor
 from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
+from .missing_video import MISSING_VIDEO_TITLE, missing_video_message, require_video
 from .quiz_detail_window import QuizDetailWindow
 from .video_sync_window import VideoSyncWindow
 
@@ -450,6 +451,8 @@ class QuizAnalysisWindow(QMainWindow):
         self.status_label.setText(message)
 
     def _open_sync_window(self, name: str) -> None:
+        if not require_video(self, quiz_raw_dir(name) / RAW_VIDEO_FILENAME):
+            return
         try:
             meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
             window = VideoSyncWindow(name, meta.keyboard_profile_name)
@@ -488,9 +491,18 @@ class QuizAnalysisWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         aligned = skipped = failed = 0
+        missing_video = []
         for name in names:
             row = self._row_of(name)
             raw = quiz_raw_dir(name)
+            if not (raw / RAW_VIDEO_FILENAME).exists():
+                # No raw video in this checkout - LED detection can't run.
+                failed += 1
+                missing_video.append(name)
+                if row is not None:
+                    self.table.item(row, COL_SYNC).setText(
+                        "no raw video (contact ICL for full data)")
+                continue
             if not (raw / RAW_SYNC_FILENAME).exists():
                 failed += 1
                 continue
@@ -522,6 +534,9 @@ class QuizAnalysisWindow(QMainWindow):
         self.status_label.setText(
             f"Auto-align done: {aligned} aligned, {skipped} already aligned (skipped), {failed} failed (need manual alignment)."
         )
+        if missing_video:
+            QMessageBox.information(self, MISSING_VIDEO_TITLE,
+                                   missing_video_message(len(missing_video)))
 
     def _open_detail(self, row: int, _col: int) -> None:
         name = self.table.item(row, COL_QUIZ).text()
@@ -590,6 +605,23 @@ class QuizAnalysisWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+
+        # The video pipeline needs each quiz's raw performance.mp4, which is
+        # not committed to the repository - warn once and skip those.
+        missing = [n for n in names
+                   if not (quiz_raw_dir(n) / RAW_VIDEO_FILENAME).exists()]
+        if missing:
+            for name in missing:
+                row = self._row_of(name)
+                if row is not None:
+                    self.table.item(row, COL_STATUS).setText(
+                        "no raw video (contact ICL for full data)")
+            QMessageBox.information(self, MISSING_VIDEO_TITLE,
+                                    missing_video_message(len(missing)))
+            names = [n for n in names if n not in set(missing)]
+        if not names:
+            return
+
         self._queue = names
         self._batch_total = len(self._queue)
         self._batch_failed = 0
