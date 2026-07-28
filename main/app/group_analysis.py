@@ -117,7 +117,7 @@ def _parse_value(raw: str):
 
 
 def _load_csv_rows(path: Path, str_cols: set) -> List[dict]:
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return [
             {k: (v if k in str_cols else _parse_value(v)) for k, v in raw.items()}

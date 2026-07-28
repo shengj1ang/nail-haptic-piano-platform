@@ -38,12 +38,12 @@ class MidiEvent:
 def save_midi_log(events: List[MidiEvent], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump([asdict(e) for e in events], f, indent=2)
 
 
 def load_midi_log(path: Path) -> List[MidiEvent]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return [MidiEvent(time=item["time"], note=int(item["note"])) for item in data]
 

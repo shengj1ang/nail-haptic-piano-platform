@@ -111,7 +111,7 @@ class Config:
             cfg.save(path)
             return cfg
 
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         return cls(
@@ -138,5 +138,5 @@ class Config:
             "active_keyboard_profile": self.active_keyboard_profile,
             "visual_cue_style": self.visual_cue_style,
         }
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)

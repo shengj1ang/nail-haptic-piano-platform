@@ -87,7 +87,7 @@ def _top5_text(result: QuizResult) -> Optional[str]:
 def load_hands_by_frame(hands_path: Path) -> List[Dict[str, Hand]]:
     """Rebuild the per-frame Hand objects saved by
     app.offline.analyze_recording (see its hands_out_path parameter)."""
-    with open(hands_path) as f:
+    with open(hands_path, encoding="utf-8") as f:
         data = json.load(f)
     return [
         {label: Hand(label, [tuple(p) for p in points]) for label, points in frame.items()}

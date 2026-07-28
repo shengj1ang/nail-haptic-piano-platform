@@ -75,7 +75,7 @@ def load_quiz_targets(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> List[Q
     (data/music/) or a generated experimental sequence (data/sequence/,
     see app.sequence_generator), depending on data_dir."""
     path = song_dir(song_name, data_dir) / FINGERING_FILENAME
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         entries = json.load(f)
     return [
         QuizTarget(
@@ -142,12 +142,12 @@ class QuizResult:
 def save_quiz_results(results: List[QuizResult], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump([asdict(r) for r in results], f, indent=2)
 
 
 def load_quiz_results(path: Path) -> List[QuizResult]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return [QuizResult(**item) for item in data]
 
@@ -177,12 +177,12 @@ class QuizMeta:
     def save(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> "QuizMeta":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return cls(**json.load(f))
 
 
@@ -446,7 +446,7 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
     response, not an early reaction to the next cue. None if the raw log
     is missing."""
     try:
-        with open(midi_raw_path) as f:
+        with open(midi_raw_path, encoding="utf-8") as f:
             events = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None

@@ -209,7 +209,7 @@ def collect_participant_data(participant: str):
     directly by the participant analysis window, so the two can never
     disagree."""
     structure_path = STUDY_DATA_DIR / participant / TRIAL_STRUCTURE_FILENAME
-    with open(structure_path) as f:
+    with open(structure_path, encoding="utf-8") as f:
         structure = json.load(f)
 
     trial_rows: List[Dict[str, object]] = []
@@ -235,7 +235,7 @@ def export_participant(participant: str) -> Dict[str, object]:
 
     trials_path, events_path = export_paths(participant)
     for path, rows in ((trials_path, trial_rows), (events_path, event_rows)):
-        with open(path, "w", newline="") as f:
+        with open(path, "w", newline="", encoding="utf-8") as f:
             if rows:
                 writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
                 writer.writeheader()

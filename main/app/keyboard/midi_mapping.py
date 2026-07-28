@@ -43,12 +43,12 @@ class MidiMapping:
                 for key_id, note in sorted(self.key_to_note.items())
             ],
         }
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> "MidiMapping":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         key_to_note = {int(item["key_id"]): int(item["note"]) for item in data["mapping"]}

@@ -150,12 +150,12 @@ class RawMidiRecorder:
 def save_raw_midi_log(events: List[RawMidiEvent], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump([asdict(e) for e in events], f, indent=2)
 
 
 def load_raw_midi_log(path: Path) -> List[RawMidiEvent]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     # Older logs also carried a recorder-relative rel_time - ignored now;
     # abs_time is the one wall-clock format used everywhere.
@@ -239,12 +239,12 @@ class SyncInfo:
     def save(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> "SyncInfo":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return cls(**json.load(f))
 
 
@@ -284,12 +284,12 @@ class SongMeta:
     def save(self, path: Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(asdict(self), f, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> "SongMeta":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return cls(**json.load(f))
 
 
@@ -325,12 +325,12 @@ def build_fingering_entries(notes: List[MidiEvent], matches: List) -> List[Finge
 def save_fingering(entries: List[FingeringEntry], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump([asdict(e) for e in entries], f, indent=2)
 
 
 def load_fingering(path: Path) -> List[FingeringEntry]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return [FingeringEntry(**item) for item in data]
 
@@ -372,7 +372,7 @@ def _note_durations(raw_events: List[RawMidiEvent]) -> Dict[int, List[float]]:
 def load_playback_events(song_name: str, data_dir: Path = MUSIC_DATA_DIR) -> List[PlaybackEvent]:
     """fingering.json plus (if present) raw/midi_raw.json's real note_on/
     note_off timing, merged into one played-back-in-order event list."""
-    with open(song_dir(song_name, data_dir) / FINGERING_FILENAME) as f:
+    with open(song_dir(song_name, data_dir) / FINGERING_FILENAME, encoding="utf-8") as f:
         fingering = json.load(f)
 
     raw_path = raw_dir(song_name, data_dir) / RAW_MIDI_FILENAME

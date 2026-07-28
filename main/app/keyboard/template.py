@@ -62,13 +62,13 @@ class KeyboardTemplate:
             "key_map": KEY_MAP_FILENAME,
             "keys": [asdict(k) for k in self.keys],
         }
-        with open(json_path, "w") as f:
+        with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
 
     @classmethod
     def load(cls, json_path: Path) -> "KeyboardTemplate":
         json_path = Path(json_path)
-        with open(json_path) as f:
+        with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
 
         key_map_path = json_path.parent / data["key_map"]
