@@ -1,19 +1,21 @@
-"""Manual single-motor haptic bench: pick a motor port, dial in a PWM
+"""Manual haptic motor bench: tick one or more motor ports, dial in a PWM
 frequency and drive amp with draggable sliders, choose a run duration and
-a vibration pattern, then start/stop the motor.
+a vibration pattern, then start/stop the selected motors.
 
 A minimal front end over common.controller.VibratorController (the same
 manual connect/disconnect convention as test_haptic_vibrator.py's
-HapticTestWindow), for quickly feeling one actuator at an arbitrary
-frequency/amp - e.g. trying the LRA at 224 Hz vs the ERM at 5 kHz, or
-sanity-checking a wiring change - without editing a script or running a
-full sweep. It sends the raw firmware commands the sweeps use: `F <port>
-<freq>` to set the port's PWM frequency, `S <mask> <amp>` to drive it,
-`X` to stop.
+HapticTestWindow), for quickly feeling one or several actuators at an
+arbitrary frequency/amp - e.g. trying the LRA at 224 Hz vs the ERM at
+5 kHz, or sanity-checking a wiring change - without editing a script or
+running a full sweep. It sends the raw firmware commands the sweeps use:
+`F <port> <freq>` to set each port's PWM frequency, `S <mask> <amp>` to
+drive the whole selected set at once, `X` to stop.
 
-The motor id, frequency and amp are pushed to the device live: while a
-motor is energised, dragging a slider or changing the port re-tunes the
-running motor immediately, so you can feel the change without stopping.
+The motor selection, frequency and amp are pushed to the device live:
+while motors are energised, dragging a slider or ticking/unticking a port
+re-tunes the running set immediately, so you can feel the change without
+stopping. On disconnect/exit every retuned port's frequency is reset to
+the boot default (the only setting the firmware keeps between runs).
 
 Runs standalone (python test_haptic_single_motor.py) or from the
 launcher's "Feature Testing" section.
@@ -60,7 +62,7 @@ DEFAULT_OFF_MS = 500
 class SingleMotorHapticWindow(QMainWindow):
     def __init__(self, cfg: Config | None = None):
         super().__init__()
-        self.setWindowTitle("Single-Motor Haptic Bench")
+        self.setWindowTitle("Haptic Motor Bench")
         self.cfg = cfg if cfg is not None else Config.load()
 
         # Manual (button-triggered) connection, never opened on launch -
@@ -70,8 +72,10 @@ class SingleMotorHapticWindow(QMainWindow):
 
         # Run state.
         self._running = False   # a start/stop session is active
-        self._on_now = False    # the motor is energised right now
-        self._driven_motor = 0  # motor currently energised (to stop on switch)
+        self._on_now = False    # the motor(s) are energised right now
+        # Ports we've retuned with 'F'; their PWM frequency otherwise
+        # persists on the firmware, so we reset these on disconnect/exit.
+        self._touched_ports: set[int] = set()
 
         # Loop-phase timer (toggles on/off) and total-duration timer.
         self._loop_timer = QTimer(self)
@@ -90,13 +94,22 @@ class SingleMotorHapticWindow(QMainWindow):
         conn_row.addWidget(self.connect_btn)
 
         # --- parameters --------------------------------------------------
-        # Motor id: a selection box over the exposed port range.
-        self.motor_combo = QComboBox()
+        # Motors: a checkbox per exposed port - tick one or more to drive
+        # them together (they share the frequency/amp and are driven with a
+        # single masked 'S' command).
+        self.motor_checks: list[QCheckBox] = []
+        motor_row = QHBoxLayout()
+        motor_row.setContentsMargins(0, 0, 0, 0)
         for i in range(MAX_MOTOR_INDEX + 1):
-            self.motor_combo.addItem(str(i), i)
-        self.motor_combo.setToolTip("Motor port to drive (LRA is wired to 11, "
-                                    "ERM to 10; default 0)")
-        self.motor_combo.currentIndexChanged.connect(self._on_motor_changed)
+            cb = QCheckBox(str(i))
+            cb.toggled.connect(self._on_motor_changed)
+            self.motor_checks.append(cb)
+            motor_row.addWidget(cb)
+        motor_row.addStretch(1)
+        self.motor_box = QWidget()
+        self.motor_box.setLayout(motor_row)
+        self.motor_box.setToolTip("Motor ports to drive - tick one or more "
+                                  "(LRA is wired to 11, ERM to 10).")
 
         # Frequency: draggable slider + a high-precision toggle that swaps
         # the slider's range.
@@ -164,8 +177,8 @@ class SingleMotorHapticWindow(QMainWindow):
 
         # Lay the parameters out on a grid (label | control).
         grid = QGridLayout()
-        grid.addWidget(QLabel("Motor id:"), 0, 0)
-        grid.addWidget(self.motor_combo, 0, 1)
+        grid.addWidget(QLabel("Motors:"), 0, 0)
+        grid.addWidget(self.motor_box, 0, 1)
 
         freq_row = QHBoxLayout()
         freq_row.addWidget(self.freq_slider, 1)
@@ -194,11 +207,20 @@ class SingleMotorHapticWindow(QMainWindow):
         self.run_btn.setEnabled(False)  # until connected
         self.run_btn.clicked.connect(self._toggle_run)
 
+        # One-click return of just the frequency + amp controls to their
+        # defaults; works live while a motor is running.
+        self.reset_btn = QPushButton("Restore default amp/frequency")
+        self.reset_btn.setToolTip(
+            f"Reset frequency to {DEFAULT_FREQ_HZ} Hz and amp to {DEFAULT_AMP} "
+            "(applied live if a motor is running).")
+        self.reset_btn.clicked.connect(self._reset_params)
+
         instructions = QLabel(
-            "Connect the rig, pick the motor id and drag the frequency / amp "
-            "sliders, choose a duration and pattern, then press Start. The "
-            "motor id, frequency and amp are pushed live, so you can re-tune "
-            "while it runs; press Stop (or wait out the duration) to end.")
+            "Connect the rig, tick one or more motors and drag the frequency / "
+            "amp sliders, choose a duration and pattern, then press Start. The "
+            "motor selection, frequency and amp are pushed live, so you can "
+            "re-tune while it runs; press Stop (or wait out the duration) to "
+            "end.")
         instructions.setWordWrap(True)
 
         central = QWidget()
@@ -206,12 +228,16 @@ class SingleMotorHapticWindow(QMainWindow):
         layout.addLayout(conn_row)
         layout.addWidget(instructions)
         layout.addLayout(grid)
-        layout.addWidget(self.run_btn)
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(self.run_btn, 1)
+        btn_row.addWidget(self.reset_btn)
+        layout.addLayout(btn_row)
         layout.addStretch(1)
         self.setCentralWidget(central)
         self.resize(620, 380)
 
-        # Initial label / enabled-state sync.
+        # Initial label / selection / enabled-state sync.
+        self._set_default_motors()
         self._refresh_freq_label()
         self._refresh_amp_label()
         self._on_mode_changed()
@@ -220,8 +246,20 @@ class SingleMotorHapticWindow(QMainWindow):
     # Small helpers
     # ------------------------------------------------------------------
 
-    def _motor(self) -> int:
-        return self.motor_combo.currentData()
+    def _selected_motors(self) -> list[int]:
+        return [i for i, cb in enumerate(self.motor_checks) if cb.isChecked()]
+
+    @staticmethod
+    def _mask(motors) -> int:
+        m = 0
+        for i in motors:
+            m |= 1 << i
+        return m
+
+    def _set_default_motors(self) -> None:
+        """Default selection: motor 0 only (used at launch and on reset)."""
+        for i, cb in enumerate(self.motor_checks):
+            cb.setChecked(i == 0)
 
     def _refresh_freq_label(self) -> None:
         self.freq_value.setText(f"{self.freq_slider.value()} Hz")
@@ -229,14 +267,26 @@ class SingleMotorHapticWindow(QMainWindow):
     def _refresh_amp_label(self) -> None:
         self.amp_value.setText(str(self.amp_slider.value()))
 
+    def _reset_params(self) -> None:
+        """Put just the frequency and amp controls back to their defaults.
+
+        Works live: if a motor is running, resetting the sliders pushes the
+        default frequency/amp to it immediately (via the valueChanged
+        handlers), so you can one-click back to the default feel mid-test.
+        Unlike _restore_defaults it leaves the run going and the ports as-is.
+        """
+        self.freq_hi_check.setChecked(False)
+        self.freq_slider.setValue(DEFAULT_FREQ_HZ)
+        self.amp_slider.setValue(DEFAULT_AMP)
+
     # ------------------------------------------------------------------
     # Connection (manual toggle)
     # ------------------------------------------------------------------
 
     def _toggle_connect(self) -> None:
         if self.connected:
-            self._stop()  # never leave a motor running across a disconnect
-            self.controller.stop_all()
+            # Stop, put the device's frequency back to default, reset controls.
+            self._restore_defaults()
             self.controller.close()
             self.connected = False
             self.status.setText("Not connected.")
@@ -296,18 +346,41 @@ class SingleMotorHapticWindow(QMainWindow):
         if self.connected:
             self.status.setText(f"Connected on {self.controller.port}")
 
+    def _restore_defaults(self) -> None:
+        """Return the device and controls to their boot defaults.
+
+        Stops any drive (X), resets every port we retuned back to the LRA
+        boot frequency (the only setting the firmware keeps between runs),
+        then puts the frequency/amp controls back to their defaults. Amp
+        has no standalone device state - X already cleared the drive - so
+        for amp this is just the control reset.
+        """
+        self._stop()  # clears running/on_now and sends X if still driving
+        if self.connected:
+            for port in sorted(self._touched_ports):
+                self.controller.send(f"F {port} {DEFAULT_FREQ_HZ}")
+        self._touched_ports.clear()
+        self.freq_hi_check.setChecked(False)
+        self.freq_slider.setValue(DEFAULT_FREQ_HZ)
+        self.amp_slider.setValue(DEFAULT_AMP)
+        self._set_default_motors()
+
     # ------------------------------------------------------------------
     # Driving
     # ------------------------------------------------------------------
 
     def _drive_on(self) -> None:
-        """Energise the current motor at the current freq / amp."""
-        motor = self._motor()
+        """Energise every selected motor at the current freq / amp."""
+        motors = self._selected_motors()
+        if not motors:
+            self._on_now = False
+            return
         freq = self.freq_slider.value()
         amp = self.amp_slider.value()
-        self.controller.send(f"F {motor} {freq}")
-        self.controller.send(f"S {1 << motor} {amp}")
-        self._driven_motor = motor
+        for m in motors:
+            self.controller.send(f"F {m} {freq}")
+            self._touched_ports.add(m)
+        self.controller.send(f"S {self._mask(motors)} {amp}")
         self._on_now = True
 
     def _drive_off(self) -> None:
@@ -333,14 +406,18 @@ class SingleMotorHapticWindow(QMainWindow):
     def _refresh_status(self) -> None:
         if not self._running:
             return
-        motor = self._motor()
+        motors = self._selected_motors()
+        if not motors:
+            self.status.setText("No motor selected - tick at least one.")
+            return
+        label = ", ".join(str(m) for m in motors)
         freq = self.freq_slider.value()
         amp = self.amp_slider.value()
         if self._on_now:
             self.status.setText(
-                f"Vibrating motor {motor} at {freq} Hz, amp {amp}...")
+                f"Vibrating motor(s) {label} at {freq} Hz, amp {amp}...")
         else:
-            self.status.setText(f"Motor {motor} paused (loop)...")
+            self.status.setText(f"Motor(s) {label} paused (loop)...")
 
     # ------------------------------------------------------------------
     # Live parameter changes (pushed while running)
@@ -348,24 +425,29 @@ class SingleMotorHapticWindow(QMainWindow):
 
     def _on_motor_changed(self) -> None:
         if self._running and self._on_now:
-            # Stop whatever port is energised, then drive the new one.
+            # Selection changed while driving: stop everything, then drive
+            # the new set (stop_all clears any now-deselected port).
             self.controller.stop_all()
             self._drive_on()
-            self._refresh_status()
+        self._refresh_status()
 
     def _on_freq_changed(self) -> None:
         self._refresh_freq_label()
         if self._running and self._on_now:
-            motor = self._motor()
-            self.controller.send(f"F {motor} {self.freq_slider.value()}")
-            self.controller.send(f"S {1 << motor} {self.amp_slider.value()}")
+            motors = self._selected_motors()
+            freq = self.freq_slider.value()
+            for m in motors:
+                self.controller.send(f"F {m} {freq}")
+            self.controller.send(
+                f"S {self._mask(motors)} {self.amp_slider.value()}")
             self._refresh_status()
 
     def _on_amp_changed(self) -> None:
         self._refresh_amp_label()
         if self._running and self._on_now:
+            motors = self._selected_motors()
             self.controller.send(
-                f"S {1 << self._motor()} {self.amp_slider.value()}")
+                f"S {self._mask(motors)} {self.amp_slider.value()}")
             self._refresh_status()
 
     def _on_freq_range_toggled(self, high: bool) -> None:
@@ -385,7 +467,7 @@ class SingleMotorHapticWindow(QMainWindow):
         self._loop_timer.stop()
         self._duration_timer.stop()
         if self.connected:
-            self.controller.stop_all()
+            self._restore_defaults()  # stop, reset frequency + controls
             self.controller.close()
         super().closeEvent(event)
 

@@ -88,7 +88,7 @@ SECTIONS = [
             ("Live Finger Detection", FingerDetectorWindow),
             ("Virtual Piano + LED Test", PianoWindow),
             ("Haptic Vibrator Test", HapticTestWindow),
-            ("Single-Motor Haptic Bench", SingleMotorHapticWindow),
+            ("Haptic Motor Bench", SingleMotorHapticWindow),
             ("Accelerometer Live View", AccelerometerWindow),
         ],
     ),
