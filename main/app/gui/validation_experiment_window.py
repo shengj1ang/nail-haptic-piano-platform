@@ -22,7 +22,9 @@ from typing import Callable
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -39,10 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.accelerometer_window import AccelerometerWindow
-from validation_experiments.erm_intensity_calibration import (
-    erm_intensity_sweep,
-    erm_pwm_frequency_sweep,
-)
+from validation_experiments.actuator_spectrogram import actuator_spectrogram
 from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
     lra_frequency_sweep,
@@ -248,6 +247,10 @@ class _SweepWindowBase(QMainWindow):
         layout.addWidget(description)
         layout.addWidget(setup_hint)
         layout.addLayout(config_row)
+        # Windows with more controls than fit on one line add extra config
+        # rows here, so the config area wraps instead of running off-screen.
+        for extra_row in self._extra_config_rows():
+            layout.addLayout(extra_row)
         layout.addLayout(buttons)
         layout.addWidget(self.progress_bar)
         layout.addWidget(splitter, 1)
@@ -262,6 +265,16 @@ class _SweepWindowBase(QMainWindow):
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
         """Add experiment-specific parameter widgets to the config row;
         register any input in self._config_inputs to lock it during runs."""
+
+    def _extra_config_rows(self) -> list:
+        """Extra config rows (QHBoxLayouts) added below the main config row,
+        for windows with more controls than fit on one line. Default: none.
+        Widgets built here should still be appended to self._config_inputs."""
+        return []
+
+    def _on_csv_loaded(self, csv_path: str) -> None:
+        """Called after "Load Chart from CSV" successfully rendered
+        csv_path - subclasses may track it (e.g. for live re-styling)."""
 
     def _extra_run_kwargs(self) -> dict:
         """Experiment-specific kwargs forwarded to run_experiment()."""
@@ -312,6 +325,7 @@ class _SweepWindowBase(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load CSV", str(e))
             return
+        self._on_csv_loaded(csv_path)
         self.status.setText(
             f"Chart re-rendered from {os.path.basename(csv_path)} - "
             + self._summary_text(summary, saved=False)
@@ -584,118 +598,257 @@ class AmplitudeSweepWindow(_SweepWindowBase):
         return text
 
 
-class ErmIntensitySweepWindow(_SweepWindowBase):
-    # "Amplitude sweep" and "intensity sweep" are the same thing (stepping
-    # the drive amp to set cue intensity) - named to match the LRA one.
-    TITLE = "ERM Amplitude Sweep (Intensity)"
-    MODULE = erm_intensity_sweep
-    PNG_GLOB = "erm_response_*.png"
-    CSV_GLOB = "erm_sweep_*.csv"
+class SpectrogramWindow(_SweepWindowBase):
+    # 2-D drive-frequency x amp intensity map for either actuator type,
+    # with a motor-port / actuator-type / precision / vibrate-time picker.
+    TITLE = "Actuator Spectrogram (ERM/LRA)"
+    MODULE = actuator_spectrogram
+    PNG_GLOB = "spectrogram_*.png"
+    CSV_GLOB = "spectrogram_*.csv"
     DESCRIPTION = (
-        "Finds the ERM's drive amplitude for a clearly perceptible, comfortable "
-        "cue. An ERM has no resonance - its single knob (PWM duty amp, at a "
-        f"fixed {erm_intensity_sweep.PWM_HZ} Hz PWM so the drive acts as DC) "
-        "sets vibration amplitude and frequency together - so this steps amp "
-        f"{erm_intensity_sweep.AMP_VALUES[0]}-{erm_intensity_sweep.AMP_VALUES[-1]} "
-        "and recommends the value whose RMS acceleration lands in the "
-        f"{erm_intensity_sweep.TARGET_BAND_MS2[0]}-{erm_intensity_sweep.TARGET_BAND_MS2[1]} "
-        "m/s² target band (the same band as the LRA amplitude sweep, for a "
-        "matched cue). It also reports the rotor's startup amp and the "
-        "dominant vibration frequency at each amp (FFT of the ACC trace). "
-        f"Takes ~{erm_intensity_sweep.estimated_duration_s():.0f} s; CSV + "
-        "response curve are saved to "
-        "data/validation_experiments/erm_intensity_calibration/. Requires "
-        "firmware ≥ v2.9.0."
+        "Drives the motor at every (drive-frequency, amp) combination and "
+        "fills a grid box with the measured accelerometer RMS intensity — "
+        "x = amp, y = drive frequency, darker = stronger. Selecting the Type "
+        "seeds the amp/frequency ranges (then adjustable). Test Buzz uses the "
+        "LRA config (224 Hz, amp 64) for both types. Outputs are saved to "
+        "data/validation_experiments/actuator_spectrogram/."
     )
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
-        self.freq_spin = QSpinBox()
-        self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
-        self.freq_spin.setValue(erm_intensity_sweep.PWM_HZ)
-        self.freq_spin.setSuffix(" Hz")
-        self.freq_spin.setToolTip(
-            "PWM drive frequency. The default "
-            f"{erm_intensity_sweep.PWM_HZ} Hz keeps the chopped drive acting "
-            "as smooth DC so the rotor spins; a sub-kHz value stalls an ERM "
-            "and invalidates the sweep. Restored to the boot default when the "
-            "sweep ends.")
-        config_row.addWidget(QLabel("PWM freq:"))
-        config_row.addWidget(self.freq_spin)
-        config_row.addSpacing(12)
-        self._config_inputs.append(self.freq_spin)
+        # This experiment covers the real motor ports only (LRA=11, ERM=10).
+        # Its many parameters live on two wrapped rows below (see
+        # _extra_config_rows), so the config area never runs off-screen.
+        self.motor_spin.setRange(0, 11)
+
+    def _extra_config_rows(self) -> list:
+        # Row 1: what to sweep (type + the two ranges it seeds).
+        self.type_combo = QComboBox()
+        for t in actuator_spectrogram.MOTOR_TYPES:
+            self.type_combo.addItem(t, t)
+        self.type_combo.setToolTip(
+            "Actuator type. Selecting it resets the amp and frequency ranges "
+            "to that type's defaults (ERM freq 0-1000 Hz, LRA freq 0-350 Hz; "
+            "both amp 0-255).")
+
+        self.amp_min_spin = QSpinBox()
+        self.amp_min_spin.setRange(actuator_spectrogram.AMP_MIN,
+                                   actuator_spectrogram.AMP_MAX)
+        self.amp_max_spin = QSpinBox()
+        self.amp_max_spin.setRange(actuator_spectrogram.AMP_MIN,
+                                   actuator_spectrogram.AMP_MAX)
+        self.amp_min_spin.setToolTip("Lowest amp (PWM duty) to sweep.")
+        self.amp_max_spin.setToolTip("Highest amp (PWM duty) to sweep.")
+
+        self.freq_min_spin = QSpinBox()
+        self.freq_min_spin.setRange(0, actuator_spectrogram.FREQ_MAX_LIMIT)
+        self.freq_min_spin.setSuffix(" Hz")
+        self.freq_max_spin = QSpinBox()
+        self.freq_max_spin.setRange(actuator_spectrogram.FREQ_DRIVE_MIN,
+                                    actuator_spectrogram.FREQ_MAX_LIMIT)
+        self.freq_max_spin.setSuffix(" Hz")
+        self.freq_min_spin.setToolTip(
+            "Low end of the drive-frequency axis (the sweep can't drive below "
+            f"{actuator_spectrogram.FREQ_DRIVE_MIN} Hz, the firmware minimum).")
+        self.freq_max_spin.setToolTip("High end of the drive-frequency axis.")
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Type:"))
+        row1.addWidget(self.type_combo)
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("Amp:"))
+        row1.addWidget(self.amp_min_spin)
+        row1.addWidget(QLabel("–"))
+        row1.addWidget(self.amp_max_spin)
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("Freq:"))
+        row1.addWidget(self.freq_min_spin)
+        row1.addWidget(QLabel("–"))
+        row1.addWidget(self.freq_max_spin)
+        row1.addStretch(1)
+
+        # Row 2: how to sweep + how to display.
+        self.precision_combo = QComboBox()
+        for name in actuator_spectrogram.PRECISION_STEPS:
+            self.precision_combo.addItem(name, name)
+        self.precision_combo.setCurrentText(actuator_spectrogram.DEFAULT_PRECISION)
+        self.precision_combo.setToolTip(
+            "Scan precision - steps BOTH the drive-frequency and the amp axes. "
+            "Finer = more cells = a much longer 2-D sweep (Coarse/Medium/Fine = "
+            "freq step 100/50/25 Hz, amp step 32/16/8).")
+
+        self.vibrate_spin = QDoubleSpinBox()
+        self.vibrate_spin.setRange(actuator_spectrogram.MEASURE_S_MIN,
+                                   actuator_spectrogram.MEASURE_S_MAX)
+        self.vibrate_spin.setDecimals(1)
+        self.vibrate_spin.setSingleStep(0.5)
+        self.vibrate_spin.setValue(actuator_spectrogram.MEASURE_S)
+        self.vibrate_spin.setSuffix(" s")
+        self.vibrate_spin.setToolTip(
+            "How long each (frequency, amp) cell is driven continuously before "
+            "its intensity is measured - the whole window is used. Longer = "
+            "steadier reading, but a longer run.")
+
+        self.annotate_combo = QComboBox()
+        self.annotate_combo.addItem("No values", "off")
+        self.annotate_combo.addItem("RMS value", "rms")
+        self.annotate_combo.addItem("Normalized", "normalized")
+        self.annotate_combo.setToolTip(
+            "Print each cell's value inside its box: the raw RMS m/s² number, "
+            "or a 0-1 normalised value (its position between the map's min and "
+            "max). Text colour auto-contrasts per cell. Changing this "
+            "re-renders the displayed run immediately and saves it straight "
+            "into the run's PNG file. Best with Coarse precision - a dense "
+            "grid gets crowded.")
+        # The run whose heatmap is on screen (its CSV path): set by the latest
+        # -output preview, by Load CSV, and by a finished run. Changing the
+        # Annotate mode re-renders THAT run's own PNG in place.
+        self._current_csv = None
+        self.annotate_combo.currentIndexChanged.connect(self._on_annotate_changed)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Precision:"))
+        row2.addWidget(self.precision_combo)
+        row2.addSpacing(16)
+        row2.addWidget(QLabel("Vibrate:"))
+        row2.addWidget(self.vibrate_spin)
+        row2.addSpacing(16)
+        row2.addWidget(QLabel("Annotate:"))
+        row2.addWidget(self.annotate_combo)
+        row2.addStretch(1)
+
+        # Row 3: live run-time estimate for each precision, at the current
+        # type / ranges / Vibrate time (so it reflects what you actually set).
+        self.estimate_label = QLabel()
+        self.estimate_label.setStyleSheet("color: #9a9ba5;")  # muted
+        row3 = QHBoxLayout()
+        row3.addWidget(self.estimate_label)
+        row3.addStretch(1)
+
+        # Seed the ranges from the default type, then wire the change handlers
+        # (so seeding itself doesn't re-trigger them).
+        self._apply_type_defaults()
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        for w in (self.amp_min_spin, self.amp_max_spin,
+                  self.freq_min_spin, self.freq_max_spin, self.vibrate_spin):
+            w.valueChanged.connect(self._update_estimate)
+        self._update_estimate()
+
+        self._config_inputs.extend(
+            [self.type_combo, self.amp_min_spin, self.amp_max_spin,
+             self.freq_min_spin, self.freq_max_spin, self.precision_combo,
+             self.vibrate_spin, self.annotate_combo])
+        return [row1, row2, row3]
+
+    @staticmethod
+    def _fmt_duration(seconds: float) -> str:
+        if seconds < 90:
+            return f"{seconds:.0f}s"
+        minutes = seconds / 60
+        return f"{minutes:.0f}min" if minutes < 60 else f"{minutes / 60:.1f}h"
+
+    def _estimate_for(self, precision: str) -> float:
+        m = actuator_spectrogram
+        freq_step, amp_step = m.steps_for(precision)
+        freqs = m.freq_values(freq_step, self.freq_min_spin.value(),
+                              self.freq_max_spin.value())
+        amps = m.amp_values(amp_step, self.amp_min_spin.value(),
+                            self.amp_max_spin.value())
+        per_cell = m.SETTLE_S + self.vibrate_spin.value() + m.REST_S
+        return len(freqs) * (m.BASELINE_S + len(amps) * per_cell)
+
+    def _update_estimate(self) -> None:
+        parts = [f"{p} ~{self._fmt_duration(self._estimate_for(p))}"
+                 for p in actuator_spectrogram.PRECISION_STEPS]
+        self.estimate_label.setText(
+            "Est. run time (current ranges) —   " + "     ".join(parts))
+
+    def _apply_type_defaults(self) -> None:
+        """Reset the amp/frequency ranges to the selected type's defaults."""
+        d = actuator_spectrogram.type_defaults(self.type_combo.currentData())
+        self.amp_min_spin.setValue(d["amp_min"])
+        self.amp_max_spin.setValue(d["amp_max"])
+        self.freq_min_spin.setValue(d["freq_min"])
+        self.freq_max_spin.setValue(d["freq_max"])
+
+    def _on_type_changed(self) -> None:
+        self._apply_type_defaults()
+        # Point the port at the type's usual wiring (ERM=10, LRA=11); the user
+        # can still override it.
+        self.motor_spin.setValue(11 if self.type_combo.currentData() == "LRA" else 10)
+        self._update_estimate()
+
+    # -- live annotate switching (writes the run's own PNG) --------------
+
+    def _sync_annotate_combo(self, csv_path: str) -> None:
+        """Point the Annotate combo at the mode the displayed run was last
+        rendered with (from its meta), without triggering a re-render."""
+        meta = actuator_spectrogram.load_meta(csv_path)
+        mode = (meta or {}).get("parameters", {}).get(
+            "annotate_mode", actuator_spectrogram.DEFAULT_ANNOTATE)
+        idx = self.annotate_combo.findData(mode)
+        if idx >= 0:
+            self.annotate_combo.blockSignals(True)
+            self.annotate_combo.setCurrentIndex(idx)
+            self.annotate_combo.blockSignals(False)
+
+    def _set_current_run(self, csv_path) -> None:
+        self._current_csv = csv_path
+        if csv_path is not None:
+            self._sync_annotate_combo(csv_path)
+
+    def _show_latest_output(self) -> None:
+        super()._show_latest_output()
+        latest_png = self._latest(self.PNG_GLOB)
+        if latest_png is None:
+            return
+        csv_path = os.path.splitext(latest_png)[0] + ".csv"
+        self._set_current_run(csv_path if os.path.exists(csv_path) else None)
+
+    def _on_csv_loaded(self, csv_path: str) -> None:
+        self._set_current_run(csv_path)
+
+    def _on_succeeded(self, summary: dict) -> None:
+        super()._on_succeeded(summary)
+        self._set_current_run(summary.get("csv_path"))
+
+    def _on_annotate_changed(self) -> None:
+        """Re-render the displayed run with the new annotate mode, saving
+        straight into that run's own PNG file, and refresh the preview."""
+        if self._worker is not None or self._current_csv is None:
+            return
+        mode = self.annotate_combo.currentData()
+        try:
+            png_path = actuator_spectrogram.set_annotate_mode(
+                self._current_csv, mode)
+            self.plot_view.show_png(png_path)
+        except Exception as e:
+            self.status.setText(f"Couldn't re-render annotation: {e}")
+            return
+        self.status.setText(
+            f"Annotation set to '{self.annotate_combo.currentText()}' - "
+            f"saved into {os.path.basename(png_path)}.")
 
     def _pre_buzz_cmds(self, motor: int) -> list:
-        # An ERM never starts on the 224 Hz LRA boot default - give the
-        # buzz the same kHz PWM frequency the sweep would use.
-        return [f"F {motor} {self.freq_spin.value()}"]
+        # Test Buzz uses the LRA's best config (its 224 Hz resonance =
+        # DEFAULT_PWM_FREQ; the base fires it at TEST_BUZZ_AMP = 64, the LRA's
+        # adopted amp) for BOTH actuator types - a consistent known-good wiring
+        # check, not the swept drive.
+        return [f"F {motor} {actuator_spectrogram.DEFAULT_PWM_FREQ}"]
 
     def _extra_run_kwargs(self) -> dict:
-        return {"pwm_hz": self.freq_spin.value()}
+        return {"motor_type": self.type_combo.currentData(),
+                "precision": self.precision_combo.currentData(),
+                "measure_s": self.vibrate_spin.value(),
+                "annotate_mode": self.annotate_combo.currentData(),
+                "amp_min": self.amp_min_spin.value(),
+                "amp_max": self.amp_max_spin.value(),
+                "freq_min": self.freq_min_spin.value(),
+                "freq_max": self.freq_max_spin.value()}
 
     def _summary_text(self, summary: dict, saved: bool) -> str:
-        freq = summary.get("recommended_freq_hz")
-        freq_str = f", spinning at {freq:.0f} Hz" if freq is not None else ""
-        text = (f"recommended amp: {summary['recommended_amp']} "
-                f"({summary['recommended_rms_ms2']:.2f} m/s² RMS{freq_str}).")
-        if summary.get("startup_amp") is not None:
-            text += f" Rotor starts at amp {summary['startup_amp']}."
-        if saved:
-            text += (f" Saved {os.path.basename(summary['csv_path'])} and "
-                     f"{os.path.basename(summary['png_path'])}.")
-        return text
-
-
-class ErmPwmFrequencySweepWindow(_SweepWindowBase):
-    TITLE = "ERM PWM-Frequency Sweep (Drive Adequacy)"
-    MODULE = erm_pwm_frequency_sweep
-    PNG_GLOB = "erm_pwm_response_*.png"
-    CSV_GLOB = "erm_pwm_sweep_*.csv"
-    DESCRIPTION = (
-        "Fixes the drive amp and steps the PWM carrier frequency to find "
-        "the minimum PWM frequency at which the chopped drive acts as smooth "
-        "DC. NOTE: an ERM has no resonance - this is NOT a 'best vibration "
-        "frequency' search (that concept only applies to the LRA); it "
-        "validates the "
-        f"{erm_pwm_frequency_sweep.ADOPTED_PWM_HZ} Hz drive by showing where "
-        "RMS and rotor frequency plateau. Steps "
-        f"{erm_pwm_frequency_sweep.FREQ_START_HZ}-{erm_pwm_frequency_sweep.FREQ_STOP_HZ} Hz "
-        f"(log-spaced) at a fixed amp. Takes "
-        f"~{erm_pwm_frequency_sweep.estimated_duration_s():.0f} s; CSV + curve "
-        "are saved to data/validation_experiments/erm_intensity_calibration/. "
-        "Requires firmware ≥ v2.9.0."
-    )
-
-    def _build_extra_config(self, config_row: QHBoxLayout) -> None:
-        self.amp_spin = QSpinBox()
-        self.amp_spin.setRange(1, 254)   # 255 = constant-on DC: no PWM effect
-        self.amp_spin.setValue(erm_pwm_frequency_sweep.AMP)
-        self.amp_spin.setToolTip(
-            "Fixed PWM duty for the sweep (0-254 scale). The default "
-            f"{erm_pwm_frequency_sweep.AMP} = 50% duty is the maximum-chop "
-            "point, where the PWM frequency has the most leverage. It is "
-            "capped at 254 on purpose: at 255 (100% duty) the pin is "
-            "constant-on DC and the PWM frequency has no effect, so the "
-            "sweep would be flat.")
-        config_row.addWidget(QLabel("Fixed amp:"))
-        config_row.addWidget(self.amp_spin)
-        config_row.addSpacing(12)
-        self._config_inputs.append(self.amp_spin)
-
-    def _pre_buzz_cmds(self, motor: int) -> list:
-        # Confirm wiring at a kHz PWM the ERM actually spins on.
-        return [f"F {motor} {erm_pwm_frequency_sweep.ADOPTED_PWM_HZ}"]
-
-    def _extra_run_kwargs(self) -> dict:
-        return {"amp": self.amp_spin.value()}
-
-    def _summary_text(self, summary: dict, saved: bool) -> str:
-        min_pwm = summary.get("min_adequate_pwm_hz")
-        if min_pwm is None:
-            text = "rotor never moved - check wiring and drive amp."
-        else:
-            text = (f"min adequate PWM: {min_pwm} Hz "
-                    f"(plateau ~{summary['plateau_rms_ms2']:.2f} m/s², rotor "
-                    f"~{summary['plateau_rotor_freq_hz']:.0f} Hz).")
+        text = (f"{summary.get('motor_type', '')} map done - strongest "
+                f"vibration at {summary['peak_freq_hz']} Hz, amp "
+                f"{summary['peak_amp']} ({summary['peak_rms_ms2']:.2f} m/s² RMS).")
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")

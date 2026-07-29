@@ -22,11 +22,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
-    QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -56,10 +57,9 @@ from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.validation_experiment_window import (
     AmplitudeSweepWindow,
-    ErmIntensitySweepWindow,
-    ErmPwmFrequencySweepWindow,
     FrequencySweepWindow,
     MotorAccDelayWindow,
+    SpectrogramWindow,
 )
 from app.gui.wiring_guide_window import WiringGuideWindow
 from music_playback import PlaybackWindow
@@ -142,10 +142,9 @@ SECTIONS = [
         # from the Main User Study protocol.
         "9. Validation Experiments",
         [
+            ("Actuator Spectrogram (ERM/LRA)", SpectrogramWindow),
             ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
             ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
-            ("ERM PWM-Frequency Sweep (Drive Adequacy)", ErmPwmFrequencySweepWindow),
-            ("ERM Amplitude Sweep (Intensity)", ErmIntensitySweepWindow),
             ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
         ],
     ),
@@ -222,13 +221,30 @@ class LauncherWindow(QWidget):
         layout.addWidget(subtitle)
         layout.addSpacing(6)
 
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        for col in range(SECTION_COLUMNS):
-            grid.setColumnStretch(col, 1)
+        # Three independent vertical columns rather than a grid: a grid
+        # couples every box in a row to the tallest one, so a short section
+        # (e.g. "3. Recording & Playback", 2 buttons) sharing a row with a
+        # tall one (5-6 buttons) was stretched to match and wasted the gap.
+        # Columns let each box hug its own content, and the freed vertical
+        # space flows to the sections that need it (e.g. "9. Validation").
+        columns_row = QHBoxLayout()
+        columns_row.setSpacing(12)
+        column_layouts = []
+        for _ in range(SECTION_COLUMNS):
+            col_widget = QWidget()
+            col_layout = QVBoxLayout(col_widget)
+            col_layout.setContentsMargins(0, 0, 0, 0)
+            col_layout.setSpacing(12)
+            columns_row.addWidget(col_widget, 1)
+            column_layouts.append(col_layout)
 
+        # Same visual placement as before (section i in column i % COLUMNS,
+        # top-to-bottom in index order): 1 2 3 across the top, then 4 5 6, ...
         for i, (section_title, tools) in enumerate(SECTIONS):
             box = QGroupBox(section_title)
+            # Hug content vertically so a short section stays short.
+            box.setSizePolicy(QSizePolicy.Policy.Preferred,
+                              QSizePolicy.Policy.Maximum)
             box_layout = QVBoxLayout(box)
             box_layout.setSpacing(8)
             for label, window_cls in tools:
@@ -240,10 +256,12 @@ class LauncherWindow(QWidget):
                 hint = QLabel("(coming soon)")
                 hint.setObjectName("subtitle")
                 box_layout.addWidget(hint)
-            box_layout.addStretch(1)
-            grid.addWidget(box, i // SECTION_COLUMNS, i % SECTION_COLUMNS)
+            column_layouts[i % SECTION_COLUMNS].addWidget(box)
 
-        layout.addLayout(grid)
+        for col_layout in column_layouts:
+            col_layout.addStretch(1)   # push boxes to the top of each column
+
+        layout.addLayout(columns_row)
         layout.addStretch(1)
 
     def _open(self, window_cls) -> None:

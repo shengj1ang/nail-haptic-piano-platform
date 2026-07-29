@@ -109,6 +109,11 @@ class _AccStreamWorker(QThread):
 
 
 class AccelerometerWindow(QMainWindow):
+    # Emitted when the window is closed, so a host window (e.g. the Haptic
+    # Motor Bench) that drives motors over this window's shared stream can
+    # release/re-arbitrate the single serial port.
+    closed = Signal()
+
     def __init__(self, cfg: Config | None = None):
         super().__init__()
         self.setWindowTitle("Accelerometer Live View")
@@ -237,6 +242,14 @@ class AccelerometerWindow(QMainWindow):
         worker = self._worker
         return worker.ser if worker is not None else None
 
+    def ensure_streaming(self) -> None:
+        """Start the ACC stream if it is not already running - used by a
+        host window that wants to open this view and immediately drive
+        motors over its connection (the single serial port). No-op when
+        already streaming."""
+        if self._worker is None:
+            self._toggle_connect()
+
     def disconnect_stream(self) -> None:
         """Release the serial port (no-op when not streaming) - called by
         a sweep window before its worker claims the port."""
@@ -338,6 +351,7 @@ class AccelerometerWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._disconnect()
+        self.closed.emit()
         super().closeEvent(event)
 
 

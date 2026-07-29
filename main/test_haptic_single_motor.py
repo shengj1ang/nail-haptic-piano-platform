@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import Config
+from app.gui.accelerometer_window import AccelerometerWindow
 from common.controller import VibratorController
 
 # Firmware 'F' command PWM-frequency slider ranges and the boot default
@@ -77,6 +78,20 @@ class SingleMotorHapticWindow(QMainWindow):
         # persists on the firmware, so we reset these on disconnect/exit.
         self._touched_ports: set[int] = set()
 
+        # Accelerometer Live View. The rig has ONE serial port, so the two
+        # cannot each open it: instead, while the live view is streaming it
+        # owns the port and we drive motors by WRITING over its connection
+        # (the drive then shows up in its plot) - the same single-port
+        # arbitration the validation sweeps use for their Test Buzz.
+        self._acc_view = None
+        self._acc_ready_prev = False
+        # Poll the live view's stream state (it opens the port on a worker
+        # thread, and the user can connect/disconnect it from its own
+        # window) to keep our Start button and status in step.
+        self._acc_sync_timer = QTimer(self)
+        self._acc_sync_timer.setInterval(300)
+        self._acc_sync_timer.timeout.connect(self._acc_sync_tick)
+
         # Loop-phase timer (toggles on/off) and total-duration timer.
         self._loop_timer = QTimer(self)
         self._loop_timer.setSingleShot(True)
@@ -89,8 +104,16 @@ class SingleMotorHapticWindow(QMainWindow):
         self.status = QLabel("Not connected.")
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self._toggle_connect)
+        self.open_acc_btn = QPushButton("Open Accelerometer Live View")
+        self.open_acc_btn.setToolTip(
+            "Open the live X/Y/Z plot and drive at the same time. The rig has "
+            "one serial port, so the live view takes it over and the bench's "
+            "motor commands ride on its stream - you feel the motor and watch "
+            "it in the plot together.")
+        self.open_acc_btn.clicked.connect(self._open_acc_view)
         conn_row = QHBoxLayout()
         conn_row.addWidget(self.status, 1)
+        conn_row.addWidget(self.open_acc_btn)
         conn_row.addWidget(self.connect_btn)
 
         # --- parameters --------------------------------------------------
@@ -280,6 +303,47 @@ class SingleMotorHapticWindow(QMainWindow):
         self.amp_slider.setValue(DEFAULT_AMP)
 
     # ------------------------------------------------------------------
+    # Serial transport (own port, or the live view's shared stream)
+    # ------------------------------------------------------------------
+
+    def _acc_serial(self):
+        """The Accelerometer Live View's streaming connection while it is
+        open and streaming, else None. When present it is the single port's
+        owner and we write motor commands over it (never read)."""
+        if self._acc_view is not None and self._acc_view.isVisible():
+            return self._acc_view.streaming_serial()
+        return None
+
+    def _has_device(self) -> bool:
+        """True when we can send motor commands right now - either the live
+        view's stream is up, or we hold our own controller connection."""
+        return self._acc_serial() is not None or self.connected
+
+    def _send(self, cmd: str) -> None:
+        """Send a raw firmware command over whichever transport is live,
+        preferring the live view's shared stream so both work at once."""
+        ser = self._acc_serial()
+        if ser is not None:
+            try:
+                ser.write((cmd.strip() + "\n").encode())
+                ser.flush()
+            except Exception:
+                pass
+            return
+        if self.connected:
+            self.controller.send(cmd)
+
+    def _conn_label(self) -> str:
+        if self._acc_serial() is not None:
+            return "via Accelerometer Live View"
+        if self.connected:
+            return f"on {self.controller.port}"
+        return "not connected"
+
+    def _sync_run_enabled(self) -> None:
+        self.run_btn.setEnabled(self._has_device())
+
+    # ------------------------------------------------------------------
     # Connection (manual toggle)
     # ------------------------------------------------------------------
 
@@ -291,7 +355,17 @@ class SingleMotorHapticWindow(QMainWindow):
             self.connected = False
             self.status.setText("Not connected.")
             self.connect_btn.setText("Connect")
-            self.run_btn.setEnabled(False)
+            self._sync_run_enabled()
+            return
+
+        # The live view owns the single serial port while it's open - don't
+        # double-open; drive directly with Start over its stream.
+        if self._acc_view is not None and self._acc_view.isVisible():
+            QMessageBox.information(
+                self, "Live View owns the serial port",
+                "The Accelerometer Live View is using the rig's serial port. "
+                "Just press Start - the bench drives motors over its stream, "
+                "and you'll see them in the plot.")
             return
 
         try:
@@ -304,7 +378,84 @@ class SingleMotorHapticWindow(QMainWindow):
         self.connected = True
         self.status.setText(f"Connected on {self.controller.port}")
         self.connect_btn.setText("Disconnect")
-        self.run_btn.setEnabled(True)
+        self._sync_run_enabled()
+
+    # ------------------------------------------------------------------
+    # Accelerometer Live View (shared single serial port)
+    # ------------------------------------------------------------------
+
+    def _open_acc_view(self) -> None:
+        if self._acc_view is not None and self._acc_view.isVisible():
+            self._acc_view.raise_()
+            self._acc_view.activateWindow()
+            return
+        # Hand the single serial port to the live view: release our own
+        # connection first (a double-open fails on Windows and interleaves
+        # reads on macOS), then drive over the view's stream from now on.
+        self._release_controller()
+        self._acc_view = AccelerometerWindow(self.cfg)
+        self._acc_view.closed.connect(self._on_acc_view_closed)
+        self._acc_view.show()
+        self._acc_view.ensure_streaming()   # opens the port + starts streaming
+        self.connect_btn.setEnabled(False)
+        self.connect_btn.setText("Connect")
+        self.open_acc_btn.setText("Show Accelerometer Live View")
+        self._acc_ready_prev = False
+        self._acc_sync_timer.start()
+        self.status.setText(
+            "Accelerometer Live View opening - motor commands will ride on "
+            "its stream and show in the plot. Press Start once it is streaming.")
+        self._sync_run_enabled()
+
+    def _on_acc_view_closed(self) -> None:
+        self._acc_sync_timer.stop()
+        if self._running:
+            self._stop()            # the port it drove over is gone
+        self._acc_view = None
+        self.connect_btn.setEnabled(True)
+        self.open_acc_btn.setText("Open Accelerometer Live View")
+        self.status.setText(
+            "Accelerometer Live View closed. Press Connect to drive on the "
+            "bench's own serial port.")
+        self._sync_run_enabled()
+
+    def _acc_sync_tick(self) -> None:
+        """Keep Start + status in step with the live view's stream, which
+        comes up on a worker thread and can be toggled from its own window."""
+        ready = self._acc_serial() is not None
+        if ready != self._acc_ready_prev:
+            self._acc_ready_prev = ready
+            if ready:
+                self.status.setText(
+                    "Accelerometer Live View streaming - press Start to drive; "
+                    "the motor appears in the plot.")
+            elif not self._running:
+                self.status.setText(
+                    "Accelerometer Live View not streaming - press Connect in "
+                    "its window to drive over it.")
+        # Transport lost mid-run (view disconnected from its own window).
+        if self._running and not self._has_device():
+            self._stop()
+        self._sync_run_enabled()
+
+    def _release_controller(self) -> None:
+        """Stop any drive and close our own controller connection (if held)
+        so another owner - the live view's stream - can take the port. Keeps
+        the frequency/amp/motor controls as they are (unlike _restore_defaults)
+        so the current settings carry over to driving via the stream."""
+        self._stop()
+        if self.connected:
+            for port in sorted(self._touched_ports):
+                try:
+                    self.controller.send(f"F {port} {DEFAULT_FREQ_HZ}")
+                except Exception:
+                    pass
+            self._touched_ports.clear()
+            try:
+                self.controller.close()
+            except Exception:
+                pass
+            self.connected = False
 
     # ------------------------------------------------------------------
     # Start / stop
@@ -317,7 +468,7 @@ class SingleMotorHapticWindow(QMainWindow):
             self._start()
 
     def _start(self) -> None:
-        if not self.connected or self._running:
+        if not self._has_device() or self._running:
             return
         self._running = True
         self.run_btn.setText("Stop")
@@ -338,13 +489,13 @@ class SingleMotorHapticWindow(QMainWindow):
     def _stop(self) -> None:
         self._loop_timer.stop()
         self._duration_timer.stop()
-        if self.connected and self._on_now:
-            self.controller.stop_all()
+        if self._on_now:
+            self._send("X")
         self._on_now = False
         self._running = False
         self.run_btn.setText("Start")
-        if self.connected:
-            self.status.setText(f"Connected on {self.controller.port}")
+        if self._has_device():
+            self.status.setText(f"Ready - {self._conn_label()}.")
 
     def _restore_defaults(self) -> None:
         """Return the device and controls to their boot defaults.
@@ -356,9 +507,9 @@ class SingleMotorHapticWindow(QMainWindow):
         for amp this is just the control reset.
         """
         self._stop()  # clears running/on_now and sends X if still driving
-        if self.connected:
+        if self._has_device():
             for port in sorted(self._touched_ports):
-                self.controller.send(f"F {port} {DEFAULT_FREQ_HZ}")
+                self._send(f"F {port} {DEFAULT_FREQ_HZ}")
         self._touched_ports.clear()
         self.freq_hi_check.setChecked(False)
         self.freq_slider.setValue(DEFAULT_FREQ_HZ)
@@ -378,13 +529,13 @@ class SingleMotorHapticWindow(QMainWindow):
         freq = self.freq_slider.value()
         amp = self.amp_slider.value()
         for m in motors:
-            self.controller.send(f"F {m} {freq}")
+            self._send(f"F {m} {freq}")
             self._touched_ports.add(m)
-        self.controller.send(f"S {self._mask(motors)} {amp}")
+        self._send(f"S {self._mask(motors)} {amp}")
         self._on_now = True
 
     def _drive_off(self) -> None:
-        self.controller.stop_all()
+        self._send("X")
         self._on_now = False
 
     def _enter_loop_phase(self) -> None:
@@ -426,8 +577,8 @@ class SingleMotorHapticWindow(QMainWindow):
     def _on_motor_changed(self) -> None:
         if self._running and self._on_now:
             # Selection changed while driving: stop everything, then drive
-            # the new set (stop_all clears any now-deselected port).
-            self.controller.stop_all()
+            # the new set (X clears any now-deselected port).
+            self._send("X")
             self._drive_on()
         self._refresh_status()
 
@@ -437,17 +588,15 @@ class SingleMotorHapticWindow(QMainWindow):
             motors = self._selected_motors()
             freq = self.freq_slider.value()
             for m in motors:
-                self.controller.send(f"F {m} {freq}")
-            self.controller.send(
-                f"S {self._mask(motors)} {self.amp_slider.value()}")
+                self._send(f"F {m} {freq}")
+            self._send(f"S {self._mask(motors)} {self.amp_slider.value()}")
             self._refresh_status()
 
     def _on_amp_changed(self) -> None:
         self._refresh_amp_label()
         if self._running and self._on_now:
             motors = self._selected_motors()
-            self.controller.send(
-                f"S {self._mask(motors)} {self.amp_slider.value()}")
+            self._send(f"S {self._mask(motors)} {self.amp_slider.value()}")
             self._refresh_status()
 
     def _on_freq_range_toggled(self, high: bool) -> None:
@@ -466,9 +615,18 @@ class SingleMotorHapticWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._loop_timer.stop()
         self._duration_timer.stop()
+        self._acc_sync_timer.stop()
+        # Don't let a late 'closed' callback fire into this dying window.
+        if self._acc_view is not None:
+            try:
+                self._acc_view.closed.disconnect(self._on_acc_view_closed)
+            except Exception:
+                pass
         if self.connected:
             self._restore_defaults()  # stop, reset frequency + controls
             self.controller.close()
+        else:
+            self._stop()  # driving over the live view's stream: just stop
         super().closeEvent(event)
 
 

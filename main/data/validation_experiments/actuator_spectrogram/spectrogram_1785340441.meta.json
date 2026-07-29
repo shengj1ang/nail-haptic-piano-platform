@@ -1,0 +1,35 @@
+{
+  "experiment": "actuator_spectrogram",
+  "saved_at": 1785340441,
+  "firmware": "haptic-piano v2.10.0",
+  "parameters": {
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "motor_type": "LRA",
+    "amp_min": 0,
+    "amp_max": 255,
+    "freq_min": 0,
+    "freq_max": 350,
+    "freq_drive_min_hz": 50,
+    "precision": "Fine",
+    "freq_step": 25,
+    "amp_step": 8,
+    "ms2_per_count": 0.00980665,
+    "baseline_s": 0.3,
+    "settle_s": 0.3,
+    "measure_s": 2.0,
+    "rest_s": 0.15,
+    "acc_interval_ms": 1,
+    "annotate_mode": "normalized"
+  },
+  "files": {
+    "csv": "spectrogram_1785340441.csv",
+    "heatmap": "spectrogram_1785340441.png",
+    "grid": "spectrogram_1785340441.npz"
+  },
+  "result": {
+    "peak_freq_hz": 225,
+    "peak_amp": 88,
+    "peak_rms_ms2": 1.1367809956371968
+  }
+}
