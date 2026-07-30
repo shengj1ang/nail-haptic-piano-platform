@@ -10,6 +10,7 @@ experiment, each with its own full write-up:
 | `lra_resonance_intensity_calibration/` | LRA frequency sweep (resonance) + amplitude sweep (cue intensity) |
 | `actuator_spectrogram/` | 2-D drive-frequency × amp vibration-intensity map (ERM/LRA) |
 | `motor_acc_delay_experiment/` | command → vibration onset latency **and** settling time (LRA/ERM) |
+| `adhesion_vibration_comparison/` | relative vibration transfer of three mounting adhesives (Blu Tack / double-sided tape / cosmetic adhesive), LRA-only |
 
 Two modules at this level are shared by all of them:
 
@@ -130,6 +131,22 @@ from validation_experiments.acceleration_metrics import (
     RawSampleRecorder,              # what the experiments record into
 )
 ```
+
+Spectral analysis (used by the adhesion comparison) lives here too, so a
+second experiment can never grow a second, subtly different FFT:
+
+```python
+from validation_experiments.acceleration_metrics import (
+    compute_vibration_spectrum,     # demeaned, Hann-windowed, 3-axis quadrature
+    harmonic_amplitudes,            # fundamental + harmonics of a drive tone
+    total_harmonic_distortion,      # sqrt(sum A_k^2, k>=2) / A_1, or None
+)
+```
+
+Tone amplitudes are estimated from the main-lobe energy / ENBW (not the
+single peak bin), so they do not depend on where the tone falls between
+bin centres; a frequency the spectrum cannot measure returns `None`,
+never a zero.
 
 `samples` is a sequence of `(x, y, z)` or `(t, x, y, z)` tuples (the form
 `rig.collect_samples()` returns) or an `(N, 3)` / `(N, 4)` array — all

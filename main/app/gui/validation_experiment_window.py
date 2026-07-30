@@ -53,7 +53,7 @@ import tempfile
 from functools import partial
 from typing import Callable
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (
     QFontDatabase,
     QGuiApplication,
@@ -63,10 +63,14 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -76,6 +80,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -88,6 +94,10 @@ from validation_experiments.acceleration_metrics import (
     metric_spec,
 )
 from validation_experiments.actuator_spectrogram import actuator_spectrogram
+from validation_experiments.adhesion_vibration_comparison import (
+    adhesion_comparison,
+    adhesion_vibration,
+)
 from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
     lra_frequency_sweep,
@@ -310,6 +320,23 @@ class PlotPreviewWindow(QMainWindow):
 
     # -- interaction ----------------------------------------------------
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Until the window has actually been shown its scroll area has no
+        # real geometry, so a fit computed before that uses a placeholder
+        # viewport and opens the chart at the wrong scale - which is why
+        # opening a chart used to need a manual "Fit to window" click.
+        # Re-fit once the first layout pass has run (0 ms = the next turn
+        # of the event loop, by which time the geometry is real).
+        if self._fit:
+            QTimer.singleShot(0, self._refit)
+
+    def _refit(self) -> None:
+        """Deferred re-fit, ignored when the user has zoomed in the
+        meantime or the window never got an image."""
+        if self._fit and self._pixmap is not None:
+            self._apply_zoom()
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self._fit:
@@ -404,12 +431,19 @@ class _PlotView(QLabel):
             preview.show_image(path, self._title, self._caption, owner=self)
 
     def open_full_size(self) -> bool:
-        """Show this panel's chart in the shared preview window."""
+        """Show this panel's chart in the shared preview window, already
+        fitted to it.
+
+        show() comes FIRST on purpose: it is what gives the preview's
+        scroll area its real geometry, and the fit inside show_image()
+        needs that to scale the chart correctly. The other order opens
+        every chart at the wrong scale until the user clicks "Fit to
+        window"."""
         if self._path is None:
             return False
         preview = shared_plot_preview()
-        preview.show_image(self._path, self._title, self._caption, owner=self)
         preview.show()
+        preview.show_image(self._path, self._title, self._caption, owner=self)
         preview.raise_()
         preview.activateWindow()
         return True
@@ -911,10 +945,16 @@ class _SweepWindowBase(QMainWindow):
 
     # -- saved-output preview -------------------------------------------
 
+    def _output_files(self, pattern: str) -> list:
+        """The experiment's saved files matching `pattern`, oldest first.
+        A hook so a window whose output folder also holds OTHER files
+        (the adhesion window's comparison outputs) can filter them out."""
+        return sorted(glob.glob(os.path.join(self.MODULE.OUTPUT_DIR, pattern)))
+
     def _latest(self, pattern: str) -> str | None:
         # Names carry Unix-epoch-seconds stamps (<prefix>_<epoch>), which
         # sort chronologically as strings while their digit count is equal.
-        matches = sorted(glob.glob(os.path.join(self.MODULE.OUTPUT_DIR, pattern)))
+        matches = self._output_files(pattern)
         return matches[-1] if matches else None
 
     def _show_latest_output(self) -> None:
@@ -967,8 +1007,7 @@ class _SweepWindowBase(QMainWindow):
         Never fires a load: the list is rebuilt with signals blocked, so
         refreshing it (or selecting the run already on screen) cannot
         re-render anything behind the user's back."""
-        paths = sorted(glob.glob(os.path.join(self.MODULE.OUTPUT_DIR,
-                                              self.CSV_GLOB)))
+        paths = self._output_files(self.CSV_GLOB)
         paths.reverse()  # newest first (epoch-stamped names sort in order)
         keep = select_path or self._current_csv
         self._loading_run_list = True
@@ -2101,4 +2140,538 @@ class MotorAccDelayWindow(_SweepWindowBase):
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")
+        return text
+
+
+class AdhesionAnalysisDialog(QDialog):
+    """"Analyse adhesion methods" - pick any number of saved runs and
+    compare the adhesion methods they cover.
+
+    SEVERAL RUNS PER METHOD ARE THE POINT: the same adhesive applied
+    twice is not the same mount, so a method is characterised by as many
+    runs as were recorded and its group mean averages the RUN means (one
+    weight per mount). The only hard rules are at least two runs covering
+    at least two different methods, and an identical drive/sampling
+    setting across all of them.
+
+    The table lists every saved single-adhesive run (comparison outputs
+    excluded) with the parameters that decide comparability; runs are
+    picked with the check boxes in the first column. Analyse is only
+    enabled when the selection passes adhesion_comparison.check_selection
+    - and the reasons a selection cannot be analysed are spelled out in
+    the dialog, parameter by parameter, rather than as a dead button."""
+
+    COLUMNS = ("", "Time", "Adhesion method", "Trials", "Freq (Hz)", "Amp",
+               "Port", "Duration (s)", "Notes")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Analyse adhesion methods")
+        self.result_summary: dict | None = None
+        self._runs: list = []
+
+        intro = QLabel(
+            "Select the saved runs to compare - <b>any number per adhesion "
+            "method</b>, covering at least two different methods. Several "
+            "runs of one adhesive are averaged over runs (one weight per "
+            "mount), and their spread is reported as that method's "
+            "mount-to-mount repeatability: re-applying the same adhesive "
+            "differently can move the transmitted vibration as much as "
+            "changing the adhesive does. Every selected run must share the "
+            "same LRA drive frequency/amp, motor port, ACC sensor and "
+            "sampling settings - the comparison refuses anything else, "
+            "because it would compare the drives rather than the adhesives.")
+        intro.setWordWrap(True)
+
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(list(self.COLUMNS))
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(len(self.COLUMNS) - 1,
+                                    QHeaderView.ResizeMode.Stretch)
+        self.table.itemChanged.connect(self._on_item_changed)
+
+        self.reference_combo = QComboBox()
+        for method in adhesion_vibration.ADHESION_METHODS:
+            self.reference_combo.addItem(method, method)
+        self.reference_combo.setCurrentIndex(self.reference_combo.findData(
+            adhesion_comparison.REFERENCE_METHOD))
+        self.reference_combo.setToolTip(
+            "The method the relative figures are taken against: every "
+            "ratio, percent change and dB value is that method's mean over "
+            "this one's. The comparison itself is symmetric - changing the "
+            "reference only rescales the relative panel. A method with no "
+            "run in the selection cannot be the reference.")
+
+        self.align_combo = QComboBox()
+        self.align_combo.addItem("Motor-on command", 
+                                 adhesion_comparison.ALIGN_COMMAND)
+        self.align_combo.addItem("Detected vibration onset",
+                                 adhesion_comparison.ALIGN_ONSET)
+        self.align_combo.setToolTip(
+            "What t = 0 means in the averaged waveforms. Command keeps "
+            "onset-latency differences visible; onset superimposes the "
+            "rises so their shapes can be compared directly.")
+
+        options_row = QHBoxLayout()
+        options_row.addWidget(QLabel("Reference method:"))
+        options_row.addWidget(self.reference_combo)
+        options_row.addSpacing(16)
+        options_row.addWidget(QLabel("Align waveforms at:"))
+        options_row.addWidget(self.align_combo)
+        options_row.addStretch(1)
+
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+
+        self.buttons = QDialogButtonBox()
+        self.analyse_btn = self.buttons.addButton(
+            "Analyse", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.accepted.connect(self._analyse)
+        self.buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(intro)
+        layout.addWidget(self.table, 1)
+        layout.addLayout(options_row)
+        layout.addWidget(self.status)
+        layout.addWidget(self.buttons)
+
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.resize(min(980, int(available.width() * 0.9)),
+                        min(560, int(available.height() * 0.85)))
+        else:
+            self.resize(980, 560)
+
+        self._populate()
+
+    # -- table ----------------------------------------------------------
+
+    def _populate(self) -> None:
+        self._runs = adhesion_comparison.list_runs()
+        self.table.blockSignals(True)
+        self.table.setRowCount(len(self._runs))
+        for row, info in enumerate(self._runs):
+            check = QTableWidgetItem()
+            check.setFlags(Qt.ItemFlag.ItemIsUserCheckable
+                           | Qt.ItemFlag.ItemIsEnabled)
+            check.setCheckState(Qt.CheckState.Unchecked)
+            self.table.setItem(row, 0, check)
+            saved = (report.format_epoch(info.saved_at) if info.saved_at
+                     else report.run_time_text(info.csv_path, None))
+            cells = (saved, info.adhesion_method, str(info.n_trials),
+                     "?" if info.frequency_hz is None
+                     else f"{info.frequency_hz:g}",
+                     "?" if info.amp is None else f"{info.amp:g}",
+                     "?" if info.motor_index is None
+                     else str(info.motor_index),
+                     "?" if info.vib_duration_s is None
+                     else f"{info.vib_duration_s:g}",
+                     info.notes)
+            for column, text in enumerate(cells, start=1):
+                item = QTableWidgetItem(text)
+                item.setToolTip(os.path.basename(info.csv_path))
+                self.table.setItem(row, column, item)
+        self.table.blockSignals(False)
+        if not self._runs:
+            self.status.setText(
+                "No saved runs found. Record at least two runs covering two "
+                "different adhesion methods first - each run measures one "
+                "method.")
+            self.analyse_btn.setEnabled(False)
+        else:
+            self._refresh_state()
+
+    def _selected_runs(self) -> list:
+        return [info for row, info in enumerate(self._runs)
+                if self.table.item(row, 0) is not None
+                and self.table.item(row, 0).checkState()
+                == Qt.CheckState.Checked]
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == 0:
+            self._refresh_state()
+
+    def _sync_reference_combo(self, grouped: dict) -> None:
+        """Only a method that is actually in the selection can be the
+        reference; the combo follows the ticks rather than letting the
+        user pick a reference the comparison would silently replace."""
+        self.reference_combo.blockSignals(True)
+        available = list(grouped)
+        for index in range(self.reference_combo.count()):
+            method = self.reference_combo.itemData(index)
+            item = self.reference_combo.model().item(index)
+            item.setEnabled(method in available)
+            item.setToolTip("" if method in available
+                            else "No run of this method is selected.")
+        if available and self.reference_combo.currentData() not in available:
+            self.reference_combo.setCurrentIndex(
+                self.reference_combo.findData(available[0]))
+        self.reference_combo.blockSignals(False)
+
+    def _refresh_state(self) -> None:
+        """Enable Analyse only for a valid selection, and say WHY an
+        invalid one is invalid - including how many runs each method
+        currently contributes, since that is what the group means are
+        averaged over."""
+        selected = self._selected_runs()
+        grouped = adhesion_comparison.group_by_method(selected)
+        self._sync_reference_combo(grouped)
+        problems = adhesion_comparison.check_selection(selected)
+        self.analyse_btn.setEnabled(not problems)
+        if not selected:
+            self.status.setText(
+                "Tick the runs to compare - any number per method, covering "
+                "at least two of: "
+                + ", ".join(adhesion_vibration.ADHESION_METHODS) + ".")
+            return
+        tally = ", ".join(f"{method}: {len(runs)} run"
+                          f"{'s' if len(runs) != 1 else ''}"
+                          for method, runs in grouped.items())
+        if problems:
+            self.status.setText(f"Selected - {tally}.\n"
+                                "Cannot analyse this selection:\n· "
+                                + "\n· ".join(problems))
+            return
+        text = f"Selected - {tally}. Comparable; press Analyse."
+        single = [m for m, runs in grouped.items() if len(runs) == 1]
+        if single:
+            text += (" Note: " + ", ".join(single) + " rest"
+                     + ("s" if len(single) == 1 else "")
+                     + " on a single mount, so no mount-to-mount spread can "
+                       "be measured for "
+                     + ("it." if len(single) == 1 else "them."))
+        self.status.setText(text)
+
+    # -- analysis -------------------------------------------------------
+
+    def _analyse(self) -> None:
+        selected = self._selected_runs()
+        problems = adhesion_comparison.check_selection(selected)
+        if problems:  # the button should be disabled; belt and braces
+            QMessageBox.warning(self, "Cannot analyse",
+                                "\n".join(problems))
+            return
+        try:
+            self.result_summary = adhesion_comparison.compare(
+                [info.csv_path for info in selected],
+                reference_method=self.reference_combo.currentData(),
+                alignment=self.align_combo.currentData(),
+            )
+        except ValueError as e:
+            QMessageBox.warning(self, "Cannot analyse", str(e))
+            return
+        except Exception as e:
+            QMessageBox.warning(self, "Analysis failed", str(e))
+            return
+        self.accept()
+
+
+class AdhesionComparisonWindow(_SweepWindowBase):
+    TITLE = "Adhesion Vibration Comparison (LRA)"
+    MODULE = adhesion_vibration
+    PNG_GLOB = "adhesion_*.png"
+    CSV_GLOB = "adhesion_*.csv"
+    # The figure is a waveform/spectrum/timing summary, not a plottable
+    # single intensity metric, so there is no Plot metric selector (both
+    # shared metrics are still measured and stored per trial).
+    METRIC_SELECTOR = False
+    SETUP_HINT = (
+        "<b>Physical setup:</b> mount the accelerometer on the LRA with the "
+        "adhesive selected below, on the same surface, position and "
+        "orientation every time. For a valid comparison all three methods "
+        "must use the same LRA, the same accelerometer, as equal an "
+        "adhesive area/thickness as possible, and a consistent curing time "
+        "for the cosmetic adhesive. Every re-mount adds variation - that is "
+        "why each method gets several trials. Use \"Test Buzz\" to confirm "
+        "the motor port."
+    )
+    DESCRIPTION = (
+        "Measures how much of the LRA's vibration reaches the accelerometer "
+        "through <b>one adhesion method per run</b> - Blu Tack, double-sided "
+        "tape or cosmetic (eyelash) adhesive. Each trial records a quiet "
+        "baseline, then drives the LRA continuously and keeps every raw "
+        "X/Y/Z sample; "
+        "onset/settling come from the Motor → ACC Delay detector, and the "
+        "steady state adds RMS, absolute + robust (p99) peaks, "
+        "peak-to-peak, the spectrum, the amplitude at the drive frequency, "
+        "harmonics and THD. Record one run per method, then press "
+        "<b>Analyse adhesion methods</b> to compare three runs "
+        "(relative vibration transfer - the rig has no reference "
+        "accelerometer, so no absolute transmissibility is claimed). "
+        "Outputs → data/validation_experiments/adhesion_vibration_comparison/."
+    )
+
+    # -- LRA-only drive (read from haptic.lra, never haptic.using) -------
+
+    def _description_text(self) -> str:
+        return (self.DESCRIPTION
+                + f" Drive: {adhesion_vibration.lra_frequency_hz()} Hz, amp "
+                f"{adhesion_vibration.lra_amp()} - the configured LRA "
+                "default (config.json haptic.lra), fixed for every run so "
+                "the three methods are always driven identically.")
+
+    def _buzz_defaults(self) -> tuple:
+        # An LRA experiment: buzz with the LRA's configured drive even
+        # when the rig currently uses the ERM.
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return (defaults.default_frequency, defaults.default_amp,
+                hc.actuator_label(hc.LRA))
+
+    def _haptic_info_text(self) -> str:
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        using = hc.actuator_label(hc.get_active_haptic_type())
+        text = ("<b>LRA-only experiment</b> — drive fixed at the configured "
+                f"LRA default: {defaults.default_frequency} Hz, amp "
+                f"{defaults.default_amp} (config.json haptic.lra; read-only "
+                "here so all three adhesives get an identical drive).")
+        if hc.get_active_haptic_type() != hc.LRA:
+            text += (f" The platform is currently set to use the {using}; "
+                     "this experiment ignores that and still reads the LRA "
+                     "block.")
+        return text
+
+    def _on_haptic_config_changed(self, config) -> None:
+        super()._on_haptic_config_changed(config)
+        try:
+            self._refresh_drive_label()
+        except RuntimeError:
+            pass  # widget already destroyed; unsubscribed on close
+
+    def _refresh_drive_label(self) -> None:
+        self.drive_label.setText(
+            f"<b>LRA drive (read-only):</b> "
+            f"{adhesion_vibration.lra_frequency_hz()} Hz, amp "
+            f"{adhesion_vibration.lra_amp()} — config.json haptic.lra; "
+            "change it in Initial Setup → Haptic Actuator Defaults")
+
+    # -- controls --------------------------------------------------------
+
+    def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        # The method under test shares the first row with the port/sensor
+        # pickers; everything else goes on the wrapped rows below.
+        self.method_combo = QComboBox()
+        for method in adhesion_vibration.ADHESION_METHODS:
+            self.method_combo.addItem(method, method)
+        self.method_combo.setToolTip(
+            "The adhesion method mounted RIGHT NOW. One run measures one "
+            "method - record all three (re-mounting in between), then "
+            "compare them with \"Analyse adhesion methods\". Only these "
+            "three methods exist; the comparison refuses anything else.")
+        config_row.addWidget(QLabel("Adhesion method:"))
+        config_row.addWidget(self.method_combo)
+        config_row.addSpacing(12)
+        self._config_inputs.append(self.method_combo)
+
+    def _extra_config_rows(self) -> list:
+        self.trials_spin = QSpinBox()
+        self.trials_spin.setRange(adhesion_vibration.NUM_TRIALS_MIN,
+                                  adhesion_vibration.NUM_TRIALS_MAX)
+        self.trials_spin.setValue(adhesion_vibration.NUM_TRIALS)
+        self.trials_spin.setToolTip(
+            "Trials in this run. Each trial is baseline + drive + rest with "
+            "the SAME settings; several trials per method are what makes "
+            "the repeatability (SD/CV) figures meaningful.")
+        self.trials_spin.valueChanged.connect(self._update_estimate)
+
+        self.duration_spin = QDoubleSpinBox()
+        self.duration_spin.setRange(adhesion_vibration.VIB_DURATION_MIN_S,
+                                    adhesion_vibration.VIB_DURATION_MAX_S)
+        self.duration_spin.setDecimals(1)
+        self.duration_spin.setSingleStep(
+            adhesion_vibration.VIB_DURATION_STEP_S)
+        self.duration_spin.setValue(adhesion_vibration.VIB_DURATION_S)
+        self.duration_spin.setSuffix(" s")
+        self.duration_spin.setToolTip(
+            "How long the LRA is driven per trial. The whole window is "
+            "recorded; the steady-state statistics use the settled part, "
+            "so a longer drive gives the spectrum and THD more data. Keep "
+            "it IDENTICAL across the three methods - the comparison "
+            "refuses runs with different durations.")
+        self.duration_spin.valueChanged.connect(self._update_estimate)
+
+        self.rest_spin = QDoubleSpinBox()
+        self.rest_spin.setRange(adhesion_vibration.REST_DURATION_MIN_S,
+                                adhesion_vibration.REST_DURATION_MAX_S)
+        self.rest_spin.setDecimals(1)
+        self.rest_spin.setSingleStep(0.5)
+        self.rest_spin.setValue(adhesion_vibration.REST_DURATION_S)
+        self.rest_spin.setSuffix(" s")
+        self.rest_spin.setToolTip(
+            "Motor-off rest between trials, so one trial's ring-down and "
+            "heating never leak into the next trial's baseline.")
+        self.rest_spin.valueChanged.connect(self._update_estimate)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Trials:"))
+        row1.addWidget(self.trials_spin)
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("Vibration duration:"))
+        row1.addWidget(self.duration_spin)
+        row1.addSpacing(16)
+        row1.addWidget(QLabel("Rest duration:"))
+        row1.addWidget(self.rest_spin)
+        row1.addStretch(1)
+
+        self.notes_edit = QLineEdit()
+        self.notes_edit.setPlaceholderText(
+            "Notes: adhesive thickness/layers, curing time, installation "
+            "order, mounting anomalies... (saved with the run)")
+        self.notes_edit.setToolTip(
+            "Free text stored in the run's CSV and meta. Record what the "
+            "protocol cares about: adhesive area/thickness, the cosmetic "
+            "adhesive's curing time, the order the methods were tested in, "
+            "and anything unusual about this mount.")
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Notes:"))
+        row2.addWidget(self.notes_edit, 1)
+
+        # Read-only drive + run-time estimate, each on its own wrapped
+        # line (the layout rule for these windows).
+        self.drive_label = self._wrapped_label("")
+        self.drive_label.setStyleSheet("color: #9a9ba5;")  # muted
+        self._refresh_drive_label()
+        row3 = QHBoxLayout()
+        row3.addWidget(self.drive_label)
+
+        self.estimate_label = self._wrapped_label("")
+        self.estimate_label.setStyleSheet("color: #9a9ba5;")  # muted
+        row4 = QHBoxLayout()
+        row4.addWidget(self.estimate_label)
+
+        self._config_inputs.extend([self.trials_spin, self.duration_spin,
+                                    self.rest_spin, self.notes_edit])
+        self._update_estimate()
+        return [row1, row2, row3, row4]
+
+    def _update_estimate(self) -> None:
+        total = adhesion_vibration.estimated_duration_s(
+            self.trials_spin.value(), self.duration_spin.value(),
+            self.rest_spin.value())
+        self.estimate_label.setText(
+            f"<i>Est. run time ~{total:.0f} s — {self.trials_spin.value()} × "
+            f"({adhesion_vibration.BASELINE_DURATION_S:g} s baseline + "
+            f"{self.duration_spin.value():g} s vibration + "
+            f"{self.rest_spin.value():g} s rest).</i>")
+
+    # -- the analysis button ---------------------------------------------
+
+    def __init__(self, cfg=None):
+        super().__init__(cfg)
+        # Added post-init so the base's layout is already built: the
+        # Analyse button joins the Start/Stop row.
+        self.analyse_btn = QPushButton("Analyse adhesion methods")
+        self.analyse_btn.setToolTip(
+            "Compare three saved runs - exactly one per adhesion method, "
+            "with identical drive and sampling settings. Produces the "
+            "waveform / spectrum / metrics comparison figures, a CSV and a "
+            "meta file in the experiment's output folder.")
+        self.analyse_btn.clicked.connect(self._open_analysis)
+        # Place it after Stop on the buttons row, so run control and
+        # analysis sit together.
+        for layout_index in range(self.centralWidget().layout().count()):
+            item = self.centralWidget().layout().itemAt(layout_index)
+            layout = item.layout()
+            if layout is not None and layout.indexOf(self.stop_btn) >= 0:
+                layout.insertWidget(layout.indexOf(self.stop_btn) + 1,
+                                    self.analyse_btn)
+                break
+        self._config_inputs.append(self.analyse_btn)
+
+    def _open_analysis(self) -> None:
+        if self._worker is not None:
+            return
+        dialog = AdhesionAnalysisDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        summary = dialog.result_summary
+        if not summary:
+            return
+        # Show the metrics figure (the headline: strength, repeatability
+        # and relative transfer); the other two figures are listed in the
+        # log and sit next to it in the output folder.
+        try:
+            self.plot_view.show_png(
+                summary["metrics_png"],
+                caption=os.path.basename(summary["metrics_png"]))
+        except ValueError:
+            pass
+        self.log_view.appendPlainText("\n".join(summary["report"]))
+        self.log_view.verticalScrollBar().setValue(
+            self.log_view.verticalScrollBar().maximum())
+        reference = summary.get("reference_method", "?")
+        tally = ", ".join(f"{method} ×{n}"
+                          for method, n in summary.get("n_runs", {}).items())
+        self.status.setText(
+            f"Comparison saved ({tally}) - relative vibration transfer vs "
+            f"{reference}. Figures: "
+            + ", ".join(os.path.basename(p) for p in summary["png_paths"])
+            + f"; data: {os.path.basename(summary['csv_path'])}.")
+
+    # -- saved runs (exclude the comparison outputs) ----------------------
+
+    def _output_files(self, pattern: str) -> list:
+        # Comparison outputs share this folder but are not runs; and the
+        # names put the method before the stamp, so they need sorting by
+        # stamp rather than as strings (see adhesion_vibration).
+        return adhesion_vibration.sort_by_stamp(
+            path for path in super()._output_files(pattern)
+            if not adhesion_vibration.is_comparison_path(path))
+
+    def _run_detail(self, meta) -> str:
+        params = (meta or {}).get("parameters", {})
+        parts = []
+        method = (meta or {}).get("adhesion_method")
+        if method:
+            parts.append(method)
+        if params.get("num_trials") is not None:
+            parts.append(f"{params['num_trials']} trials")
+        if params.get("frequency_hz") is not None:
+            parts.append(f"{params['frequency_hz']} Hz")
+        if params.get("amp") is not None:
+            parts.append(f"amp {params['amp']}")
+        if params.get("notes"):
+            parts.append(str(params["notes"]))
+        return ", ".join(parts)
+
+    def _extra_run_kwargs(self) -> dict:
+        return {"adhesion_method": self.method_combo.currentData(),
+                "num_trials": self.trials_spin.value(),
+                "vib_duration_s": self.duration_spin.value(),
+                "rest_duration_s": self.rest_spin.value(),
+                "notes": self.notes_edit.text().strip()}
+
+    def _summary_text(self, summary: dict, saved: bool) -> str:
+        method = summary.get("adhesion_method", "?")
+        text = (f"{method}: {summary.get('n_ok', 0)}/"
+                f"{summary.get('n_trials', 0)} trials ok")
+        rms = summary.get("steady_rms_mean_ms2")
+        if rms is not None:
+            text += f"; steady vector RMS {rms:.3f} m/s²"
+            sd = summary.get("steady_rms_sd_ms2")
+            if sd is not None:
+                text += f" ± {sd:.3f}"
+        peak = summary.get("peak_robust_mean_ms2")
+        if peak is not None:
+            text += f"; robust peak {peak:.3f} m/s²"
+        thd = summary.get("thd_mean_percent")
+        if thd is not None:
+            text += f"; THD {thd:.1f} %"
+        fallback = summary.get("n_fallback_steady_state")
+        if fallback:
+            text += (f" ({fallback} trial(s) never settled - their "
+                     "steady-state numbers are window-tail fallbacks)")
+        text += "."
+        if saved:
+            text += (f" Saved {os.path.basename(summary['csv_path'])} and "
+                     f"{os.path.basename(summary['png_path'])}. This run "
+                     "covers ONE method - use \"Analyse adhesion methods\" "
+                     "once all three are recorded.")
         return text

@@ -93,8 +93,11 @@ validation_experiments/         small hardware-validation experiments, separate 
                                  run is loaded). GUI wrappers in
                                  app/gui/validation_experiment_window.py. Currently:
                                  lra_resonance_intensity_calibration/ (frequency + amplitude sweeps),
-                                 actuator_spectrogram/ (2-D drive-frequency x amp intensity map) and
-                                 motor_acc_delay_experiment/ (LRA/ERM command-to-vibration latency),
+                                 actuator_spectrogram/ (2-D drive-frequency x amp intensity map),
+                                 motor_acc_delay_experiment/ (LRA/ERM command-to-vibration latency)
+                                 and adhesion_vibration_comparison/ (relative vibration transfer of
+                                 three mounting adhesives, LRA-only, with its own three-run
+                                 comparison analysis),
                                  each with a full write-up in its README.md; validation_experiments/
                                  README.md documents the shared metric/raw-data layer. Runs are saved
                                  as timestamped CSV/PNG/raw_acc.npz/meta.json sets under
@@ -634,6 +637,9 @@ research rig — but the Initial Setup window says so in an advisory note.
   frequency and drive amp;
 * Actuator Spectrogram: the type it opens on and its motor port;
 * LRA Amplitude Sweep: the PWM frequency the amps are measured at;
+* Adhesion Vibration Comparison: the frequency **and** amp it drives —
+  always read from `haptic.lra` (even when `using` is `erm`) and shown
+  read-only, so all three adhesives get an identical drive;
 * the descriptions, tooltips and status lines of section 9 — they quote
   the configured numbers, not literals;
 * the Wiring Guide's pin table (which actuator is in use, on which port).

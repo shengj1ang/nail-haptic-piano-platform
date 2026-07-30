@@ -38,6 +38,13 @@ with `value_ms2 = value_counts * ms2_per_count`. Nothing in this project
 should convert twice or store an unlabelled number: every stored field
 name ends in `_counts` or `_ms2`.
 
+A third group of functions answers the other half of the question - not
+how much a window vibrates but AT WHAT FREQUENCIES:
+`compute_vibration_spectrum`, `harmonic_amplitudes` and
+`total_harmonic_distortion` (see "Spectral analysis" below). They use
+the same demeaned three-axis convention as the vector RMS, so the
+spectrum and the intensity describe the same signal.
+
 The raw store (`save_raw_acceleration_samples` /
 `load_raw_acceleration_samples`) is a compressed NPZ holding the FULL
 three-axis time series of every measurement window in long format, with
@@ -779,6 +786,229 @@ def recompute_window_metrics(raw: RawAccelerationSamples,
                                                  raw.ms2_per_count),
         ))
     return out
+
+
+# ==========================================
+# Spectral analysis (shared)
+# ==========================================
+#
+# The intensity metrics above say HOW MUCH a window vibrates; these say
+# AT WHAT FREQUENCIES. They are used by the adhesion comparison (is the
+# drive still a clean 224 Hz tone through this glue, or is it distorted?)
+# and are written here rather than in one experiment so a second
+# experiment cannot grow a second, subtly different FFT.
+#
+# The spectrum is computed the same way the vector RMS is: each axis is
+# demeaned over the window, so gravity and the mounting pose drop out,
+# and the three axes are combined in QUADRATURE
+#
+#     amplitude(f) = sqrt(amp_x(f)^2 + amp_y(f)^2 + amp_z(f)^2)
+#
+# which makes the result independent of how the sensor is oriented -
+# exactly the property the demeaned vector RMS has (and, by Parseval,
+# the same energy: sum_f amplitude(f)^2 / 2 ~ vector_rms^2).
+#
+# Amplitudes are SCALED so that a pure sinusoid of amplitude A counts
+# reads A counts: the analysis window's coherent gain is divided out
+# (2 * |X_k| / sum(window)). The DC and Nyquist bins are not corrected
+# for the factor 2 and are meaningless here anyway - the series is
+# demeaned, and everything below SPECTRUM_MIN_HZ is ignored.
+
+#: Frequencies below this are ignored when searching for a dominant
+#: frequency. Demeaning removes DC, but slow drift and rig sway still
+#: leave energy in the first few bins, which would otherwise win every
+#: time and report a "dominant frequency" of a couple of Hz.
+SPECTRUM_MIN_HZ = 20.0
+
+#: How far either side of a requested frequency an amplitude is read.
+#: A mounted LRA does not vibrate at exactly the commanded PWM frequency,
+#: and a finite window leaks energy across neighbouring bins, so "the
+#: amplitude at 224 Hz" is the strongest bin within this tolerance - and
+#: the frequency it was actually found at is always returned with it,
+#: never silently substituted for the requested one.
+SPECTRUM_TOLERANCE_HZ = 5.0
+
+#: Harmonics (2f0, 3f0, ...) measured for the THD by default.
+DEFAULT_HARMONICS = 5
+
+#: Windows shorter than this cannot support a meaningful spectrum.
+MIN_SPECTRUM_SAMPLES = 32
+
+
+#: Half-width, in bins, of the main lobe summed by the energy-based
+#: amplitude estimate below. A Hann window's main lobe is 4 bins wide,
+#: so +/-2 bins captures it for any offset between bin centres.
+_LOBE_HALF_BINS = 2
+
+
+@dataclass
+class VibrationSpectrum:
+    """One measurement window's single-sided amplitude spectrum, in raw
+    counts, combined over the three axes (see the section header).
+
+    `freqs_hz` and `amplitude_counts` are the same length;
+    `sample_rate_hz` is the rate the window was assumed to be sampled at
+    (the host stream's mean rate) and `n_samples` how many samples went
+    in, so the resolution is reproducible from the stored numbers.
+    `enbw_bins` is the analysis window's equivalent noise bandwidth
+    (1.5 for Hann), used by the energy-based amplitude estimate."""
+
+    freqs_hz: np.ndarray
+    amplitude_counts: np.ndarray
+    sample_rate_hz: float
+    n_samples: int
+    window: str = "hann"
+    enbw_bins: float = 1.5
+
+    @property
+    def resolution_hz(self) -> float:
+        """Bin spacing: sample_rate / n_samples."""
+        if self.n_samples <= 0:
+            return float("nan")
+        return float(self.sample_rate_hz) / float(self.n_samples)
+
+    def _tone_amplitude(self, peak_idx: int) -> float:
+        """Amplitude of the tone around bin `peak_idx`, from the ENERGY
+        of the window's main lobe rather than the single peak bin.
+
+        A single bin under-reads a tone that falls between bin centres by
+        up to ~1.4 dB (Hann scalloping); the main-lobe energy divided by
+        the window's ENBW is offset-independent - for an on-bin sine the
+        corrected bins read (0.5, 1, 0.5)·A, whose sum of squares is
+        exactly ENBW·A²."""
+        low = max(0, peak_idx - _LOBE_HALF_BINS)
+        high = min(self.amplitude_counts.size, peak_idx + _LOBE_HALF_BINS + 1)
+        energy = float(np.sum(self.amplitude_counts[low:high] ** 2))
+        return math.sqrt(energy / float(self.enbw_bins))
+
+    def amplitude_at(self, freq_hz: float,
+                     tolerance_hz: float = SPECTRUM_TOLERANCE_HZ
+                     ) -> Tuple[Optional[float], Optional[float]]:
+        """(frequency actually found, amplitude in counts) of the
+        strongest tone within `tolerance_hz` of `freq_hz` - the peak bin
+        locates the tone, the main-lobe energy sizes it (see
+        `_tone_amplitude`).
+
+        Returns (None, None) when the requested frequency is outside the
+        spectrum - never a zero, which would read as "measured, and it
+        was silent"."""
+        if self.freqs_hz.size == 0:
+            return None, None
+        low = float(freq_hz) - float(tolerance_hz)
+        high = float(freq_hz) + float(tolerance_hz)
+        mask = (self.freqs_hz >= low) & (self.freqs_hz <= high)
+        if not np.any(mask):
+            return None, None
+        idx = int(np.flatnonzero(mask)[int(np.argmax(self.amplitude_counts[mask]))])
+        return float(self.freqs_hz[idx]), self._tone_amplitude(idx)
+
+    def dominant_frequency(self, min_hz: float = SPECTRUM_MIN_HZ
+                           ) -> Tuple[Optional[float], Optional[float]]:
+        """(frequency, amplitude) of the strongest tone at or above
+        `min_hz`, or (None, None) when the spectrum reaches no such bin.
+        Sized like `amplitude_at` - main-lobe energy, not the peak bin."""
+        mask = self.freqs_hz >= float(min_hz)
+        if not np.any(mask):
+            return None, None
+        idx = int(np.flatnonzero(mask)[int(np.argmax(self.amplitude_counts[mask]))])
+        return float(self.freqs_hz[idx]), self._tone_amplitude(idx)
+
+
+def compute_vibration_spectrum(samples, sample_rate_hz: float,
+                               window: str = "hann") -> VibrationSpectrum:
+    """Single-sided, axis-combined amplitude spectrum of one window.
+
+    `sample_rate_hz` must be supplied by the caller (the stream's mean
+    rate over that window) - the host timestamps jitter per sample, so
+    the samples are treated as uniformly sampled at that mean rate, which
+    is the same assumption every dominant-frequency estimate in this
+    project makes (see rig.collect_samples)."""
+    x, y, z = as_xyz_arrays(samples)
+    n = int(x.size)
+    fs = float(sample_rate_hz)
+    if n < MIN_SPECTRUM_SAMPLES:
+        raise ValueError(f"need at least {MIN_SPECTRUM_SAMPLES} samples for a "
+                         f"spectrum, got {n}")
+    if not (fs > 0):
+        raise ValueError("sample_rate_hz must be positive")
+    if window == "hann":
+        taper = np.hanning(n)
+    elif window in ("none", "rect", "boxcar"):
+        taper = np.ones(n)
+    else:
+        raise ValueError("window must be 'hann' or 'none'")
+    gain = float(taper.sum())
+    # ENBW in bins: N * sum(w^2) / sum(w)^2 (1.5 for Hann, 1.0 for none).
+    enbw = float(n * np.sum(taper ** 2) / (gain * gain))
+    power = np.zeros(n // 2 + 1, dtype=float)
+    for axis in (x, y, z):
+        spectrum = np.fft.rfft((axis - axis.mean()) * taper)
+        power += (2.0 * np.abs(spectrum) / gain) ** 2
+    return VibrationSpectrum(
+        freqs_hz=np.fft.rfftfreq(n, d=1.0 / fs),
+        amplitude_counts=np.sqrt(power),
+        sample_rate_hz=fs,
+        n_samples=n,
+        window=window,
+        enbw_bins=enbw,
+    )
+
+
+@dataclass
+class HarmonicAmplitude:
+    """One harmonic of a driven vibration: which multiple of the
+    fundamental it is, where it was looked for, where it was found and
+    how strong it was (None/None when it falls outside the spectrum -
+    e.g. above Nyquist)."""
+    order: int
+    requested_hz: float
+    found_hz: Optional[float]
+    amplitude_counts: Optional[float]
+
+
+def harmonic_amplitudes(spectrum: VibrationSpectrum, fundamental_hz: float,
+                        n_harmonics: int = DEFAULT_HARMONICS,
+                        tolerance_hz: float = SPECTRUM_TOLERANCE_HZ
+                        ) -> List[HarmonicAmplitude]:
+    """The fundamental (order 1) and its next `n_harmonics - 1` multiples.
+
+    The tolerance widens with the order, because a harmonic of a slightly
+    off-nominal fundamental is off by the same factor: order k is
+    searched within k * tolerance_hz."""
+    out: List[HarmonicAmplitude] = []
+    for order in range(1, max(1, int(n_harmonics)) + 1):
+        target = float(fundamental_hz) * order
+        found, amplitude = spectrum.amplitude_at(target,
+                                                 tolerance_hz * order)
+        out.append(HarmonicAmplitude(order=order, requested_hz=target,
+                                     found_hz=found,
+                                     amplitude_counts=amplitude))
+    return out
+
+
+def total_harmonic_distortion(spectrum: VibrationSpectrum,
+                              fundamental_hz: float,
+                              n_harmonics: int = DEFAULT_HARMONICS,
+                              tolerance_hz: float = SPECTRUM_TOLERANCE_HZ
+                              ) -> Optional[float]:
+    """THD as a RATIO (multiply by 100 for percent):
+
+        THD = sqrt(sum_{k>=2} A_k^2) / A_1
+
+    over the harmonics `harmonic_amplitudes` could measure. Returns None
+    when the fundamental itself could not be measured or is zero - a THD
+    referred to a fundamental that is not there is meaningless, and a 0
+    would read as "perfectly clean"."""
+    harmonics = harmonic_amplitudes(spectrum, fundamental_hz, n_harmonics,
+                                    tolerance_hz)
+    fundamental = harmonics[0].amplitude_counts
+    if not fundamental:
+        return None
+    higher = [h.amplitude_counts for h in harmonics[1:]
+              if h.amplitude_counts is not None]
+    if not higher:
+        return None
+    return float(math.sqrt(sum(a * a for a in higher)) / float(fundamental))
 
 
 # ==========================================

@@ -86,26 +86,31 @@ def header(title: str, csv_path: str, meta: Optional[dict],
 
 def stats_line(label: str, stats: dict, prefix: str, unit: str = "ms",
                label_width: int = 28, value_width: int = 8,
-               decimals: int = 2) -> Optional[str]:
+               decimals: int = 2,
+               display_unit: Optional[str] = None) -> Optional[str]:
     """One aligned "mean / median / SD / range (n)" line, or None when
     that series has no values.
 
     Reads the "<prefix>_mean_ms"-style keys the experiments' stats dicts
-    already use, so the report and the live run print identical text."""
+    already use, so the report and the live run print identical text.
+    `unit` is the KEY suffix; `display_unit` is what the reader sees when
+    the two differ (keys must stay identifier-friendly, so a series
+    stored as "_ms2" prints as "m/s²")."""
     mean = stats.get(f"{prefix}_mean_{unit}")
     if mean is None:
         return None
+    shown = display_unit if display_unit is not None else unit
     median = stats.get(f"{prefix}_median_{unit}")
     sd = stats.get(f"{prefix}_sd_{unit}")
     low = stats.get(f"{prefix}_min_{unit}")
     high = stats.get(f"{prefix}_max_{unit}")
-    text = f"{label:<{label_width}} mean {mean:{value_width}.{decimals}f} {unit}"
+    text = f"{label:<{label_width}} mean {mean:{value_width}.{decimals}f} {shown}"
     if median is not None:
-        text += f", median {median:{value_width}.{decimals}f} {unit}"
-    text += (f", SD {sd:{value_width - 1}.{decimals}f} {unit}"
+        text += f", median {median:{value_width}.{decimals}f} {shown}"
+    text += (f", SD {sd:{value_width - 1}.{decimals}f} {shown}"
              if sd is not None else ", SD       - ")
     if low is not None and high is not None:
-        text += (f", range {low:.{decimals}f}-{high:.{decimals}f} {unit}")
+        text += (f", range {low:.{decimals}f}-{high:.{decimals}f} {shown}")
     return text + f" (n={stats.get(f'{prefix}_n', 0)})"
 
 

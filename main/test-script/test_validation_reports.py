@@ -319,5 +319,75 @@ class TestRunPicker(unittest.TestCase):
         self.assertEqual(window.run_combo.count(), 2)
 
 
+# =========================================================================
+# The shared full-size chart preview
+# =========================================================================
+
+class TestPlotPreviewFit(unittest.TestCase):
+    """Opening a chart must already be fitted to the window.
+
+    The preview's scroll area has no real geometry until the window has
+    been shown, so a fit computed before that scales the chart wrongly -
+    which used to leave every newly opened chart needing a manual "Fit to
+    window" click."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from app.gui.validation_experiment_window import (
+            close_shared_plot_preview)
+        self._tmp = tempfile.TemporaryDirectory(prefix="preview_test_")
+        self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(close_shared_plot_preview)
+
+    def _png(self, name: str, width_in: float, height_in: float) -> str:
+        import matplotlib.pyplot as plt
+        path = os.path.join(self._tmp.name, name)
+        figure = plt.figure(figsize=(width_in, height_in))
+        figure.savefig(path, dpi=150)
+        plt.close(figure)
+        return path
+
+    def _open(self, png_path: str):
+        from app.gui.validation_experiment_window import (
+            _PlotView, shared_plot_preview)
+        view = _PlotView()
+        self.addCleanup(view.deleteLater)
+        view.show_png(png_path)
+        self.assertTrue(view.open_full_size())
+        self.app.processEvents()
+        return view, shared_plot_preview()
+
+    def test_a_chart_opens_already_fitted(self):
+        _view, preview = self._open(self._png("large.png", 13, 11))
+        self.assertTrue(preview._fit)
+        # The applied zoom must be the fit for the REAL viewport, not for
+        # the placeholder one the window had before it was shown.
+        self.assertAlmostEqual(preview._zoom, preview._fit_zoom(), places=6)
+        self.assertIn("(fit)", preview.info.text())
+
+    def test_a_small_chart_is_not_blown_up_past_its_own_resolution(self):
+        _view, preview = self._open(self._png("small.png", 2, 1.5))
+        self.assertAlmostEqual(preview._zoom, 1.0, places=6)
+
+    def test_switching_to_another_panels_chart_refits(self):
+        self._open(self._png("large.png", 13, 11))
+        _view, preview = self._open(self._png("other.png", 6, 9))
+        self.assertTrue(preview._fit)
+        self.assertAlmostEqual(preview._zoom, preview._fit_zoom(), places=6)
+
+    def test_a_manual_zoom_survives_the_same_panel_re_rendering(self):
+        view, preview = self._open(self._png("large.png", 13, 11))
+        preview.set_zoom(1.0)
+        self.assertFalse(preview._fit)
+        view.show_png(self._png("large2.png", 13, 11))   # same owner
+        self.app.processEvents()
+        self.assertFalse(preview._fit)
+        self.assertAlmostEqual(preview._zoom, 1.0, places=6)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

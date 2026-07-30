@@ -57,6 +57,7 @@ from app.gui.recording_wizard import RecordingWizard
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.validation_experiment_window import (
+    AdhesionComparisonWindow,
     AmplitudeSweepWindow,
     FrequencySweepWindow,
     MotorAccDelayWindow,
@@ -151,6 +152,7 @@ SECTIONS = [
             ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
             ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
             ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
+            ("Adhesion Vibration Comparison (LRA)", AdhesionComparisonWindow),
         ],
     ),
 ]
