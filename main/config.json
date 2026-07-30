@@ -36,5 +36,16 @@
     "pilot_schedule": 1603788184
   },
   "active_keyboard_profile": "white-city-lab-20260717",
-  "visual_cue_style": "hand"
+  "visual_cue_style": "hand",
+  "haptic": {
+    "using": "lra",
+    "lra": {
+      "default_frequency": 224,
+      "default_amp": 64
+    },
+    "erm": {
+      "default_frequency": 1000,
+      "default_amp": 50
+    }
+  }
 }

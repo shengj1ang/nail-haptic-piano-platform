@@ -1,7 +1,8 @@
 """LRA amplitude-response sweep at the resonant frequency.
 
 Companion to lra_frequency_sweep.py: with the PWM frequency fixed at the
-measured resonance (224 Hz), this script steps the drive amplitude
+measured resonance (the configured LRA default frequency, config.json's
+haptic block), this script steps the drive amplitude
 (`amp` 0-128), measures the resulting RMS acceleration with the LIS3DH,
 converts it to m/s^2, and reports the RECOMMENDED CUE AMP - the amp
 whose measured intensity lands closest to the target haptic-cue
@@ -85,6 +86,7 @@ try:
         select_metric,
     )
     from ..rig import SweepAborted, collect_samples, open_rig, send
+    from .. import report
 except ImportError:  # direct execution rather than package import
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from acceleration_metrics import (
@@ -110,6 +112,14 @@ except ImportError:  # direct execution rather than package import
         select_metric,
     )
     from rig import SweepAborted, collect_samples, open_rig, send
+    import report
+
+try:
+    from common import haptic_config as hc
+except ImportError:  # direct execution from this folder - add main/ to the path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    from common import haptic_config as hc
 
 
 # ==========================================
@@ -117,7 +127,15 @@ except ImportError:  # direct execution rather than package import
 # ==========================================
 
 MOTOR_INDEX = 0          # LRA port (same rig as the frequency sweep)
-FREQ_HZ = 224            # measured resonance, see lra_frequency_sweep results
+# The frequency the amplitudes are measured at: the LRA's configured
+# resonance (config.json haptic.lra.default_frequency, adopted from
+# lra_frequency_sweep's result). Read at import as the command-line /
+# control default - the GUI's PWM-freq box overrides it per run, and
+# only that value is ever sent.
+FREQ_HZ = hc.get_default_frequency(hc.LRA)
+# The resonance every run saved before freq_hz was recorded used; used
+# only to label such a run when re-rendering it.
+HISTORICAL_FREQ_HZ = 224
 
 AMP_VALUES = list(range(4, 129, 4))   # 4..128: the LRA's monotonic range
 
@@ -522,6 +540,11 @@ def save_meta(csv_path: str, png_path: str, raw_path: Optional[str],
             "acc_sensor_id": acc_sensor_id,
             "freq_hz": freq_hz,
             "amp_values": AMP_VALUES,
+            # Where freq_hz came from: the configured LRA default, or a
+            # value typed into the window. The amp points are the
+            # experiment's own sweep and never come from the config.
+            "freq_source": hc.value_source(freq_hz,
+                                           hc.get_default_frequency(hc.LRA)),
             # The band that actually produced this run's result, plus
             # every band defined at save time - the two metrics have
             # DIFFERENT bands and a saved run must say which it used.
@@ -544,6 +567,9 @@ def save_meta(csv_path: str, png_path: str, raw_path: Optional[str],
         "metrics": metric_meta_block(metric, raw_path is not None,
                                      os.path.basename(raw_path) if raw_path
                                      else None, MS2_PER_COUNT),
+        # The rig's haptic configuration at run time, for traceability.
+        # The amp points swept are the experiment's own (AMP_VALUES).
+        "haptic_config": {"snapshot": hc.config_snapshot()},
         # The headline result is always stated FOR THE SELECTED METRIC.
         "result": result_block(results, metric),
     }
@@ -629,7 +655,7 @@ def render_csv(csv_path: str, out_png: str,
     metrics_meta = meta.get("metrics", {}) if meta else {}
     if motor_index is None:
         motor_index = params.get("motor_index", MOTOR_INDEX)
-    freq_hz = params.get("freq_hz", FREQ_HZ)
+    freq_hz = params.get("freq_hz", HISTORICAL_FREQ_HZ)
 
     results = load_results(csv_path)
     supported = metrics_available_in(results, METRIC_NAMES)
@@ -649,6 +675,88 @@ def render_csv(csv_path: str, out_png: str,
                    csv_path=csv_path,
                    png_path=out_png)
     return summary
+
+
+def summary_report(csv_path: str, summary: Optional[dict] = None) -> list:
+    """The sweep's statistics as text, rebuilt from a saved
+    amp_sweep_*.csv (+ its .meta.json): the parameters, every measured
+    amp under BOTH metrics, and the recommended cue amp.
+
+    Every metric-dependent number (target band, recommendation, in-band
+    amps) is derived for the metric the displayed chart uses, so the two
+    can never disagree - the same rule render_csv() follows."""
+    results = load_results(csv_path)
+    meta = load_meta(csv_path)
+    params = (meta or {}).get("parameters", {})
+    metrics_meta = (meta or {}).get("metrics", {})
+    chosen = normalise_metric(
+        (summary or {}).get("metric")
+        or metrics_meta.get("selected_plot_metric")
+        or select_metric(results, None))
+    target = cue_target(chosen)
+    recommended = recommended_cue_amp(results, chosen)
+    band = in_band(results, chosen)
+
+    details = [
+        f"motor port {params.get('motor_index', '?')}, drive frequency "
+        f"{params.get('freq_hz', '?')} Hz, ACC sensor "
+        f"{params.get('acc_sensor_id', '?')}",
+        f"{len(results)} amp steps; intensity metric: "
+        f"{metric_spec(chosen).short_label}",
+        f"target cue intensity: {target.band_label} "
+        f"({target.status_label})",
+    ]
+    if params.get("freq_source"):
+        details.append(f"drive frequency source: {params['freq_source']}")
+    lines = report.header("Amplitude-sweep statistics", csv_path, meta, details)
+
+    lines.append("")
+    lines.extend(report.table(
+        ("amp", "vector m/s²", "vector counts", "legacy m/s²",
+         "legacy counts", "in band", "n"),
+        [(r.amp,
+          report.number(r.vector_rms_ms2, 3),
+          report.number(r.vector_rms_counts, 1),
+          report.number(r.legacy_magnitude_rms_ms2, 3),
+          report.number(r.legacy_magnitude_rms_counts, 1),
+          "yes" if r in band else "",
+          r.n_samples) for r in results]))
+
+    lines.append("")
+    if recommended is None:
+        lines.append(f"{UNCALIBRATED_LABEL} for the "
+                     f"{metric_spec(chosen).short_label} - no cue amp is "
+                     "recommended (another metric's band is never "
+                     "substituted).")
+        lines.append(f"  {target.source}")
+    else:
+        value = get_metric_value(recommended, chosen, "ms2")
+        lines.append(f"Recommended cue amp: {recommended.amp} "
+                     f"({value:.2f} m/s², {metric_spec(chosen).short_label}) "
+                     f"- closest to the {target.band_label} target band "
+                     f"[{target.status_label}]")
+        lines.append("  (the amp closest to the target cue INTENSITY - not "
+                     "the amp that vibrates hardest)")
+    if band:
+        lines.append("In band: " + ", ".join(
+            f"{r.amp} ({get_metric_value(r, chosen, 'ms2'):.2f} m/s²)"
+            for r in band))
+    for name in METRIC_NAMES:
+        if name == chosen:
+            continue
+        # Each metric is judged against ITS OWN band - different rulers.
+        alt_target = cue_target(name)
+        alt = recommended_cue_amp(results, name)
+        if alt is None:
+            lines.append(f"  (for reference, the {metric_spec(name).short_label} "
+                         "has no calibrated target band, so it recommends "
+                         "nothing)")
+        else:
+            lines.append(f"  (for reference, {metric_spec(name).short_label} "
+                         f"aims at {alt_target.band_label} and would "
+                         f"recommend amp={alt.amp} at "
+                         f"{get_metric_value(alt, name, 'ms2'):.2f} m/s²)")
+    return lines
 
 
 # ==========================================
@@ -801,10 +909,10 @@ def run_experiment(log: Optional[LogFn] = None,
     finally:
         try:
             send(ser, "X")
-            if freq_hz != FREQ_HZ:
+            if freq_hz != hc.FIRMWARE_BOOT_PWM_HZ:
                 # A custom sweep frequency shouldn't outlive the sweep -
-                # put the pin back on the boot-default resonance.
-                send(ser, f"F {motor_index} {FREQ_HZ}")
+                # put the pin back on the firmware's boot default.
+                send(ser, f"F {motor_index} {hc.FIRMWARE_BOOT_PWM_HZ}")
             send(ser, "A STOP", wait_s=0.1)
         except Exception:
             pass

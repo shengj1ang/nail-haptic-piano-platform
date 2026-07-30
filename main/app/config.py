@@ -1,9 +1,25 @@
-"""Load and save FingerAccuracy settings from config.json."""
+"""Load and save FingerAccuracy settings from config.json.
+
+The "haptic" block (which actuator is in use and each actuator's default
+frequency/amp) is owned by common.haptic_config - the shared module every
+tool, experiment and window reads its defaults from. It is exposed here
+as Config.haptic so a window that already holds a Config can reach it
+without a second import, but the validation, the range constants and the
+live-saving path all live in that one module.
+"""
 
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional, Union
+
+from common.haptic_config import (
+    HapticConfig,
+    atomic_write_json,
+    default_haptic_config,
+    read_config_file,
+    validate_haptic_config,
+)
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
@@ -95,6 +111,12 @@ class Config:
     accelerometer: AccelerometerConfig = field(default_factory=AccelerometerConfig)
     finger_matching: FingerMatchingConfig = field(default_factory=FingerMatchingConfig)
     seeds: SeedConfig = field(default_factory=SeedConfig)
+    # Which actuator the platform drives and each actuator's default
+    # frequency/amp - see common/haptic_config.py, which validates this
+    # block, applies the built-in defaults to an older config.json that
+    # doesn't have it, and saves changes on its own (Initial Setup ->
+    # Haptic Actuator Defaults writes through that module, not here).
+    haptic: HapticConfig = field(default_factory=default_haptic_config)
     # Name of the calibration profile (data/keyboard-profile/<active_keyboard_profile>/)
     # that tools load by default - set automatically each time setup_keyboard_wizard.py saves.
     active_keyboard_profile: str = "default"
@@ -114,6 +136,12 @@ class Config:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
+        # A config.json written before the haptic block existed (or one
+        # missing individual fields) must not break startup: the
+        # validator fills in whatever is absent and clamps whatever is
+        # out of range, reporting both through common.haptic_config.
+        haptic, _warnings = validate_haptic_config(data.get("haptic"))
+
         return cls(
             camera=CameraConfig(**data.get("camera", {})),
             keyboard_detection=KeyboardDetectionConfig(**data.get("keyboard_detection", {})),
@@ -122,12 +150,19 @@ class Config:
             accelerometer=AccelerometerConfig(**data.get("accelerometer", {})),
             finger_matching=FingerMatchingConfig(**data.get("finger_matching", {})),
             seeds=SeedConfig(**data.get("seeds", {})),
+            haptic=haptic,
             active_keyboard_profile=data.get("active_keyboard_profile", "default"),
             visual_cue_style=data.get("visual_cue_style", "dot"),
         )
 
     def save(self, path: Path = DEFAULT_CONFIG_PATH) -> None:
-        payload = {
+        # Merged into whatever the file already holds (rather than
+        # replacing it) so a key this dataclass doesn't model - one
+        # written by a newer version, or by hand - survives a save, and
+        # written atomically so an interrupted write can't leave a
+        # corrupt config.json behind.
+        payload = read_config_file(path)
+        payload.update({
             "camera": asdict(self.camera),
             "keyboard_detection": asdict(self.keyboard_detection),
             "wizard": asdict(self.wizard),
@@ -135,8 +170,8 @@ class Config:
             "accelerometer": asdict(self.accelerometer),
             "finger_matching": asdict(self.finger_matching),
             "seeds": asdict(self.seeds),
+            "haptic": self.haptic.to_dict(),
             "active_keyboard_profile": self.active_keyboard_profile,
             "visual_cue_style": self.visual_cue_style,
-        }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        })
+        atomic_write_json(path, payload)

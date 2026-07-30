@@ -81,6 +81,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.accelerometer_window import AccelerometerWindow
+from common import haptic_config as hc
 from validation_experiments.acceleration_metrics import (
     DEFAULT_METRIC,
     METRIC_NAMES,
@@ -91,13 +92,32 @@ from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
     lra_frequency_sweep,
 )
+from validation_experiments import report
 from validation_experiments.motor_acc_delay_experiment import motor_acc_delay
 from validation_experiments.rig import SweepAborted, open_rig, send
 
 # Test-buzz pulse fired at the selected motor ("P idx count amp on off"),
 # so the operator can confirm which physical actuator the sweep will hit.
-TEST_BUZZ_AMP = 64    # project-default cue intensity
+# Its DRIVE is not a constant here: each window buzzes with the configured
+# default frequency/amp of the actuator that window is about (see
+# _buzz_defaults), so the wiring check feels like the real cue and an ERM
+# is never buzzed at an LRA's frequency (it would simply not move).
 TEST_BUZZ_MS = 500
+
+
+class _RunComboBox(QComboBox):
+    """The saved-run picker. Re-scans the experiment's output folder
+    every time the list is opened, so a run saved elsewhere (a
+    command-line run, another window) shows up without reopening this
+    window."""
+
+    def __init__(self, on_refresh):
+        super().__init__()
+        self._on_refresh = on_refresh
+
+    def showPopup(self) -> None:
+        self._on_refresh()
+        super().showPopup()
 
 
 class _SweepWorker(QThread):
@@ -463,8 +483,17 @@ class _SweepWindowBase(QMainWindow):
         # Long prose wraps to whatever width the window has instead of
         # dictating one: without this a paragraph-length DESCRIPTION sets
         # the window's minimum width and pushes it off a laptop screen.
-        description = self._wrapped_label(self.DESCRIPTION)
+        description = self._wrapped_label(self._description_text())
         setup_hint = self._wrapped_label(self.SETUP_HINT)
+
+        # What the rig is configured to drive right now. Every number a
+        # window quotes about "the project default" comes from here, so
+        # nothing on screen can go on claiming 224 Hz / amp 64 after the
+        # config is changed in Initial Setup.
+        self.haptic_label = self._wrapped_label("")
+        self.haptic_label.setStyleSheet("color: #9a9ba5;")  # muted
+        self._refresh_haptic_label()
+        hc.subscribe(self._on_haptic_config_changed)
 
         self.motor_spin = QSpinBox()
         self.motor_spin.setRange(0, 15)
@@ -480,10 +509,7 @@ class _SweepWindowBase(QMainWindow):
         self.acc_spin.setToolTip("LIS3DH sensor id in the ACC stream")
 
         self.test_buzz_btn = QPushButton("Test Buzz")
-        self.test_buzz_btn.setToolTip(
-            f"Pulse the selected motor once ({TEST_BUZZ_MS} ms at amp "
-            f"{TEST_BUZZ_AMP}) to confirm the wiring; the first click opens "
-            "the serial port (~2 s)")
+        self.test_buzz_btn.setToolTip(self._buzz_tooltip())
         self.test_buzz_btn.clicked.connect(self._test_buzz)
         self._test_ser = None  # lazy serial connection for test buzzes
 
@@ -537,8 +563,36 @@ class _SweepWindowBase(QMainWindow):
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop)
-        self.load_csv_btn = QPushButton("Load Chart from CSV...")
+        # Saved runs are found automatically in the experiment's output
+        # folder, newest first - picking one loads its chart AND prints
+        # its statistics, so a stored run can be read as numbers and not
+        # only as a picture. Browse... still opens a CSV from anywhere.
+        self.run_combo = _RunComboBox(self._populate_run_list)
+        self.run_combo.setMinimumWidth(260)
+        self.run_combo.setToolTip(
+            "Saved runs found in this experiment's output folder, newest "
+            "first. Selecting one re-renders its chart from its CSV and "
+            "prints its statistics into the log below. Saved files are "
+            "never modified.\n\n"
+            "A \"saved ...\" figure in an entry is the headline result "
+            "stored WITH that run, under the metric it was saved with; "
+            "the chart and the printed statistics are recomputed under "
+            "the metric selected above, so the two can differ.")
+        self._loading_run_list = False
+        self._populate_run_list()
+        self.run_combo.currentIndexChanged.connect(self._on_run_selected)
+
+        self.load_csv_btn = QPushButton("Browse...")
+        self.load_csv_btn.setToolTip(
+            "Load a sweep CSV from anywhere on disk (the list to the left "
+            "only covers this experiment's own output folder).")
         self.load_csv_btn.clicked.connect(self._load_csv)
+        self.stats_btn = QPushButton("Show Statistics")
+        self.stats_btn.setToolTip(
+            "Print the displayed run's statistics - the same numbers the "
+            "live run reports - into the log below, for the metric the "
+            "chart is currently using.")
+        self.stats_btn.clicked.connect(self._show_statistics)
         self.acc_view_btn = QPushButton("Open Accelerometer Live View")
         self.acc_view_btn.setToolTip(
             "Watch the ACC stream live - with the view connected, Test Buzz "
@@ -550,10 +604,17 @@ class _SweepWindowBase(QMainWindow):
         buttons.addWidget(self.start_btn)
         buttons.addWidget(self.stop_btn)
         buttons.addSpacing(12)
-        buttons.addWidget(self.load_csv_btn)
         buttons.addWidget(self.enlarge_btn)
         buttons.addWidget(self.acc_view_btn)
         buttons.addStretch(1)
+
+        # Its own short row (the layout rule for these windows): a combo
+        # plus two buttons on the button row would push the window wide.
+        runs_row = QHBoxLayout()
+        runs_row.addWidget(QLabel("Saved runs:"))
+        runs_row.addWidget(self.run_combo, 1)
+        runs_row.addWidget(self.load_csv_btn)
+        runs_row.addWidget(self.stats_btn)
 
         metric_row = self._build_metric_row()
 
@@ -566,6 +627,7 @@ class _SweepWindowBase(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addWidget(description)
+        layout.addWidget(self.haptic_label)
         layout.addWidget(setup_hint)
         layout.addLayout(config_row)
         # Windows with more controls than fit on one line add extra config
@@ -575,6 +637,7 @@ class _SweepWindowBase(QMainWindow):
         layout.addWidget(defaults_note)
         if metric_row is not None:
             layout.addLayout(metric_row)
+        layout.addLayout(runs_row)
         layout.addLayout(buttons)
         layout.addWidget(self.progress_bar)
         layout.addWidget(splitter, 1)
@@ -613,7 +676,61 @@ class _SweepWindowBase(QMainWindow):
         height = min(self.PREFERRED_SIZE[1], int(available.height() * 0.92))
         self.resize(width, height)
 
+    # -- haptic configuration -------------------------------------------
+
+    def _buzz_defaults(self) -> tuple:
+        """(frequency, amp) the Test Buzz drives at, and the actuator
+        label it belongs to: (freq_hz, amp, label).
+
+        The base answer is the configured actuator in use. Windows for a
+        SPECIFIC actuator (the two LRA sweeps) or with their own actuator
+        picker override it - buzzing an LRA experiment with an ERM's
+        carrier would just produce silence, which is the opposite of what
+        a wiring check is for."""
+        config = hc.get_haptic_config()
+        defaults = config.active
+        return (defaults.default_frequency, defaults.default_amp,
+                hc.actuator_label(config.using))
+
+    def _buzz_tooltip(self) -> str:
+        """Test Buzz's tooltip, naming the drive it will actually send."""
+        buzz_freq, buzz_amp, buzz_label = self._buzz_defaults()
+        return (f"Pulse the selected motor once ({TEST_BUZZ_MS} ms at the "
+                f"configured {buzz_label} default drive: {buzz_freq} Hz, "
+                f"amp {buzz_amp}) to confirm the wiring; the first click "
+                "opens the serial port (~2 s)")
+
+    def _haptic_info_text(self) -> str:
+        """The muted line under the description. Subclasses that pin
+        themselves to one actuator say which one."""
+        config = hc.get_haptic_config()
+        defaults = config.active
+        return (f"<b>Current haptic actuator:</b> "
+                f"{hc.actuator_label(config.using)} &nbsp;·&nbsp; "
+                f"<b>Default drive:</b> {defaults.default_frequency} Hz, "
+                f"amp {defaults.default_amp} "
+                "<i>(config.json — change it in Initial Setup → Haptic "
+                "Actuator Defaults)</i>")
+
+    def _refresh_haptic_label(self) -> None:
+        self.haptic_label.setText(self._haptic_info_text())
+
+    def _on_haptic_config_changed(self, config) -> None:
+        """Live refresh when the defaults are edited while this window is
+        open. Only the DESCRIPTIVE text follows the config: a control the
+        user has already touched is left exactly as they set it."""
+        try:
+            self._refresh_haptic_label()
+            self.test_buzz_btn.setToolTip(self._buzz_tooltip())
+        except RuntimeError:
+            pass  # the underlying widget is gone; unsubscribe on close
+
     # -- subclass hooks -------------------------------------------------
+
+    def _description_text(self) -> str:
+        """The window's description. A hook rather than a plain attribute
+        so a subclass can quote the LIVE configured defaults."""
+        return self.DESCRIPTION
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
         """Add experiment-specific parameter widgets to the config row;
@@ -634,9 +751,11 @@ class _SweepWindowBase(QMainWindow):
         return {}
 
     def _pre_buzz_cmds(self, motor: int) -> list:
-        """Commands sent right before a Test Buzz pulse (e.g. setting
-        the PWM frequency the selected actuator needs)."""
-        return []
+        """Commands sent right before a Test Buzz pulse. By default the
+        port is tuned to the buzz drive's frequency: the firmware boots
+        every pin at the LRA's resonance, so without this an ERM would
+        not move at all."""
+        return [f"F {motor} {self._buzz_defaults()[0]}"]
 
     def _summary_text(self, summary: dict) -> str:
         raise NotImplementedError
@@ -779,6 +898,9 @@ class _SweepWindowBase(QMainWindow):
         if summary is not None:
             text += " " + self._summary_text(summary, saved=False)
         self.status.setText(text)
+        # Every metric-dependent figure moves with this selector, so the
+        # printed statistics are restated under the new metric.
+        self._log_report(self._current_csv, summary)
 
     # -- full-size chart preview ----------------------------------------
 
@@ -805,19 +927,144 @@ class _SweepWindowBase(QMainWindow):
             return
         # The PNG and its CSV share the run's <ts> stem, so the newest of
         # each belong to the same run.
-        note = self._set_current_run(self._latest(self.CSV_GLOB))
+        latest_csv = self._latest(self.CSV_GLOB)
+        note = self._set_current_run(latest_csv)
+        self._populate_run_list(select_path=latest_csv)
         self.status.setText(
             f"Showing latest saved result: {os.path.basename(latest_png)} "
             "- press Start for a new run." + note
         )
+        # The chart alone does not say what the run measured; print the
+        # numbers underneath it as well.
+        if latest_csv:
+            self._log_report(latest_csv, None)
+
+    # -- saved-run list --------------------------------------------------
+
+    def _run_detail(self, meta) -> str:
+        """A short "what was this run" note for the picker's entries.
+        Subclasses name the parameters that distinguish their runs."""
+        return ""
+
+    def _run_label(self, csv_path: str) -> str:
+        """One entry in the saved-run picker: when it ran, its file name
+        and the parameters that tell it apart from its neighbours."""
+        meta = None
+        loader = getattr(self.MODULE, "load_meta", None)
+        if loader is not None:
+            try:
+                meta = loader(csv_path)
+            except Exception:
+                meta = None
+        label = (f"{report.run_time_text(csv_path, meta)}  ·  "
+                 f"{os.path.basename(csv_path)}")
+        detail = self._run_detail(meta)
+        return f"{label}  ·  {detail}" if detail else label
+
+    def _populate_run_list(self, select_path: str | None = None) -> None:
+        """Re-scan the experiment's output folder, newest run first.
+
+        Never fires a load: the list is rebuilt with signals blocked, so
+        refreshing it (or selecting the run already on screen) cannot
+        re-render anything behind the user's back."""
+        paths = sorted(glob.glob(os.path.join(self.MODULE.OUTPUT_DIR,
+                                              self.CSV_GLOB)))
+        paths.reverse()  # newest first (epoch-stamped names sort in order)
+        keep = select_path or self._current_csv
+        self._loading_run_list = True
+        self.run_combo.blockSignals(True)
+        self.run_combo.clear()
+        if not paths:
+            self.run_combo.addItem("(no saved runs yet)", None)
+            self.run_combo.setEnabled(False)
+        else:
+            self.run_combo.setEnabled(self._worker is None)
+            for path in paths:
+                self.run_combo.addItem(self._run_label(path), path)
+            # A run loaded from elsewhere (Browse...) is not in the
+            # folder listing - show it rather than silently pointing the
+            # picker at a different run than the chart.
+            if keep and keep not in paths:
+                self.run_combo.insertItem(0, f"{self._run_label(keep)}  "
+                                             "(outside this folder)", keep)
+            index = self.run_combo.findData(keep) if keep else -1
+            self.run_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.run_combo.blockSignals(False)
+        self._loading_run_list = False
+
+    def _on_run_selected(self, index: int) -> None:
+        if self._loading_run_list or self._worker is not None:
+            return
+        csv_path = self.run_combo.itemData(index)
+        if csv_path and csv_path != self._current_csv:
+            self._load_run(csv_path)
+
+    # -- statistics report -----------------------------------------------
+
+    def _report_lines(self, csv_path: str, summary) -> list:
+        """The displayed run's statistics as text, from the experiment
+        module's summary_report(). Returns [] when the module has none."""
+        build = getattr(self.MODULE, "summary_report", None)
+        if build is None or not csv_path:
+            return []
+        try:
+            return list(build(csv_path, summary))
+        except Exception as e:
+            return ["", f"(could not rebuild the statistics from "
+                        f"{os.path.basename(csv_path)}: {e})"]
+
+    def _log_report(self, csv_path: str, summary) -> bool:
+        """Print those statistics into the log panel. The chart alone
+        cannot be read back as numbers, so every load and every metric
+        switch restates them."""
+        lines = self._report_lines(csv_path, summary)
+        if not lines:
+            return False
+        self.log_view.appendPlainText("\n".join(lines))
+        # Land on the start of the report rather than the end of a long
+        # per-trial table.
+        self.log_view.verticalScrollBar().setValue(
+            self.log_view.verticalScrollBar().maximum())
+        return True
+
+    def _show_statistics(self) -> None:
+        """"Show Statistics" - reprint for the run currently on screen."""
+        if self._current_csv is None:
+            self.status.setText("No run displayed yet - load a saved run or "
+                                "press Start.")
+            return
+        summary = None
+        try:
+            # Re-derive under the metric the chart is using, so the text
+            # and the picture always agree.
+            summary = self.MODULE.render_csv(
+                self._current_csv,
+                os.path.join(self._tmpdir.name, "stats_only.png"),
+                **self._render_kwargs())
+        except Exception:
+            summary = None   # the report falls back to the run's own meta
+        if self._log_report(self._current_csv, summary):
+            self.status.setText(
+                f"Statistics for {os.path.basename(self._current_csv)} "
+                "printed in the log below.")
+        else:
+            self.status.setText("This experiment has no text statistics.")
+
+    # -- loading a saved run ---------------------------------------------
 
     def _load_csv(self) -> None:
+        """"Browse..." - load a CSV from anywhere on disk."""
         latest_csv = self._latest(self.CSV_GLOB)
         start_dir = latest_csv if latest_csv else self.MODULE.OUTPUT_DIR
         csv_path, _ = QFileDialog.getOpenFileName(
             self, "Load sweep CSV", start_dir, "Sweep CSV (*.csv)")
         if not csv_path:
             return
+        self._load_run(csv_path)
+
+    def _load_run(self, csv_path: str) -> None:
+        """Re-render `csv_path` and print its statistics. Renders to a
+        temp file, so the saved outputs are never touched."""
         # Point the metric selector at what THIS run supports before
         # rendering, so an old legacy-only CSV is asked for the legacy
         # metric rather than one it cannot provide.
@@ -834,10 +1081,14 @@ class _SweepWindowBase(QMainWindow):
             QMessageBox.warning(self, "Couldn't load CSV", str(e))
             return
         self._on_csv_loaded(csv_path)
+        # Keep the picker on the run the chart is showing (a Browse'd
+        # file is added to the list as an outside-folder entry).
+        self._populate_run_list(select_path=csv_path)
         self.status.setText(
             f"Chart re-rendered from {os.path.basename(csv_path)} - "
             + self._summary_text(summary, saved=False) + note
         )
+        self._log_report(csv_path, summary)
 
     def _render_kwargs(self) -> dict:
         """Extra kwargs for the module's render_csv() - the chosen plot
@@ -871,20 +1122,25 @@ class _SweepWindowBase(QMainWindow):
     def _test_buzz(self) -> None:
         if self._worker is not None:
             return
+        # Re-read every time: the configured default may have been
+        # changed since this window opened.
+        buzz_freq, buzz_amp, buzz_label = self._buzz_defaults()
         acc_ser = self._acc_stream_serial()
         if acc_ser is not None:
             motor = self.motor_spin.value()
             try:
                 for cmd in self._pre_buzz_cmds(motor):
                     send(acc_ser, cmd, wait_s=0.0)
-                send(acc_ser, f"P {motor} 1 {TEST_BUZZ_AMP} {TEST_BUZZ_MS} 0",
+                send(acc_ser, f"P {motor} 1 {buzz_amp} {TEST_BUZZ_MS} 0",
                      wait_s=0.0)
             except Exception as e:
                 QMessageBox.warning(self, "Test buzz failed", str(e))
                 return
             self.status.setText(
-                f"Test buzz sent to motor port {motor} via the live view's "
-                "connection - the pulse should be visible in its plot.")
+                f"Test buzz sent to motor port {motor} at the {buzz_label} "
+                f"default drive ({buzz_freq} Hz, amp {buzz_amp}) via the "
+                "live view's connection - the pulse should be visible in "
+                "its plot.")
             return
         if self._test_ser is None:
             self.status.setText("Connecting for test buzz...")
@@ -900,7 +1156,7 @@ class _SweepWindowBase(QMainWindow):
             for cmd in self._pre_buzz_cmds(motor):
                 send(self._test_ser, cmd, wait_s=0.0)
             # Async firmware pulse - fire and forget, no X needed.
-            send(self._test_ser, f"P {motor} 1 {TEST_BUZZ_AMP} {TEST_BUZZ_MS} 0",
+            send(self._test_ser, f"P {motor} 1 {buzz_amp} {TEST_BUZZ_MS} 0",
                  wait_s=0.0)
         except Exception as e:
             self._close_test_serial()
@@ -908,8 +1164,9 @@ class _SweepWindowBase(QMainWindow):
             QMessageBox.warning(self, "Test buzz failed", str(e))
             return
         self.status.setText(
-            f"Test buzz sent to motor port {motor} - the actuator glued to "
-            "the accelerometer should have vibrated.")
+            f"Test buzz sent to motor port {motor} at the {buzz_label} "
+            f"default drive ({buzz_freq} Hz, amp {buzz_amp}) - the actuator "
+            "glued to the accelerometer should have vibrated.")
 
     def _close_test_serial(self) -> None:
         if self._test_ser is None:
@@ -947,6 +1204,8 @@ class _SweepWindowBase(QMainWindow):
         self.status.setText("Running... keep the rig still during the sweep.")
         self.start_btn.setEnabled(False)
         self.load_csv_btn.setEnabled(False)
+        self.run_combo.setEnabled(False)
+        self.stats_btn.setEnabled(False)
         for widget in self._config_inputs:
             widget.setEnabled(False)
         self.test_buzz_btn.setEnabled(False)
@@ -991,6 +1250,8 @@ class _SweepWindowBase(QMainWindow):
         except ValueError:
             pass
         note = self._set_current_run(summary.get("csv_path"))
+        # The run just written is now the newest entry in the picker.
+        self._populate_run_list(select_path=summary.get("csv_path"))
         self.status.setText("Done - " + self._summary_text(summary, saved=True)
                             + note)
 
@@ -1006,6 +1267,8 @@ class _SweepWindowBase(QMainWindow):
         self._worker = None
         self.start_btn.setEnabled(True)
         self.load_csv_btn.setEnabled(True)
+        self.run_combo.setEnabled(True)
+        self.stats_btn.setEnabled(True)
         for widget in self._config_inputs:
             widget.setEnabled(True)
         self.test_buzz_btn.setEnabled(True)
@@ -1017,6 +1280,7 @@ class _SweepWindowBase(QMainWindow):
         # The full-size preview is shared, so it only goes away with the
         # LAST validation window - closing one of several must not pull
         # the chart out from under the others.
+        hc.unsubscribe(self._on_haptic_config_changed)
         _SweepWindowBase._live_windows.discard(self)
         if not _SweepWindowBase._live_windows:
             close_shared_plot_preview()
@@ -1046,10 +1310,34 @@ class FrequencySweepWindow(_SweepWindowBase):
         f"{lra_frequency_sweep.FINE_STEP_HZ} Hz pass around the peak) at amp="
         f"{lra_frequency_sweep.AMP} and measures RMS acceleration with the LIS3DH. "
         f"Takes ~{lra_frequency_sweep.estimated_duration_s():.0f} s; CSV + response "
-        "curve are saved to data/validation_experiments/lra_resonance_intensity_calibration/. "
-        "Adopted project value: "
-        "f0 = 224 Hz (see the folder's README)."
+        "curve are saved to data/validation_experiments/lra_resonance_intensity_calibration/."
     )
+
+    def _description_text(self) -> str:
+        # The adopted f0 is whatever the config currently says for the
+        # LRA - this experiment is how that number is measured, so the
+        # window states the value in force rather than a literal.
+        return (self.DESCRIPTION + " Adopted project value: f0 = "
+                f"{hc.get_default_frequency(hc.LRA)} Hz "
+                "(config.json haptic.lra.default_frequency; see the "
+                "folder's README). The sweep itself always covers the "
+                "full range above — the configured default never narrows "
+                "what is measured.")
+
+    def _buzz_defaults(self) -> tuple:
+        # An LRA experiment: buzz with the LRA's configured drive even
+        # when the rig is configured to use the ERM day to day.
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return (defaults.default_frequency, defaults.default_amp,
+                hc.actuator_label(hc.LRA))
+
+    def _haptic_info_text(self) -> str:
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return ("<b>LRA experiment</b> — Test Buzz uses the configured LRA "
+                f"default drive ({defaults.default_frequency} Hz, amp "
+                f"{defaults.default_amp}), independently of which actuator "
+                "is currently in use. The sweep drives its own frequency "
+                "points.")
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
         self.amp_spin = QSpinBox()
@@ -1066,6 +1354,18 @@ class FrequencySweepWindow(_SweepWindowBase):
         config_row.addWidget(self.amp_spin)
         config_row.addSpacing(12)
         self._config_inputs.append(self.amp_spin)
+
+    def _run_detail(self, meta) -> str:
+        params = (meta or {}).get("parameters", {})
+        result = (meta or {}).get("result", {})
+        parts = []
+        if result.get("resonance_hz") is not None:
+            parts.append(f"saved f0 {result['resonance_hz']} Hz")
+        if params.get("amp") is not None:
+            parts.append(f"amp {params['amp']}")
+        if params.get("motor_index") is not None:
+            parts.append(f"port {params['motor_index']}")
+        return ", ".join(parts)
 
     def _extra_run_kwargs(self) -> dict:
         return {"amp": self.amp_spin.value()}
@@ -1087,8 +1387,8 @@ class AmplitudeSweepWindow(_SweepWindowBase):
     CSV_GLOB = "amp_sweep_*.csv"
     DESCRIPTION = (
         "Finds the drive amplitude for a clearly perceptible, comfortable "
-        f"cue: with the PWM frequency fixed at the measured resonance "
-        f"({lra_amplitude_sweep.FREQ_HZ} Hz), steps amp "
+        "cue: with the PWM frequency fixed at the measured resonance "
+        "(the configured LRA default), steps amp "
         f"{lra_amplitude_sweep.AMP_VALUES[0]}-"
         f"{lra_amplitude_sweep.AMP_VALUES[-1]} and reports the "
         "<b>recommended cue amp</b> — the amp whose measured intensity is "
@@ -1102,25 +1402,70 @@ class AmplitudeSweepWindow(_SweepWindowBase):
             for name in METRIC_NAMES)
         + f". Takes ~{lra_amplitude_sweep.estimated_duration_s():.0f} s; "
         "CSV + response curve are saved to "
-        "data/validation_experiments/lra_resonance_intensity_calibration/. "
-        "Adopted project value: amp = 64 (see the folder's README)."
+        "data/validation_experiments/lra_resonance_intensity_calibration/."
     )
 
+    def _description_text(self) -> str:
+        # Both quoted numbers are the LIVE configured LRA defaults: the
+        # frequency the amps are measured at, and the adopted cue amp
+        # this experiment is how you choose.
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return (self.DESCRIPTION
+                + f" Drive frequency: {defaults.default_frequency} Hz. "
+                f"Adopted project value: amp = {defaults.default_amp} "
+                "(config.json haptic.lra.default_amp; see the folder's "
+                "README). The amp points swept are the experiment's own "
+                "and do not come from the config.")
+
+    def _buzz_defaults(self) -> tuple:
+        # An LRA experiment - see FrequencySweepWindow.
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return (defaults.default_frequency, defaults.default_amp,
+                hc.actuator_label(hc.LRA))
+
+    def _haptic_info_text(self) -> str:
+        defaults = hc.get_actuator_defaults(hc.LRA)
+        return ("<b>LRA experiment</b> — the PWM-freq box opens on the "
+                f"configured LRA default ({defaults.default_frequency} Hz) "
+                f"and the adopted cue amp is {defaults.default_amp}; both "
+                "come from config.json. Anything you type here wins for "
+                "this run.")
+
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        lra_defaults = hc.get_actuator_defaults(hc.LRA)
         self.freq_spin = QSpinBox()
-        self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
-        self.freq_spin.setValue(lra_amplitude_sweep.FREQ_HZ)
+        # Firmware 'F' command's valid range - the sweep may legitimately
+        # be run off-resonance, so it is not narrowed to the LRA band.
+        self.freq_spin.setRange(hc.FIRMWARE_FREQ_MIN_HZ,
+                                hc.FIRMWARE_FREQ_MAX_HZ)
+        # Initial value only: once the user changes it, the run uses
+        # theirs (the config is never re-applied at Start).
+        self.freq_spin.setValue(lra_defaults.default_frequency)
         self.freq_spin.setSuffix(" Hz")
         self.freq_spin.setToolTip(
             "PWM frequency the amplitudes are measured at. The default "
-            f"{lra_amplitude_sweep.FREQ_HZ} Hz is the resonance measured by "
-            "the frequency sweep; change it only after re-measuring the "
-            "resonance there - LRA amplitudes measured off-resonance are "
-            "meaningless. Restored to the boot default when the sweep ends.")
+            f"{lra_defaults.default_frequency} Hz is the configured LRA "
+            "resonance (config.json); change it only after re-measuring "
+            "the resonance with the frequency sweep - LRA amplitudes "
+            "measured off-resonance are meaningless. Restored to the "
+            "firmware boot default when the sweep ends.")
         config_row.addWidget(QLabel("PWM freq:"))
         config_row.addWidget(self.freq_spin)
         config_row.addSpacing(12)
         self._config_inputs.append(self.freq_spin)
+
+    def _run_detail(self, meta) -> str:
+        params = (meta or {}).get("parameters", {})
+        result = (meta or {}).get("result", {})
+        parts = []
+        if params.get("freq_hz") is not None:
+            parts.append(f"{params['freq_hz']} Hz")
+        amp = result.get("recommended_cue_amp", result.get("recommended_amp"))
+        if amp is not None:
+            parts.append(f"saved cue amp {amp}")
+        if params.get("motor_index") is not None:
+            parts.append(f"port {params['motor_index']}")
+        return ", ".join(parts)
 
     def _extra_run_kwargs(self) -> dict:
         return {"freq_hz": self.freq_spin.value()}
@@ -1170,10 +1515,43 @@ class SpectrogramWindow(_SweepWindowBase):
         "metrics are measured per cell and the full three-axis samples are "
         "saved, so \"Plot metric\" re-colours the map (and moves the peak) "
         "without a new run. Selecting the Type "
-        "seeds the amp/frequency ranges (then adjustable). Test Buzz uses the "
-        "LRA config (224 Hz, amp 64) for both types. Outputs are saved to "
-        "data/validation_experiments/actuator_spectrogram/."
+        "seeds the amp/frequency ranges (then adjustable). Outputs are saved "
+        "to data/validation_experiments/actuator_spectrogram/."
     )
+
+    def _description_text(self) -> str:
+        # The buzz drive follows the SELECTED type's configured default,
+        # so the sentence is built when the window opens.
+        default_type = hc.get_active_haptic_type()
+        defaults = hc.get_actuator_defaults(default_type)
+        return (self.DESCRIPTION + " The window opens on the actuator in "
+                f"use ({hc.actuator_label(default_type)}) and Test Buzz "
+                "drives the selected type's configured default "
+                f"({defaults.default_frequency} Hz, amp "
+                f"{defaults.default_amp} for "
+                f"{hc.actuator_label(default_type)}) — the swept cells use "
+                "the ranges above, never the config.")
+
+    def _buzz_defaults(self) -> tuple:
+        # Follows the Type picker: buzzing an ERM at an LRA's resonance
+        # (or the reverse) is not a usable wiring check.
+        selected = self.type_combo.currentData() if hasattr(
+            self, "type_combo") else hc.get_active_haptic_type()
+        defaults = hc.get_actuator_defaults(selected)
+        return (defaults.default_frequency, defaults.default_amp,
+                hc.actuator_label(selected))
+
+    def _haptic_info_text(self) -> str:
+        selected = (self.type_combo.currentData()
+                    if hasattr(self, "type_combo")
+                    else hc.get_active_haptic_type())
+        defaults = hc.get_actuator_defaults(selected)
+        return (f"<b>Test Buzz drive:</b> the configured "
+                f"{hc.actuator_label(selected)} default "
+                f"({defaults.default_frequency} Hz, amp "
+                f"{defaults.default_amp}, from config.json) — it follows "
+                "the Type selector. <i>The swept frequency/amp cells are "
+                "the ranges you set above.</i>")
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
         # This experiment covers the real motor ports only (LRA=11, ERM=10).
@@ -1186,6 +1564,12 @@ class SpectrogramWindow(_SweepWindowBase):
         self.type_combo = QComboBox()
         for t in actuator_spectrogram.MOTOR_TYPES:
             self.type_combo.addItem(t, t)
+        # Open on the actuator the rig is configured to use, so the
+        # common case needs no clicking (still fully overridable).
+        configured = hc.actuator_label(hc.get_active_haptic_type())
+        index = self.type_combo.findData(configured)
+        if index >= 0:
+            self.type_combo.setCurrentIndex(index)
         self.type_combo.setToolTip(
             "Actuator type. Selecting it resets the amp and frequency ranges "
             "to that type's defaults (ERM freq 0-1000 Hz, LRA freq 0-350 Hz; "
@@ -1331,9 +1715,13 @@ class SpectrogramWindow(_SweepWindowBase):
 
     def _on_type_changed(self) -> None:
         self._apply_type_defaults()
-        # Point the port at the type's usual wiring (ERM=10, LRA=11); the user
-        # can still override it.
-        self.motor_spin.setValue(11 if self.type_combo.currentData() == "LRA" else 10)
+        # Point the port at the type's usual wiring (the one mapping in
+        # common.haptic_config); the user can still override it.
+        self.motor_spin.setValue(
+            hc.get_actuator_motor_port(self.type_combo.currentData()))
+        # Test Buzz and the info line follow the selected type.
+        self._refresh_haptic_label()
+        self.test_buzz_btn.setToolTip(self._buzz_tooltip())
         self._update_estimate()
 
     # -- live annotate / metric switching (writes the run's own PNG) -----
@@ -1385,12 +1773,17 @@ class SpectrogramWindow(_SweepWindowBase):
             f"Annotation set to '{self.annotate_combo.currentText()}' - "
             f"saved into {os.path.basename(png_path)}.")
 
-    def _pre_buzz_cmds(self, motor: int) -> list:
-        # Test Buzz uses the LRA's best config (its 224 Hz resonance =
-        # DEFAULT_PWM_FREQ; the base fires it at TEST_BUZZ_AMP = 64, the LRA's
-        # adopted amp) for BOTH actuator types - a consistent known-good wiring
-        # check, not the swept drive.
-        return [f"F {motor} {actuator_spectrogram.DEFAULT_PWM_FREQ}"]
+    def _run_detail(self, meta) -> str:
+        params = (meta or {}).get("parameters", {})
+        parts = [str(params.get("motor_type", ""))] if params.get(
+            "motor_type") else []
+        if params.get("freq_min") is not None:
+            parts.append(f"{params['freq_min']:g}-{params['freq_max']:g} Hz")
+        if params.get("precision"):
+            parts.append(str(params["precision"]))
+        if params.get("motor_index") is not None:
+            parts.append(f"port {params['motor_index']}")
+        return ", ".join(parts)
 
     def _extra_run_kwargs(self) -> dict:
         return {"motor_type": self.type_combo.currentData(),
@@ -1441,12 +1834,45 @@ class MotorAccDelayWindow(_SweepWindowBase):
         "<b>settling time</b> (onset → the vibration envelope entering and "
         "holding the steady band). Both settling forms are saved — from the "
         "onset and from the command — plus the historical detection-level "
-        f"crossing. {motor_acc_delay.NUM_TRIALS} trials at amp="
-        f"{motor_acc_delay.AMP}; the motor runs for the whole Vibration "
-        "duration and every raw X/Y/Z sample of it is saved. Firmware "
-        "≥ v2.9.0. Outputs → "
+        f"crossing. {motor_acc_delay.NUM_TRIALS} trials; the motor runs for "
+        "the whole Vibration duration and every raw X/Y/Z sample of it is "
+        "saved. Firmware ≥ v2.9.0. Outputs → "
         "data/validation_experiments/motor_acc_delay_experiment/."
     )
+
+    def _description_text(self) -> str:
+        # The study-representative latency is the one measured at the cue
+        # the study actually delivers, so the amp quoted is the configured
+        # default of the actuator this window opens on.
+        default_type = hc.get_active_haptic_type()
+        defaults = hc.get_actuator_defaults(default_type)
+        return (self.DESCRIPTION + " The Actuator / PWM freq / Drive amp "
+                "controls open on the configured default for the actuator "
+                f"in use ({hc.actuator_label(default_type)}: "
+                f"{defaults.default_frequency} Hz, amp "
+                f"{defaults.default_amp}); anything you change wins for "
+                "that run and is recorded as such in the run's meta.")
+
+    def _buzz_defaults(self) -> tuple:
+        # This window already exposes the exact drive the run will use -
+        # buzz with THAT, so the check matches the measurement.
+        label = self.actuator_combo.currentText() if hasattr(
+            self, "actuator_combo") else hc.actuator_label(
+                hc.get_active_haptic_type())
+        if hasattr(self, "freq_spin") and hasattr(self, "amp_spin"):
+            return self.freq_spin.value(), self.amp_spin.value(), label
+        defaults = hc.get_actuator_defaults(label)
+        return (defaults.default_frequency, defaults.default_amp, label)
+
+    def _haptic_info_text(self) -> str:
+        config = hc.get_haptic_config()
+        return (f"<b>Current haptic actuator:</b> "
+                f"{hc.actuator_label(config.using)} &nbsp;·&nbsp; "
+                f"<b>Default drive:</b> {config.active.default_frequency} Hz, "
+                f"amp {config.active.default_amp} <i>(config.json). Test "
+                "Buzz and each run use the values in the controls below, "
+                "which start from this default and follow the Actuator "
+                "selector.</i>")
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
         # Only the actuator picker shares the first row with the motor
@@ -1454,9 +1880,20 @@ class MotorAccDelayWindow(_SweepWindowBase):
         # rows below, so the window fits a laptop screen.
         self.actuator_combo = QComboBox()
         self.actuator_combo.addItems(list(motor_acc_delay.ACTUATOR_MOTORS))
+        # Open on the actuator the rig is configured to use. Set BEFORE
+        # the change handler is connected: the drive spins it would
+        # update do not exist yet (they are built in _extra_config_rows,
+        # which reads the selection made here).
+        configured = hc.actuator_label(hc.get_active_haptic_type())
+        if self.actuator_combo.findText(configured) >= 0:
+            self.actuator_combo.setCurrentText(configured)
+        self.motor_spin.setValue(
+            motor_acc_delay.ACTUATOR_MOTORS[self.actuator_combo.currentText()])
         self.actuator_combo.setToolTip(
             "Actuator under test - selecting one also sets its wiring-"
-            "convention motor port (LRA → 11, ERM → 10); the port can "
+            "convention motor port and its configured default drive "
+            f"(LRA → port {hc.get_actuator_motor_port(hc.LRA)}, ERM → port "
+            f"{hc.get_actuator_motor_port(hc.ERM)}); every one of those can "
             "still be overridden afterwards")
         self.actuator_combo.currentTextChanged.connect(self._on_actuator_changed)
         config_row.addWidget(QLabel("Actuator:"))
@@ -1465,29 +1902,40 @@ class MotorAccDelayWindow(_SweepWindowBase):
         self._config_inputs.append(self.actuator_combo)
 
     def _extra_config_rows(self) -> list:
+        selected = self.actuator_combo.currentText()
+        configured_amp = motor_acc_delay.actuator_amp(selected)
+        configured_freq = motor_acc_delay.actuator_pwm_hz(selected)
+
         self.amp_spin = QSpinBox()
-        self.amp_spin.setRange(1, 255)
-        self.amp_spin.setValue(motor_acc_delay.AMP)
+        # 0 would drive nothing, so this control starts at 1; the config
+        # itself allows the firmware's full 0-255.
+        self.amp_spin.setRange(max(1, hc.AMP_MIN), hc.AMP_MAX)
+        self.amp_spin.setValue(configured_amp)
         self.amp_spin.setToolTip(
-            "PWM drive amplitude (0-255 duty scale). The default "
-            f"{motor_acc_delay.AMP} is the calibrated ~0.5 m/s² cue level - "
-            "the latency at THIS amp is the one that bounds the study's "
-            "timestamp error. Higher amps ring the LRA up faster and will "
-            "read lower, but measure a different cue than the study "
-            "delivers; use them for exploration only.")
+            f"PWM drive amplitude ({hc.AMP_MIN}-{hc.AMP_MAX} duty scale). "
+            f"The default {configured_amp} is the configured cue level for "
+            "the selected actuator (config.json) - the latency at THIS amp "
+            "is the one that bounds the study's timestamp error. Higher "
+            "amps ring the LRA up faster and will read lower, but measure "
+            "a different cue than the study delivers; use them for "
+            "exploration only.")
 
         self.freq_spin = QSpinBox()
-        self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
+        # Firmware 'F' command's valid range - deliberately wider than a
+        # single actuator's configured band, so an exploratory run is
+        # possible; it is the config that is range-checked per actuator.
+        self.freq_spin.setRange(hc.FIRMWARE_FREQ_MIN_HZ, hc.FIRMWARE_FREQ_MAX_HZ)
         self.freq_spin.setSuffix(" Hz")
-        self.freq_spin.setValue(motor_acc_delay.ACTUATOR_PWM_HZ[
-            self.actuator_combo.currentText()])
+        self.freq_spin.setValue(configured_freq)
         self.freq_spin.setToolTip(
             "PWM drive frequency; follows the actuator selection "
-            "automatically (LRA → 224 Hz resonance, ERM → 5 kHz so the "
-            "chopped drive acts as smooth DC - an ERM never starts at "
-            "224 Hz). Override only with a reason: an off-resonance LRA "
-            "or a sub-kHz ERM invalidates the measurement. Restored to "
-            "the boot default when the run ends.")
+            "automatically, taking each actuator's configured default from "
+            f"config.json (LRA → {hc.get_default_frequency(hc.LRA)} Hz "
+            f"resonance, ERM → {hc.get_default_frequency(hc.ERM)} Hz so the "
+            "chopped drive acts as smooth DC - an ERM cannot start at an "
+            "LRA's resonance). Override only with a reason: an off-resonance "
+            "LRA or a sub-kHz ERM invalidates the measurement. Restored to "
+            "the firmware boot default when the run ends.")
 
         self.duration_spin = QDoubleSpinBox()
         self.duration_spin.setRange(motor_acc_delay.VIB_DURATION_MIN_S,
@@ -1572,15 +2020,24 @@ class MotorAccDelayWindow(_SweepWindowBase):
 
     def _on_actuator_changed(self, actuator: str) -> None:
         # Selecting an actuator resets every actuator-dependent parameter
-        # to that actuator's defaults (each can still be overridden after).
+        # to THAT actuator's configured defaults (each can still be
+        # overridden after - nothing re-applies the config at Start).
         self.motor_spin.setValue(motor_acc_delay.ACTUATOR_MOTORS[actuator])
-        self.freq_spin.setValue(motor_acc_delay.ACTUATOR_PWM_HZ[actuator])
-        self.amp_spin.setValue(motor_acc_delay.AMP)
+        self.freq_spin.setValue(motor_acc_delay.actuator_pwm_hz(actuator))
+        self.amp_spin.setValue(motor_acc_delay.actuator_amp(actuator))
+        self.test_buzz_btn.setToolTip(self._buzz_tooltip())
 
-    def _pre_buzz_cmds(self, motor: int) -> list:
-        # An ERM never starts on the 224 Hz LRA boot default - give the
-        # buzz the same PWM frequency the run would use.
-        return [f"F {motor} {self.freq_spin.value()}"]
+    def _run_detail(self, meta) -> str:
+        params = (meta or {}).get("parameters", {})
+        parts = [str(params.get("actuator_type", ""))] if params.get(
+            "actuator_type") else []
+        if params.get("amp") is not None:
+            parts.append(f"amp {params['amp']}")
+        if params.get("pwm_freq_hz") is not None:
+            parts.append(f"{params['pwm_freq_hz']} Hz")
+        if params.get("vib_duration_s"):
+            parts.append(f"{params['vib_duration_s']:g} s")
+        return ", ".join(parts)
 
     def _extra_run_kwargs(self) -> dict:
         return {"actuator_type": self.actuator_combo.currentText(),
@@ -1625,8 +2082,10 @@ class MotorAccDelayWindow(_SweepWindowBase):
         # Flag non-default drive so exploratory runs are never mistaken
         # for the calibrated-cue measurement.
         amp = summary.get("amp")
-        if amp is not None and amp != motor_acc_delay.AMP:
-            label += f" (amp {amp}, NOT the calibrated cue)"
+        configured_amp = motor_acc_delay.actuator_amp(
+            summary.get("actuator_type", ""))
+        if amp is not None and amp != configured_amp:
+            label += f" (amp {amp}, NOT the configured cue level)"
         if parts:
             text = f"{label}: " + "; ".join(parts) + "."
         else:

@@ -1,4 +1,6 @@
 import time
+
+from common.haptic_config import get_active_haptic_defaults
 from common.serial_utils import auto_detect_port, open_serial
 
 
@@ -48,21 +50,30 @@ class VibratorController:
     def stop_all(self):
         self.send("X")
 
-    def pulse(self, idx, count=1, amp=64, on_ms=120, off_ms=120):
+    def pulse(self, idx, count=1, amp=None, on_ms=120, off_ms=120):
         """
         Send async pulse task to one motor.
 
         P idx count amp on off
+
+        amp=None uses the configured default cue intensity of the
+        actuator in use (config.json's haptic block) rather than a
+        number hard-coded here.
         """
         if not (0 <= idx < self.num_motors):
             raise ValueError("invalid motor index")
 
+        if amp is None:
+            amp = get_active_haptic_defaults().default_amp
+
         cmd = f"P {idx} {count} {amp} {on_ms} {off_ms}"
         self.send(cmd)
 
-    def pulse_many(self, motors, count=1, amp=64, on_ms=120, off_ms=120):
+    def pulse_many(self, motors, count=1, amp=None, on_ms=120, off_ms=120):
         """
         Trigger multiple motors at once (async).
+
+        amp=None: as pulse() - the configured default cue intensity.
         """
         for m in motors:
             self.pulse(m, count, amp, on_ms, off_ms)

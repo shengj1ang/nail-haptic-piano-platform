@@ -5,9 +5,11 @@ motor once, left hand pinky-to-thumb then right hand thumb-to-pinky, so a
 dead motor can be caught without ten separate clicks.
 
 This is a thin manual-test wrapper, the same role test_virtual_piano_led.py
-plays for the LED strip - the finger<->motor wiring and vibration amplitude
-live in app/haptic_cue.py (shared with the haptic quiz), so this test
-exercises the exact same mapping guidance mode uses.
+plays for the LED strip - the finger<->motor wiring lives in
+app/haptic_cue.py and the drive amp/frequency come from config.json's
+haptic block (both shared with the haptic quiz), so this test exercises
+the exact same mapping AND the exact same cue strength guidance mode
+delivers. Change them in Initial Setup -> Haptic Actuator Defaults.
 """
 
 import sys
@@ -27,7 +29,8 @@ from PySide6.QtWidgets import (
 
 from app.config import Config
 from app.gui.cue_window import FINGER_ORDER
-from app.haptic_cue import FINGER_TO_MOTOR, HAPTIC_AMPLITUDE
+from app.haptic_cue import FINGER_TO_MOTOR
+from common import haptic_config as hc
 from common.controller import VibratorController
 
 BG_COLOR = QColor(24, 25, 29)
@@ -132,6 +135,8 @@ class HapticTestWindow(QMainWindow):
         # automatically on launch.
         self.controller = VibratorController()
         self.connected = False
+        # Refreshed from config.json on every connect (see _toggle_connect).
+        self._amp = self.cfg.haptic.active.default_amp
 
         self.status = QLabel("Vibrator: not connected")
         self.connect_btn = QPushButton("Connect")
@@ -146,7 +151,13 @@ class HapticTestWindow(QMainWindow):
 
         instructions = QLabel(
             "Click and hold a circle to buzz that finger's motor; release to stop.\n"
-            "\"Run Full Test\" sweeps every motor once, in order, to catch a dead motor."
+            "\"Run Full Test\" sweeps every motor once, in order, to catch a dead motor.\n"
+            # The cue strength is not a constant of this window: it is
+            # whatever Initial Setup -> Haptic Actuator Defaults says, so
+            # what you feel here is what the haptic quiz delivers.
+            + hc.describe_active()
+            + "  (from config.json; change it in Initial Setup → Haptic "
+              "Actuator Defaults)"
         )
 
         top_row = QHBoxLayout()
@@ -190,8 +201,18 @@ class HapticTestWindow(QMainWindow):
             self.status.setText(f"Vibrator: not connected ({exc})")
             return
 
+        # Read the configured drive once per connection, and retune each
+        # finger port to it - the firmware boots every pin at the LRA's
+        # resonance, which an ERM cannot start from.
+        config = hc.get_haptic_config()
+        self._amp = config.active.default_amp
+        for motor in sorted(set(FINGER_TO_MOTOR.values())):
+            self.controller.send(f"F {motor} {config.active.default_frequency}")
+
         self.connected = True
-        self.status.setText(f"Vibrator: connected on {self.controller.port}")
+        self.status.setText(
+            f"Vibrator: connected on {self.controller.port} - driving "
+            f"{hc.summary_line()}")
         self.connect_btn.setText("Disconnect")
 
     # ------------------------------------------------------------------
@@ -204,7 +225,7 @@ class HapticTestWindow(QMainWindow):
         motor = FINGER_TO_MOTOR.get(finger)
         if motor is None:
             return
-        self.controller.send(f"S {1 << motor} {HAPTIC_AMPLITUDE}")
+        self.controller.send(f"S {1 << motor} {self._amp}")
 
     def _on_finger_released(self) -> None:
         if not self.connected or self._sweeping:
@@ -254,7 +275,7 @@ class HapticTestWindow(QMainWindow):
         motor = FINGER_TO_MOTOR.get(finger)
         self.buttons.set_active(finger)
         if motor is not None:
-            self.controller.send(f"S {1 << motor} {HAPTIC_AMPLITUDE}")
+            self.controller.send(f"S {1 << motor} {self._amp}")
         self._sweep_phase = "on"
         self._sweep_timer.start(SWEEP_ON_MS)
 

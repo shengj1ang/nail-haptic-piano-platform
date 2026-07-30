@@ -321,9 +321,10 @@ chopped at 224 Hz (amp 64 = 1.1 ms on / 3.3 ms off) cannot overcome
 stiction and never spins. ERMs need kHz-range PWM so the drive acts as
 smooth DC — the ~4.5 kHz Teensy default of firmware ≤ v2.4 is why the
 historical ERM runs worked. The experiment therefore sets the port's
-PWM frequency per actuator (`ACTUATOR_PWM_HZ`: LRA 224 Hz, ERM
-5 kHz) before the trials, records it in the meta (`pwm_freq_hz`), and
-restores the boot default afterwards; the GUI's Test Buzz applies the
+PWM frequency per actuator before the trials (`actuator_pwm_hz()`,
+which reads `config.json`'s `haptic` block: LRA 224 Hz, ERM 1000 Hz by
+default — any kHz-range carrier works), records it in the meta
+(`pwm_freq_hz`), and restores the firmware boot default afterwards; the GUI's Test Buzz applies the
 same frequency. This also applies to any future tool that drives the
 ERM channel.
 
@@ -428,9 +429,13 @@ laptop screen:
 | 3 | Stillness limit, then the live run-time estimate |
 
 Selecting an actuator resets the motor port, PWM frequency and drive
-amp to that actuator's defaults (LRA → port 11 / 224 Hz / amp 64,
-ERM → port 10 / 5 kHz / amp 64); each can still be overridden
-afterwards. **Vibration duration** (0.5–10 s, default 2 s, 0.5 s steps)
+amp to that actuator's **configured** defaults — the port from the
+project's wiring map (LRA → 11, ERM → 10) and the frequency/amp from
+`config.json`'s `haptic` block (defaults: LRA 224 Hz / amp 64, ERM
+1000 Hz / amp 50; see main/README.md, "Haptic actuator
+configuration"). Each can still be overridden afterwards, and an
+override is what the run uses and what its meta records
+(`haptic_config.amp_source` / `pwm_freq_source` say which). **Vibration duration** (0.5–10 s, default 2 s, 0.5 s steps)
 sets how long the motor runs per trial and how much data the settling
 detector gets; changing it updates the run-time estimate immediately.
 Every control carries a tooltip. The rest of the shell is the same as

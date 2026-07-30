@@ -142,8 +142,20 @@ legacy metric only: **a stored scalar magnitude RMS cannot be turned
 back into a vector RMS**, and nothing in the codebase pretends
 otherwise.
 
-Unit tests: `test-script/test_acceleration_metrics.py` (run from `main/`
-with `python test-script/test_acceleration_metrics.py`).
+```python
+from validation_experiments.report import (
+    header,          # the "===== ... =====" block a report opens with
+    stats_line,      # one aligned "mean / median / SD / range (n)" line
+    table,           # a fixed-width text table
+    number,          # a table cell, or "-" when the value is missing
+    run_time_text,   # a run's saved time, from its meta / name / mtime
+    stamp_from_path, # the epoch stamp in "<prefix>_<epoch>.csv"
+)
+```
+
+Unit tests: `test-script/test_acceleration_metrics.py` and
+`test-script/test_validation_reports.py` (run from `main/`, e.g.
+`python test-script/test_acceleration_metrics.py`).
 
 ---
 
@@ -225,6 +237,62 @@ Each run's `.meta.json` carries, alongside its own `parameters`:
 
 `metric_version` is `1` for pre-refactor runs (single `rms_delta*`
 column, no raw file) and `2` from this refactor onward.
+
+Every run also carries a `haptic_config` block: the project's haptic
+configuration (`config.json`'s `haptic`, via `common/haptic_config.py`)
+as it stood when the run started, plus the actuator/motor-port map. For
+the experiments that DRIVE at a single configured point (Motor → ACC
+Delay, and the amplitude sweep's fixed frequency) it also records
+whether the delivered value was the configured default or a manual
+override (`amp_source`, `pwm_freq_source`, `freq_source`,
+`motor_index_source` — `"config_default"` or `"manual"`).
+
+`parameters` always records **what was actually sent to the rig**;
+`haptic_config` only records the configuration it was compared against.
+Re-rendering a saved run uses that run's own `parameters`, never the
+current config — see main/README.md, "Haptic actuator configuration".
+
+---
+
+## 5.4 Reading a saved run as numbers
+
+A chart cannot be read back as figures, so every experiment module also
+exposes
+
+```python
+summary_report(csv_path, summary=None) -> list[str]
+```
+
+which rebuilds the run's console-style statistics from its saved CSV (+
+its `.meta.json`): the parameters it ran with, a per-trial / per-step /
+per-cell table, and the headline result — the same wording and the same
+column alignment the live run prints, e.g.
+
+```
+Vibration onset latency:     mean     6.14 ms, median     5.88 ms, SD    1.20 ms, range 4.11-7.96 ms (n=10)
+Settling time from onset:    mean   121.45 ms, median   120.55 ms, SD   11.52 ms, range 101.05-141.04 ms (n=10)
+```
+
+The shared line/table/header formatting lives in `report.py`. Every
+metric-dependent figure is derived for the metric the displayed chart is
+using, so the text and the picture can never describe different numbers;
+switching the "Plot metric" selector reprints the block.
+
+The GUI prints this into its log panel when a window opens on the latest
+run, when a run is loaded, and on demand via **Show Statistics**. The
+saved files themselves are never modified — the report is derived, not
+stored.
+
+### Picking a saved run
+
+Each validation window lists the runs it finds in its own output folder
+(newest first, with each run's time, file name and distinguishing
+parameters) in a **Saved runs** picker; the list re-scans the folder each
+time it is opened, so a command-line run appears without reopening the
+window. **Browse...** still loads a CSV from anywhere on disk, and such a
+file is shown in the list marked "(outside this folder)". A "saved ..."
+figure in an entry is the headline result stored *with* that run, under
+the metric it was saved with.
 
 ---
 

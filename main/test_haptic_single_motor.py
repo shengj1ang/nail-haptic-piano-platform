@@ -5,9 +5,13 @@ a vibration pattern, then start/stop the selected motors.
 A minimal front end over common.controller.VibratorController (the same
 manual connect/disconnect convention as test_haptic_vibrator.py's
 HapticTestWindow), for quickly feeling one or several actuators at an
-arbitrary frequency/amp - e.g. trying the LRA at 224 Hz vs the ERM at
-5 kHz, or sanity-checking a wiring change - without editing a script or
-running a full sweep. It sends the raw firmware commands the sweeps use:
+arbitrary frequency/amp - e.g. trying the LRA at its resonance vs the ERM
+at a kHz carrier, or sanity-checking a wiring change - without editing a
+script or running a full sweep. The sliders OPEN on the configured
+default drive of the actuator in use (config.json's haptic block, set in
+Initial Setup -> Haptic Actuator Defaults); dragging them from there is
+the whole point of this window, so nothing re-applies the config
+afterwards. It sends the raw firmware commands the sweeps use:
 `F <port> <freq>` to set each port's PWM frequency, `S <mask> <amp>` to
 drive the whole selected set at once, `X` to stop.
 
@@ -42,18 +46,39 @@ from PySide6.QtWidgets import (
 
 from app.config import Config
 from app.gui.accelerometer_window import AccelerometerWindow
+from common import haptic_config as hc
 from common.controller import VibratorController
 
-# Firmware 'F' command PWM-frequency slider ranges and the boot default
-# (the LRA's 224 Hz resonance). "High precision" trades reach for a finer
-# step by mapping the full slider travel onto the low band; the normal
-# band reaches the kHz values an ERM needs.
-FREQ_MAX_HIGH = 1000      # high-precision slider max (Hz)
+# Firmware 'F' command PWM-frequency slider ranges. "High precision"
+# trades reach for a finer step by mapping the full slider travel onto
+# the LRA band (the same upper bound the config validator allows for an
+# LRA); the normal band reaches the kHz values an ERM needs.
+FREQ_MAX_HIGH = hc.FREQUENCY_LIMITS[hc.LRA][1]   # high-precision slider max (Hz)
 FREQ_MAX_NORMAL = 5000    # normal slider max (Hz)
-DEFAULT_FREQ_HZ = 224
-DEFAULT_AMP = 64          # project-default cue intensity
-AMP_MAX = 255
+AMP_MAX = hc.AMP_MAX
 MAX_MOTOR_INDEX = 11      # motor-port range exposed here (LRA=11, ERM=10)
+
+
+def default_freq_hz() -> int:
+    """Configured default drive frequency of the actuator in use."""
+    return hc.get_active_haptic_defaults().default_frequency
+
+
+def default_amp() -> int:
+    """Configured default drive amp of the actuator in use."""
+    return hc.get_active_haptic_defaults().default_amp
+
+
+def freq_slider_max() -> int:
+    """Upper end of the normal (non-high-precision) frequency slider.
+
+    Widened when a configured default sits above the usual band (an ERM
+    carrier may legitimately be set well past 5 kHz), so the slider can
+    always SHOW the configured value instead of silently clamping it to
+    a different one.
+    """
+    return max(FREQ_MAX_NORMAL, hc.get_haptic_config().lra.default_frequency,
+               hc.get_haptic_config().erm.default_frequency)
 
 # Vibrate + pause loop defaults.
 DEFAULT_ON_MS = 500
@@ -143,18 +168,19 @@ class SingleMotorHapticWindow(QMainWindow):
         self.freq_hi_check.toggled.connect(self._on_freq_range_toggled)
 
         self.freq_slider = QSlider(Qt.Horizontal)
-        self.freq_slider.setRange(0, FREQ_MAX_NORMAL)
-        self.freq_slider.setValue(DEFAULT_FREQ_HZ)
-        self.freq_slider.setToolTip("PWM frequency for the port (F command). "
-                                    "224 Hz suits the LRA; an ERM needs kHz "
-                                    "(e.g. 5000) or it stalls.")
+        self.freq_slider.setRange(0, freq_slider_max())
+        self.freq_slider.setValue(default_freq_hz())
+        self.freq_slider.setToolTip(
+            "PWM frequency for the port (F command). Opens on the configured "
+            f"default for the actuator in use ({hc.summary_line()}); an LRA "
+            "wants its resonance, an ERM needs kHz (e.g. 5000) or it stalls.")
         self.freq_value = QLabel()
         self.freq_slider.valueChanged.connect(self._on_freq_changed)
 
         # Amp: draggable slider (PWM duty, 0-255 scale).
         self.amp_slider = QSlider(Qt.Horizontal)
         self.amp_slider.setRange(0, AMP_MAX)
-        self.amp_slider.setValue(DEFAULT_AMP)
+        self.amp_slider.setValue(default_amp())
         self.amp_slider.setToolTip("Drive amplitude (PWM duty, 0-255 scale)")
         self.amp_value = QLabel()
         self.amp_slider.valueChanged.connect(self._on_amp_changed)
@@ -234,8 +260,9 @@ class SingleMotorHapticWindow(QMainWindow):
         # defaults; works live while a motor is running.
         self.reset_btn = QPushButton("Restore default amp/frequency")
         self.reset_btn.setToolTip(
-            f"Reset frequency to {DEFAULT_FREQ_HZ} Hz and amp to {DEFAULT_AMP} "
-            "(applied live if a motor is running).")
+            "Reset frequency and amp to the configured default for the "
+            f"actuator in use ({hc.summary_line()}, from config.json) - "
+            "applied live if a motor is running.")
         self.reset_btn.clicked.connect(self._reset_params)
 
         instructions = QLabel(
@@ -299,8 +326,9 @@ class SingleMotorHapticWindow(QMainWindow):
         Unlike _restore_defaults it leaves the run going and the ports as-is.
         """
         self.freq_hi_check.setChecked(False)
-        self.freq_slider.setValue(DEFAULT_FREQ_HZ)
-        self.amp_slider.setValue(DEFAULT_AMP)
+        self.freq_slider.setMaximum(freq_slider_max())
+        self.freq_slider.setValue(default_freq_hz())
+        self.amp_slider.setValue(default_amp())
 
     # ------------------------------------------------------------------
     # Serial transport (own port, or the live view's shared stream)
@@ -447,7 +475,7 @@ class SingleMotorHapticWindow(QMainWindow):
         if self.connected:
             for port in sorted(self._touched_ports):
                 try:
-                    self.controller.send(f"F {port} {DEFAULT_FREQ_HZ}")
+                    self.controller.send(f"F {port} {hc.FIRMWARE_BOOT_PWM_HZ}")
                 except Exception:
                     pass
             self._touched_ports.clear()
@@ -509,11 +537,12 @@ class SingleMotorHapticWindow(QMainWindow):
         self._stop()  # clears running/on_now and sends X if still driving
         if self._has_device():
             for port in sorted(self._touched_ports):
-                self._send(f"F {port} {DEFAULT_FREQ_HZ}")
+                self._send(f"F {port} {hc.FIRMWARE_BOOT_PWM_HZ}")
         self._touched_ports.clear()
         self.freq_hi_check.setChecked(False)
-        self.freq_slider.setValue(DEFAULT_FREQ_HZ)
-        self.amp_slider.setValue(DEFAULT_AMP)
+        self.freq_slider.setMaximum(freq_slider_max())
+        self.freq_slider.setValue(default_freq_hz())
+        self.amp_slider.setValue(default_amp())
         self._set_default_motors()
 
     # ------------------------------------------------------------------
@@ -600,7 +629,7 @@ class SingleMotorHapticWindow(QMainWindow):
             self._refresh_status()
 
     def _on_freq_range_toggled(self, high: bool) -> None:
-        new_max = FREQ_MAX_HIGH if high else FREQ_MAX_NORMAL
+        new_max = FREQ_MAX_HIGH if high else freq_slider_max()
         # Preserve the value where possible (clamped into the new band).
         current = min(self.freq_slider.value(), new_max)
         self.freq_slider.setMaximum(new_max)

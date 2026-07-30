@@ -278,8 +278,18 @@ Data `<data>/amp_sweep_1784126365.csv`, plot
 
 | Setting | Value | Where it lives |
 |------|------|------|
-| LRA drive frequency | **224 Hz** | firmware boot default (`DEFAULT_PWM_FREQ`, since v2.7.0); can be overridden at runtime with `F <port> <freq>` |
-| Default cue intensity | **`amp = 64`** (0.49 m/s² RMS at 224 Hz) | `HAPTIC_AMPLITUDE` in `app/haptic_cue.py`, `pulse()` defaults in `common/controller.py`, and the `AMP` constants of the experiment scripts |
+| LRA drive frequency | **224 Hz** | `config.json` → `haptic.lra.default_frequency` (also the firmware boot default `DEFAULT_PWM_FREQ` since v2.7.0); overridden at runtime with `F <port> <freq>` |
+| Default cue intensity | **`amp = 64`** (0.49 m/s² RMS at 224 Hz) | `config.json` → `haptic.lra.default_amp` |
+
+Both values measured here are **the project defaults stored in
+`config.json`'s `haptic` block** and read through
+`common/haptic_config.py` — the quiz cue, the bench windows, Test Buzz
+and the experiment controls all take them from there, so adopting a
+newly measured f₀ or cue amp means editing them once in the launcher's
+Initial Setup → Haptic Actuator Defaults (see main/README.md, "Haptic
+actuator configuration"). The 224 Hz **firmware boot default** is a
+separate constant: the sweeps restore it on the port when they finish,
+so it tracks the firmware, not the config.
 
 ### 4.2 Interpretation
 

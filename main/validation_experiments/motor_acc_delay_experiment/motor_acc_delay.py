@@ -128,6 +128,7 @@ try:
         to_epoch_seconds,
     )
     from ..rig import SweepAborted, Sample, open_rig, parse_acc_line, send
+    from .. import report
 except ImportError:  # direct execution rather than package import
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from acceleration_metrics import (
@@ -146,6 +147,14 @@ except ImportError:  # direct execution rather than package import
         to_epoch_seconds,
     )
     from rig import SweepAborted, Sample, open_rig, parse_acc_line, send
+    import report
+
+try:
+    from common import haptic_config as hc
+except ImportError:  # direct execution from this folder - add main/ to the path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    from common import haptic_config as hc
 
 
 # ==========================================
@@ -153,27 +162,51 @@ except ImportError:  # direct execution rather than package import
 # ==========================================
 
 # The rig's two actuator test channels (see teensy_driver README wiring).
-ACTUATOR_MOTORS = {"LRA": 11, "ERM": 10}
+# The mapping itself lives in common.haptic_config so every window and
+# experiment agrees on one wiring convention; the GUI's motor-port spin
+# box still overrides it per run.
+ACTUATOR_MOTORS = {"LRA": hc.ACTUATOR_MOTOR_PORTS[hc.LRA],
+                   "ERM": hc.ACTUATOR_MOTOR_PORTS[hc.ERM]}
 
-# PWM frequency per actuator type. The firmware boot default (224 Hz,
-# the LRA's resonance) is right for the LRA but WRONG for an ERM: a DC
-# motor chopped at 224 Hz (1.1 ms on / 3.3 ms off at amp 64) cannot
-# overcome stiction and never starts. ERMs need kHz-range PWM so the
-# drive behaves like smooth DC - v2.1.0's ~4.5 kHz default is why the
-# historical ERM runs worked. The experiment sets the port's frequency
-# before the trials and restores the boot default afterwards.
-DEFAULT_PWM_FREQ = 224
-ACTUATOR_PWM_HZ = {"LRA": DEFAULT_PWM_FREQ, "ERM": 5000}
+# The firmware's boot PWM frequency - restored on the port when the run
+# ends. A FIRMWARE fact (motor_driver.cpp DEFAULT_PWM_FREQ), not a
+# preference: it must keep matching the firmware even if the configured
+# LRA default changes.
+DEFAULT_PWM_FREQ = hc.FIRMWARE_BOOT_PWM_HZ
 
-MOTOR_INDEX = 11         # default: the LRA test channel
+# Amp assumed for a run saved before the amp was recorded in its meta -
+# every historical run used the calibrated cue level. Used ONLY when
+# re-rendering such a run, so an old chart keeps its own label instead of
+# picking up today's configured default.
+HISTORICAL_AMP = 64
+
+MOTOR_INDEX = ACTUATOR_MOTORS["LRA"]   # default: the LRA test channel
 ACC_SENSOR_ID = 0
 
 ACC_INTERVAL_MS = 1      # firmware >= v2.9.0: LIS3DH at 1.344 kHz, so a
                          # 1 ms stream carries fresh samples (older
                          # firmware streams duplicates beyond 2.5 ms)
-AMP = 64                 # project-default cue intensity (the calibrated
-                         # ~0.5 m/s² level - the study-representative
-                         # latency is the one measured at THIS amp)
+
+
+def actuator_amp(actuator_type: str = "") -> int:
+    """The configured default cue amp for this actuator (config.json's
+    haptic block). The study-representative latency is the one measured
+    at the amp the study actually delivers, so the run defaults to it -
+    the GUI still lets the operator drive at any other amp."""
+    return hc.get_default_amp(actuator_type or None)
+
+
+def actuator_pwm_hz(actuator_type: str = "") -> int:
+    """The configured default PWM frequency for this actuator.
+
+    Why it is per-actuator: the firmware boot default (the LRA's
+    resonance) is right for the LRA but WRONG for an ERM - a DC motor
+    chopped that slowly (at amp 64, ~1.1 ms on / 3.3 ms off) cannot
+    overcome stiction and never starts. ERMs need a kHz-range carrier so
+    the drive behaves like smooth DC. The experiment sets the port's
+    frequency before the trials and restores the boot default after."""
+    return hc.get_default_frequency(actuator_type or None)
+
 
 # Vibration (= measurement) duration per trial: the motor runs
 # continuously for this long and the WHOLE window is recorded, so the
@@ -746,11 +779,17 @@ def run_single_trial(ser, trial_id: int, log: LogFn,
                      motor_index: int, acc_sensor_id: int,
                      should_stop: Callable[[], bool],
                      still_max_dev: float = STILL_MAX_DEV,
-                     amp: int = AMP,
+                     amp: Optional[int] = None,
                      recorder: Optional[RawSampleRecorder] = None,
-                     pwm_freq_hz: float = DEFAULT_PWM_FREQ,
+                     pwm_freq_hz: Optional[float] = None,
                      vib_duration_s: float = VIB_DURATION_S,
                      actuator_type: str = "") -> TrialResult:
+    # None = the configured default for this actuator (run_experiment
+    # always passes explicit values; this is for direct callers).
+    if amp is None:
+        amp = actuator_amp(actuator_type)
+    if pwm_freq_hz is None:
+        pwm_freq_hz = actuator_pwm_hz(actuator_type)
     log(f"\n===== Trial {trial_id} =====")
     # The previous trial's buzz leaves the hanging rig swinging - gate
     # every trial on stillness before taking its baseline.
@@ -1225,7 +1264,7 @@ def _envelope_ylim(results: List[TrialResult]) -> Optional[float]:
 
 def save_plot(path: str, results: List[TrialResult], actuator_type: str,
               motor_index: int, threshold_hint: Optional[float] = None,
-              amp: int = AMP,
+              amp: Optional[int] = None,
               vib_duration_s: Optional[float] = None) -> None:
     """Five panels: the two latencies per trial (separately), the
     steady-state level per trial, and the envelope traces over the whole
@@ -1233,6 +1272,8 @@ def save_plot(path: str, results: List[TrialResult], actuator_type: str,
     vibration onset, the stable state, the rise between them and the
     steady band all marked."""
     stats = delay_stats(results)
+    if amp is None:
+        amp = actuator_amp(actuator_type)
     if vib_duration_s is None:
         durations = [r.vib_duration_s for r in results if r.vib_duration_s]
         vib_duration_s = max(durations) if durations else VIB_DURATION_S
@@ -1424,9 +1465,19 @@ def save_meta(csv_path: str, samples_path: Optional[str], png_path: str,
               stamp: str, firmware, motor_index: int, acc_sensor_id: int,
               actuator_type: str, results: List[TrialResult],
               still_max_dev: float = STILL_MAX_DEV,
-              pwm_freq_hz: int = DEFAULT_PWM_FREQ,
-              amp: int = AMP, raw_path: Optional[str] = None,
+              pwm_freq_hz: Optional[int] = None,
+              amp: Optional[int] = None, raw_path: Optional[str] = None,
               vib_duration_s: float = VIB_DURATION_S) -> str:
+    # amp/pwm_freq_hz are what was ACTUALLY sent to the rig. They default
+    # to the configured values only when a caller omitted them; the
+    # config snapshot below is recorded separately and never substituted
+    # for the delivered numbers.
+    if amp is None:
+        amp = actuator_amp(actuator_type)
+    if pwm_freq_hz is None:
+        pwm_freq_hz = actuator_pwm_hz(actuator_type)
+    configured_amp = actuator_amp(actuator_type)
+    configured_freq = actuator_pwm_hz(actuator_type)
     meta = {
         "experiment": "motor_acc_delay",
         "saved_at": int(stamp),
@@ -1448,6 +1499,21 @@ def save_meta(csv_path: str, samples_path: Optional[str], png_path: str,
             "still_max_dev": still_max_dev,
             "acc_interval_ms": ACC_INTERVAL_MS,
         }, **detection_parameters(vib_duration_s)),
+        # Where the delivered drive came from: the configured default for
+        # this actuator, or an operator override typed in the window. The
+        # "parameters" block above is always what the hardware actually
+        # got - this only says how it was chosen.
+        "haptic_config": {
+            "snapshot": hc.config_snapshot(),
+            "configured_amp": configured_amp,
+            "configured_pwm_freq_hz": configured_freq,
+            "amp_source": hc.value_source(amp, configured_amp),
+            "pwm_freq_source": hc.value_source(pwm_freq_hz, configured_freq),
+            "motor_index_source": hc.value_source(
+                motor_index, ACTUATOR_MOTORS.get(actuator_type)),
+            "note": ("'parameters' records what was sent to the rig; this "
+                     "block records the config it was compared against"),
+        },
         "time_definitions": {
             "command_time_s": "Unix epoch seconds at the 'S' motor-on write",
             "onset_time_s": "Unix epoch seconds of the vibration onset",
@@ -1620,7 +1686,7 @@ def render_csv(csv_path: str, out_png: str) -> dict:
     actuator_type = params.get("actuator_type") or (
         results[0].actuator_type or "LRA")
     motor_index = params.get("motor_index", MOTOR_INDEX)
-    amp = params.get("amp", AMP)
+    amp = params.get("amp", HISTORICAL_AMP)
     vib_duration_s = params.get("vib_duration_s") or None
     # Old fixed-threshold runs recorded "threshold"; adaptive runs carry
     # per-trial thresholds in the CSV instead.
@@ -1661,16 +1727,88 @@ def estimated_duration_s(vib_duration_s: float = VIB_DURATION_S) -> float:
 
 
 def _format_stats_line(label: str, stats: dict, prefix: str) -> Optional[str]:
-    mean = stats.get(f"{prefix}_mean_ms")
-    if mean is None:
-        return None
-    median = stats.get(f"{prefix}_median_ms")
-    sd = stats.get(f"{prefix}_sd_ms")
-    lo = stats.get(f"{prefix}_min_ms")
-    hi = stats.get(f"{prefix}_max_ms")
-    return (f"{label:<28} mean {mean:8.2f} ms, median {median:8.2f} ms"
-            + (f", SD {sd:7.2f} ms" if sd is not None else ", SD       - ")
-            + f", range {lo:.2f}-{hi:.2f} ms (n={stats.get(f'{prefix}_n', 0)})")
+    """One aligned latency line. Shared with summary_report() so a
+    reloaded run prints exactly what the live run printed."""
+    return report.stats_line(label, stats, prefix, unit="ms")
+
+
+#: The four latency series, in the order they are always reported. Onset
+#: latency and settling time are SEPARATE measurements and are never
+#: summed or averaged together - see the module docstring.
+STATS_SERIES = (
+    ("onset", "Vibration onset latency:"),
+    ("settling", "Settling time from onset:"),
+    ("stable", "Stable latency from command:"),
+    ("crossing", "Detection-level crossing:"),
+)
+
+
+def _trial_rows(results: List[TrialResult]) -> list:
+    return [(r.trial_id, r.status,
+             report.number(r.onset_ms),
+             report.number(r.settling_time_from_onset_ms),
+             report.number(r.stable_latency_from_command_ms),
+             report.number(r.delay_ms),
+             report.number(r.steady_state_envelope_counts, decimals=1))
+            for r in results]
+
+
+def summary_report(csv_path: str, summary: Optional[dict] = None) -> list:
+    """The run's statistics as text, rebuilt from a saved
+    delay_trials_*.csv (+ its .meta.json).
+
+    Same numbers, same wording and same column alignment as the live
+    run's console output, so re-opening a saved run gives the reader the
+    figures as well as the picture. Everything comes from THAT run's own
+    files - never from the current configuration."""
+    results = load_results(csv_path)
+    meta = load_meta(csv_path)
+    params = (meta or {}).get("parameters", {})
+    stats = dict(summary) if summary is not None else delay_stats(results)
+
+    actuator = params.get("actuator_type") or stats.get("actuator_type") or "?"
+    duration = params.get("vib_duration_s") or stats.get("vib_duration_s")
+    amp = params.get("amp", stats.get("amp"))
+    details = [
+        f"{actuator} on motor port {params.get('motor_index', '?')}, "
+        f"amp {amp if amp is not None else '?'}, "
+        f"{params.get('pwm_freq_hz', '?')} Hz PWM"
+        + (f", {duration:g} s drive" if duration else ""),
+        f"{stats.get('n_trials', len(results))} trials, ACC sensor "
+        f"{params.get('acc_sensor_id', '?')}, mounting "
+        f"{params.get('mounting', '?')}",
+    ]
+    # How the delivered drive was chosen (configured default vs. an
+    # operator override), when the run recorded it.
+    haptic = (meta or {}).get("haptic_config", {})
+    if haptic.get("amp_source") or haptic.get("pwm_freq_source"):
+        details.append(
+            f"drive source: amp {haptic.get('amp_source', '?')}, "
+            f"frequency {haptic.get('pwm_freq_source', '?')}")
+
+    lines = report.header("Statistics", csv_path, meta, details)
+    lines.append("")
+    lines.extend(report.table(
+        ("trial", "status", "onset ms", "settling ms", "stable ms",
+         "crossing ms", "steady counts"),
+        _trial_rows(results)))
+    lines.append("")
+    for prefix, label in STATS_SERIES:
+        line = _format_stats_line(label, stats, prefix)
+        if line:
+            lines.append(line)
+    lines.append(
+        f"Detected: {stats.get('n_ok', 0)} ok, "
+        f"{stats.get('n_no_onset', 0)} no_onset, "
+        f"{stats.get('n_not_settled', 0)} not_settled, "
+        f"{stats.get('n_insufficient_data', 0)} insufficient_data "
+        f"(of {stats.get('n_trials', len(results))} trials)")
+    if not stats.get("n_onset"):
+        lines.append("No vibration onset was detected in any trial, so no "
+                     "latency was computed.")
+    lines.append("Onset latency and settling time are separate measurements "
+                 "and are never summed or averaged together.")
+    return lines
 
 
 def run_experiment(log: Optional[LogFn] = None,
@@ -1681,7 +1819,7 @@ def run_experiment(log: Optional[LogFn] = None,
                    acc_sensor_id: int = ACC_SENSOR_ID,
                    actuator_type: str = "LRA",
                    still_max_dev: float = STILL_MAX_DEV,
-                   amp: int = AMP,
+                   amp: Optional[int] = None,
                    pwm_freq_hz: Optional[int] = None,
                    vib_duration_s: float = VIB_DURATION_S) -> dict:
     """Run the delay + settling measurement and write the output files.
@@ -1691,10 +1829,11 @@ def run_experiment(log: Optional[LogFn] = None,
     motor_index/acc_sensor_id/actuator_type pick the actuator under
     test (LRA on port 11, ERM on port 10 by wiring convention);
     still_max_dev adjusts the stillness gate for the rig's noise floor;
-    amp is the PWM drive amplitude (default: the calibrated cue level -
-    runs at any other amp measure a DIFFERENT cue than the study
-    delivers); pwm_freq_hz overrides the per-actuator drive frequency
-    (None = ACTUATOR_PWM_HZ default: LRA 224 Hz resonant, ERM 5 kHz);
+    amp is the PWM drive amplitude (None = this actuator's configured
+    default cue level - runs at any other amp measure a DIFFERENT cue
+    than the study delivers); pwm_freq_hz overrides the per-actuator drive frequency
+    (None = the actuator's configured default frequency: an LRA's
+    resonance, an ERM's kHz carrier - config.json "haptic");
     vib_duration_s is how long the motor is driven - and the full
     three-axis window recorded - per trial (VIB_DURATION_MIN_S..MAX_S).
     Returns a summary dict with separate onset and settling statistics.
@@ -1706,11 +1845,20 @@ def run_experiment(log: Optional[LogFn] = None,
     vib_duration_s = float(min(max(float(vib_duration_s), VIB_DURATION_MIN_S),
                                VIB_DURATION_MAX_S))
 
+    # The configured defaults for THIS actuator: used when the caller
+    # passed nothing, and kept alongside so the log and the meta can say
+    # whether the run used the default or an operator override.
+    configured_amp = actuator_amp(actuator_type)
+    configured_freq = actuator_pwm_hz(actuator_type)
+    if amp is None:
+        amp = configured_amp
+
     log(f"Motor -> ACC delay test: {actuator_type} on motor port "
         f"{motor_index}, amp={amp}, {NUM_TRIALS} trials, "
         f"{vib_duration_s:g} s vibration per trial")
-    if amp != AMP:
-        log(f"NOTE: amp {amp} differs from the calibrated cue level ({AMP}) "
+    if amp != configured_amp:
+        log(f"NOTE: amp {amp} differs from the configured cue level "
+            f"({configured_amp}) "
             "- this run measures a different cue than the study delivers, "
             "so its latency does not bound the study's timestamp error.")
     log("Suspend the motor+sensor pair freely in the air (any orientation); "
@@ -1722,10 +1870,10 @@ def run_experiment(log: Optional[LogFn] = None,
         "plus settling time.\n")
 
     stamp = str(int(time.time()))
-    # ERM needs kHz-range PWM to start (see ACTUATOR_PWM_HZ); the LRA
-    # stays on its resonant boot default.
+    # ERM needs kHz-range PWM to start (see actuator_pwm_hz); the LRA
+    # sits at its resonance.
     if pwm_freq_hz is None:
-        pwm_freq_hz = ACTUATOR_PWM_HZ.get(actuator_type, DEFAULT_PWM_FREQ)
+        pwm_freq_hz = configured_freq
     recorder = RawSampleRecorder(
         run_id=f"motor_acc_delay_{stamp}",
         experiment="motor_acc_delay",
@@ -1782,14 +1930,8 @@ def run_experiment(log: Optional[LogFn] = None,
             log(f"Trial {r.trial_id}: status={r.status}, onset={onset} ms, "
                 f"settling={settling} ms, stable={stable} ms, "
                 f"steady={steady} counts")
-        for line in (
-                _format_stats_line("Vibration onset latency:", stats, "onset"),
-                _format_stats_line("Settling time from onset:", stats,
-                                   "settling"),
-                _format_stats_line("Stable latency from command:", stats,
-                                   "stable"),
-                _format_stats_line("Detection-level crossing:", stats,
-                                   "crossing")):
+        for prefix, label in STATS_SERIES:
+            line = _format_stats_line(label, stats, prefix)
             if line:
                 log(line)
         log(f"Detected: {stats['n_ok']} ok, {stats['n_no_onset']} no_onset, "

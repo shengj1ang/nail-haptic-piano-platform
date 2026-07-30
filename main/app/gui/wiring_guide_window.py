@@ -27,6 +27,8 @@ import sys
 import time
 from pathlib import Path
 
+from common import haptic_config as hc
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
@@ -141,8 +143,8 @@ PINS_HTML = """
     <th align='left'>Pin(s)</th><th align='left'>Function</th></tr>
   <tr><td><b>0 – 9</b></td><td>Finger vibration motors (PWM) —
       L5&rarr;0 &hellip; R5&rarr;9</td></tr>
-  <tr><td><b>10</b></td><td>ERM test channel / spare motor</td></tr>
-  <tr><td><b>11</b></td><td>LRA test channel / spare motor</td></tr>
+  <tr><td><b>{erm_port}</b></td><td>ERM test channel / spare motor</td></tr>
+  <tr><td><b>{lra_port}</b></td><td>LRA test channel / spare motor</td></tr>
   <tr><td><b>24</b></td><td>WS2812 LED strip 0 data (cut to length)</td></tr>
   <tr><td><b>29</b></td><td>WS2812 LED strip 1 data (cut to length)</td></tr>
   <tr><td><b>33</b></td><td>Accel SPI <b>SCK</b> (shared bus)</td></tr>
@@ -156,7 +158,30 @@ PINS_HTML = """
 Each accelerometer needs 6 wires: 3.3V, GND, SCK, MOSI, MISO, CS. Extra
 sensors only add their own CS wire — the other five tap the shared bus.
 </div>
+<div style='color:#9fd0ff; margin-top:8px'>
+{haptic_line}
+</div>
 """
+
+
+def pins_html() -> str:
+    """The pin table, with the actuator test channels and the actuator
+    currently in use filled in from common.haptic_config - one mapping
+    for the whole project rather than a second copy in this page."""
+    config = hc.get_haptic_config()
+    defaults = config.active
+    in_use = hc.actuator_label(config.using)
+    return PINS_HTML.format(
+        erm_port=hc.get_actuator_motor_port(hc.ERM),
+        lra_port=hc.get_actuator_motor_port(hc.LRA),
+        haptic_line=(
+            f"Currently in use: <b>{in_use}</b> on port "
+            f"<b>{hc.get_actuator_motor_port(config.using)}</b>, default "
+            f"drive {defaults.default_frequency}&nbsp;Hz, amp "
+            f"{defaults.default_amp} — set in Initial Setup &rarr; Haptic "
+            "Actuator Defaults (config.json). The finger motors on pins "
+            "0–9 are driven with the same default."),
+    )
 
 
 def parse_scan_match(line: str) -> dict | None:
@@ -264,7 +289,7 @@ class WiringGuideWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(self._html_tab(POWER_HTML), "Power rails")
-        tabs.addTab(self._html_tab(PINS_HTML), "Pin assignments")
+        tabs.addTab(self._html_tab(pins_html()), "Pin assignments")
         tabs.addTab(self._build_scan_tab(), "Accelerometer scan")
         rcol.addWidget(tabs, 1)
 

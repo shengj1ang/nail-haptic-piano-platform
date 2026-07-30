@@ -1,0 +1,153 @@
+{
+  "experiment": "motor_acc_delay",
+  "saved_at": 1785425851,
+  "firmware": "haptic-piano v2.10.0",
+  "parameters": {
+    "actuator_type": "LRA",
+    "motor_index": 0,
+    "acc_sensor_id": 0,
+    "amp": 64,
+    "vib_duration_s": 2.0,
+    "vib_duration_min_s": 0.5,
+    "vib_duration_max_s": 10.0,
+    "num_trials": 10,
+    "baseline_duration_s": 1.0,
+    "inter_trial_rest_s": 1.0,
+    "pwm_freq_hz": 224,
+    "mounting": "suspended_free_hanging",
+    "still_window_s": 0.5,
+    "still_max_dev": 60.0,
+    "acc_interval_ms": 1,
+    "detection": "per_axis_delta CUSUM onset + moving-RMS envelope settling",
+    "min_threshold_counts": 40,
+    "noise_mult": 3.0,
+    "consecutive_hits": 1,
+    "onset_criterion": "CUSUM change-point (Page 1954): slack 1.0 sigma, alarm 10.0 sigma of baseline deviation noise; onset = start of the alarmed excursion, accepted only when the deviation stays above the slack for 40% of the following 30 ms (spike guard)",
+    "cusum_slack_sigma": 1.0,
+    "cusum_alarm_sigma": 10.0,
+    "onset_sustain_s": 0.03,
+    "onset_sustain_fraction": 0.4,
+    "settling_criterion": "first sample from which the centred 20 ms moving-RMS envelope stays within +/-20% of the steady level for the hold window (95% of its samples inside)",
+    "envelope_window_s": 0.02,
+    "steady_ref_fraction": 0.3,
+    "steady_ref_min_s": 0.05,
+    "steady_tolerance_fraction": 0.2,
+    "steady_hold_s": 0.2,
+    "steady_hold_fraction_of_duration": 0.1,
+    "steady_hold_min_s": 0.05,
+    "steady_hold_max_s": 0.5,
+    "steady_hold_inside_fraction": 0.95,
+    "steady_min_snr": 1.5,
+    "min_steady_envelope_counts": 20.0,
+    "min_detection_samples": 64,
+    "crossing_estimate": "linear_interpolation",
+    "statuses": [
+      "ok",
+      "no_onset",
+      "not_settled",
+      "insufficient_data"
+    ]
+  },
+  "haptic_config": {
+    "snapshot": {
+      "using": "lra",
+      "lra": {
+        "default_frequency": 224,
+        "default_amp": 64
+      },
+      "erm": {
+        "default_frequency": 1000,
+        "default_amp": 50
+      },
+      "motor_ports": {
+        "lra": 11,
+        "erm": 10
+      }
+    },
+    "configured_amp": 64,
+    "configured_pwm_freq_hz": 224,
+    "amp_source": "config_default",
+    "pwm_freq_source": "config_default",
+    "motor_index_source": "manual",
+    "note": "'parameters' records what was sent to the rig; this block records the config it was compared against"
+  },
+  "time_definitions": {
+    "command_time_s": "Unix epoch seconds at the 'S' motor-on write",
+    "onset_time_s": "Unix epoch seconds of the vibration onset",
+    "stable_time_s": "Unix epoch seconds of the steady state",
+    "onset_latency_from_command_ms": "onset_time - command_time",
+    "settling_time_from_onset_ms": "stable_time - onset_time",
+    "stable_latency_from_command_ms": "stable_time - command_time",
+    "note": "onset latency and settling time are separate metrics and are never summed or averaged together"
+  },
+  "files": {
+    "csv": "delay_trials_1785425851.csv",
+    "samples_csv": "delay_samples_1785425851.csv",
+    "png": "delay_summary_1785425851.png",
+    "raw_acceleration": "delay_trials_1785425851.raw_acc.npz"
+  },
+  "metrics": {
+    "metric_version": 2,
+    "available_metrics": [
+      "vector_rms",
+      "legacy_magnitude_rms"
+    ],
+    "selected_plot_metric": "vector_rms",
+    "default_plot_metric": "vector_rms",
+    "raw_acceleration_file": "delay_trials_1785425851.raw_acc.npz",
+    "raw_data_format": "acceleration_raw_npz_v1",
+    "ms2_per_count": 0.00980665,
+    "metric_definitions": {
+      "legacy_magnitude_rms": "sqrt(mean((|a_i| - baseline_magnitude)^2)); the original project formula, kept for comparability with historical runs",
+      "vector_rms": "sqrt(mean(sum_axes((a_i - mean_axis)^2))); removes gravity, static sensor bias and mounting orientation - the recommended metric"
+    },
+    "applies_to": "offline_drive_window_statistics_only",
+    "onset_detection": "per-sample per-axis deviation + CUSUM, and its sliding-window RMS for settling - deliberately NOT one of the windowed intensity metrics; see the module docstring"
+  },
+  "result": {
+    "n_trials": 10,
+    "n_ok": 10,
+    "n_no_onset": 0,
+    "n_not_settled": 0,
+    "n_insufficient_data": 0,
+    "n_timeout": 0,
+    "n_onset": 10,
+    "n_settling": 10,
+    "steady_state_envelope_mean_counts": 208.40687137807922,
+    "onset_n": 10,
+    "onset_mean_ms": 6.137353973463178,
+    "onset_median_ms": 5.884208017960191,
+    "onset_sd_ms": 1.1965464584442091,
+    "onset_min_ms": 4.109707893803716,
+    "onset_max_ms": 7.957334048114717,
+    "settling_n": 10,
+    "settling_mean_ms": 121.45445432979614,
+    "settling_median_ms": 120.55206258082762,
+    "settling_sd_ms": 11.518422091642003,
+    "settling_min_ms": 101.05187504086643,
+    "settling_max_ms": 141.04329200927168,
+    "stable_n": 10,
+    "stable_mean_ms": 127.59180830325931,
+    "stable_median_ms": 126.21262448374182,
+    "stable_sd_ms": 11.609651540733868,
+    "stable_min_ms": 106.99004109483212,
+    "stable_max_ms": 146.87354199122638,
+    "crossing_n": 10,
+    "crossing_mean_ms": 8.148920274304434,
+    "crossing_median_ms": 8.554360381414053,
+    "crossing_sd_ms": 2.3560428383845915,
+    "crossing_min_ms": 3.870267130206551,
+    "crossing_max_ms": 11.569022707385834,
+    "mean_delay_ms": 8.148920274304434,
+    "sd_delay_ms": 2.3560428383845915,
+    "min_delay_ms": 3.870267130206551,
+    "max_delay_ms": 11.569022707385834
+  },
+  "drive_window_intensity": {
+    "n_trials": 10,
+    "mean_vector_rms_ms2": 2.1014082430054377,
+    "mean_legacy_magnitude_rms_ms2": 1.4310675446929126,
+    "mean_baseline_magnitude_counts": 1025.1934111040632,
+    "note": "whole-drive-window intensities (quiet pre-onset samples and ring-up included); offline only, not used for detection - see steady_state_envelope for the settled level"
+  }
+}

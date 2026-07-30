@@ -13,9 +13,12 @@ launcher.py                     entry point - hub window for every tool below, g
                                  numbered sections used throughout this README (1 Initial Setup ...
                                  7 Data Analysis, 9 Validation Experiments; section 8 Tele-training
                                  is an empty placeholder).
-                                 Section 1 also holds the launcher-only Visual Guidance Cue Selection
-                                 window (app/gui/cue_selection_window.py), which persists the quiz cue
-                                 style (dot/hand) to config.json
+                                 Section 1 also holds two launcher-only settings windows: Visual
+                                 Guidance Cue Selection (app/gui/cue_selection_window.py), which
+                                 persists the quiz cue style (dot/hand) to config.json, and Haptic
+                                 Actuator Defaults (app/gui/haptic_config_window.py), which persists
+                                 the actuator in use and each actuator's default frequency/amp to
+                                 config.json's "haptic" block (see "Haptic actuator configuration")
 
 setup_camera_wizard.py          entry point - camera selection/orientation (section 1: initial setup)
 setup_keyboard_wizard.py        entry point - app/ calibration wizard (section 1: initial setup)
@@ -47,7 +50,8 @@ quiz_analysis.py                entry point - batch offline analysis of saved qu
                                  carry-over review, participant CSV export (section 7: data analysis)
 
 config.json                     app/ settings (auto-created): camera/MIDI, active_keyboard_profile,
-                                 visual_cue_style
+                                 visual_cue_style, haptic (actuator in use + per-actuator default
+                                 frequency/amp - see "Haptic actuator configuration")
 data/keyboard-profile/<profile>/   app/ calibration profiles (see "app/" below)
 data/music/<song>/               saved teacher recordings (see app/music_recording.py)
 data/sequence/<name>/            generated stimulus sequences (same meta.json/fingering.json layout as
@@ -81,10 +85,12 @@ common/                         shared low-level modules (serial/motor/LED), use
                                  test_virtual_piano_led.py and test-script/
 validation_experiments/         small hardware-validation experiments, separate from the main study
                                  (section 9: validation experiments) - one subfolder per experiment
-                                 plus two shared modules: rig.py (serial helpers + the ACC sample
-                                 collector) and acceleration_metrics.py (the two vibration-intensity
+                                 plus three shared modules: rig.py (serial helpers + the ACC sample
+                                 collector), acceleration_metrics.py (the two vibration-intensity
                                  metrics, the counts -> m/s^2 conversion and the raw three-axis
-                                 sample store). GUI wrappers in
+                                 sample store) and report.py (the console-style text statistics each
+                                 experiment can rebuild from a saved run, printed by the GUI when a
+                                 run is loaded). GUI wrappers in
                                  app/gui/validation_experiment_window.py. Currently:
                                  lra_resonance_intensity_calibration/ (frequency + amplitude sweeps),
                                  actuator_spectrogram/ (2-D drive-frequency x amp intensity map) and
@@ -536,6 +542,7 @@ Low-level modules shared by `test_virtual_piano_led.py` above and the scripts in
 | `serial_utils.py` | Cross-platform auto-detection and opening of the serial port (USB/Arduino/Teensy first, with manual fallback). |
 | `controller.py` | `VibratorController` - high-level async interface to the multi-motor vibration firmware (connect, pulse, stop). |
 | `led_controller.py` | `LEDArrayController` - high-level interface to the Teensy WS2812 LED firmware (set pixel, clear, brightness). |
+| `haptic_config.py` | The project's single source of truth for haptic actuator defaults: loads/validates/saves `config.json`'s `haptic` block, and hands every tool the actuator in use and its default frequency/amp (see "Haptic actuator configuration"). |
 
 ---
 
@@ -558,9 +565,137 @@ logic from `common/`.
 | `plot_acc_from_ACC_stream_autostart.py` | Live-plots `ACC,x,y,z` accelerometer lines streamed over serial, sending the start/stop stream commands automatically. |
 | `test_participant_analysis.py` | Unit tests for `app/participant_analysis.py` (the GUI-free cross-trial computation layer). |
 | `test_acceleration_metrics.py` | Unit tests for `validation_experiments/acceleration_metrics.py` (both vibration-intensity metrics, unit conversion, the raw-sample round trip) and for the metric switching / old-CSV compatibility of the accelerometer experiments. |
+| `test_haptic_config.py` | Unit tests for `common/haptic_config.py` and everything that reads it: old/partial `config.json` compatibility, range validation, atomic non-destructive saving, the Initial Setup window, the validation windows' defaults and prose, "manual value wins over the config", historical-run rendering, and the haptic quiz cue. |
+| `test_validation_reports.py` | Unit tests for the validation experiments' text statistics (`validation_experiments/report.py` + each experiment's `summary_report()`) and for the saved-run picker in the validation windows. |
 
 `latency_results/` holds the plots/summary generated by the latency scripts;
 `video_demo/` holds recorded demo videos of the latency tests.
+
+## Haptic actuator configuration
+
+Which vibration actuator the rig drives — and how hard — is **one setting
+for the whole project**, stored in `config.json` and edited in the
+launcher's **1. Initial Setup → Haptic Actuator Defaults**. No script,
+window or experiment carries its own copy of "224 Hz / amp 64".
+
+### Schema
+
+```json
+"haptic": {
+  "using": "lra",
+  "lra": { "default_frequency": 224, "default_amp": 64 },
+  "erm": { "default_frequency": 1000, "default_amp": 50 }
+}
+```
+
+| Field | Meaning | Default |
+|---|---|---|
+| `haptic.using` | Which actuator the platform drives by default — `"lra"` or `"erm"` (case-insensitive on load, stored lower case). | `"lra"` |
+| `haptic.lra.default_frequency` | LRA drive frequency in Hz. | `224` |
+| `haptic.lra.default_amp` | LRA drive amp (firmware PWM duty byte). | `64` |
+| `haptic.erm.default_frequency` | ERM PWM **carrier** frequency in Hz. | `1000` |
+| `haptic.erm.default_amp` | ERM drive amp. | `50` |
+
+**The two frequencies do not mean the same thing.** An LRA's frequency is
+a real mechanical drive frequency: the actuator only vibrates properly at
+(or very near) its resonance, which is why
+`validation_experiments/lra_resonance_intensity_calibration/` exists to
+measure it. An ERM's frequency is the **PWM carrier** that chops its
+drive rail — it is *not* the rotor's mechanical vibration frequency,
+which follows the motor's speed and therefore the amp. The carrier only
+has to be fast enough that the chopped drive behaves like smooth DC; too
+low and the rotor cannot overcome stiction and never starts at all.
+
+### Valid ranges
+
+Enforced in one place (`common/haptic_config.py`) and used unchanged by
+the Initial Setup spin boxes, so a control can never offer a value the
+config would reject.
+
+| Setting | Range | Where it comes from |
+|---|---|---|
+| amp (both actuators) | 0–255 | The firmware's PWM duty byte: `handlePulse()` rejects anything outside 0–255 (`teensy_driver/motor_driver.cpp`). |
+| LRA frequency | 50–1000 Hz | Firmware `FREQ_MIN` = 50 Hz; the upper bound is the project's own LRA band (the Haptic Motor Bench's high-precision slider), and the resonance sweep only covers 100–350 Hz. |
+| ERM frequency | 50–20000 Hz | Firmware `FREQ_MIN`/`FREQ_MAX` — the `F` command silently drops anything outside them. The project drives ERMs at 1–5 kHz. |
+
+A frequency that is legal but unusual for that actuator (an LRA far off
+resonance, an ERM carrier below ~1 kHz) is still accepted — this is a
+research rig — but the Initial Setup window says so in an advisory note.
+
+### What changing it affects
+
+* the haptic quiz cue (`app/haptic_cue.py`) — amp **and** the PWM
+  frequency it tunes each finger port to on connect;
+* Haptic Vibrator Test and Haptic Motor Bench (their opening
+  frequency/amp and "restore defaults");
+* **Test Buzz** in every validation window, and the frequency pushed to
+  the port before the pulse;
+* Motor → ACC Delay: the actuator it opens on, and its motor port, PWM
+  frequency and drive amp;
+* Actuator Spectrogram: the type it opens on and its motor port;
+* LRA Amplitude Sweep: the PWM frequency the amps are measured at;
+* the descriptions, tooltips and status lines of section 9 — they quote
+  the configured numbers, not literals;
+* the Wiring Guide's pin table (which actuator is in use, on which port).
+
+### Priority: config defaults vs. what you type
+
+The config supplies **initial values**; the operator always wins.
+
+* A window reads the config when it **opens** and fills its controls.
+* Anything typed afterwards is used for that run — the config is **never**
+  re-applied at Start.
+* Sweeps are unaffected in principle: the LRA resonance sweep still
+  covers its whole 100–350 Hz range (finding the resonance is its
+  purpose), the amplitude sweep still steps its own amp values, and the
+  spectrogram still drives the ranges shown in its controls.
+* Saved runs are immutable: a run's `meta.json` records what was actually
+  sent to the hardware, and re-rendering an old chart uses **that**
+  meta's parameters, never today's config. Runs saved before a field
+  existed fall back to fixed historical constants, not to the config.
+* New runs additionally record a `haptic_config` block: the config
+  snapshot at run time, plus whether the amp / frequency / motor port
+  used was the configured default or a manual override.
+
+### Editing it
+
+Initial Setup → **Haptic Actuator Defaults**: a radio pair for the
+actuator in use plus a frequency and amp box for each actuator. Every
+change is written to `config.json` **as you type** — no Save button and
+no restart. Windows opened afterwards read the new values; validation
+windows already open refresh their descriptive text (their controls are
+left as the user set them).
+
+Saving is read-modify-write and atomic (temp file + `os.replace`), so
+every other key in `config.json` is preserved byte for byte and an
+interrupted write can never leave unparseable JSON behind.
+
+### Old config files
+
+* No `haptic` key at all → the built-in defaults above are used; nothing
+  is written until something saves.
+* Some fields missing → only the missing ones fall back; the present ones
+  are kept exactly.
+* A malformed or out-of-range value → clamped into range (or, if it is
+  not a number at all, replaced by the built-in default), with the
+  correction reported in the log and shown in the Initial Setup window.
+  Nothing out of range is ever sent to the hardware, and no correction is
+  silent.
+
+### What is deliberately *not* in this config
+
+* **Motor port.** Which port an actuator is wired to (LRA → 11, ERM → 10)
+  is a fact about the board, not a preference. The mapping is centralised
+  in `common/haptic_config.py` (`ACTUATOR_MOTOR_PORTS`) so every window
+  and experiment agrees on it, it is displayed in the Wiring Guide and in
+  the Initial Setup summary, and every experiment window still has its
+  own motor-port control that overrides it.
+* **The firmware's boot PWM frequency** (224 Hz,
+  `motor_driver.cpp DEFAULT_PWM_FREQ`). Experiments restore it on the
+  port when they finish, so it must keep matching the firmware even if
+  the configured LRA default changes.
+
+---
 
 ## Configuration
 

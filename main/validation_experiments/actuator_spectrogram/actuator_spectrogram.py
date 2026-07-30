@@ -100,6 +100,7 @@ try:
         select_metric,
     )
     from ..rig import SweepAborted, collect_samples, open_rig, send
+    from .. import report
 except ImportError:  # direct execution rather than package import
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from acceleration_metrics import (
@@ -126,15 +127,34 @@ except ImportError:  # direct execution rather than package import
         select_metric,
     )
     from rig import SweepAborted, collect_samples, open_rig, send
+    import report
+
+try:
+    from common import haptic_config as hc
+except ImportError:  # direct execution from this folder - add main/ to the path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    from common import haptic_config as hc
 
 
 # ==========================================
 # Configuration
 # ==========================================
 
-MOTOR_INDEX = 10          # default motor port (ERM test channel; LRA is 11)
+# Which actuator this experiment opens on, and the port it is wired to:
+# both follow config.json's haptic block (the actuator in use), so the
+# window opens on the rig's actual actuator. These are module-level
+# fallbacks for command-line runs - the GUI re-reads the config when the
+# window opens and its Type / Motor port controls override both.
+DEFAULT_MOTOR_TYPE = hc.actuator_label(hc.get_active_haptic_type())
+MOTOR_INDEX = hc.get_actuator_motor_port()
 ACC_SENSOR_ID = 0
-DEFAULT_MOTOR_TYPE = "ERM"
+
+# What a run saved before its meta recorded these is assumed to have
+# used. Re-rendering an old chart must reproduce THAT run, so these stay
+# fixed and are never taken from today's config.
+HISTORICAL_MOTOR_TYPE = "ERM"
+HISTORICAL_MOTOR_INDEX = 10
 
 # Per-actuator default ranges (all user-adjustable in the launcher; these
 # are what "select this type" seeds the range controls with).
@@ -148,7 +168,9 @@ MOTOR_TYPES = list(TYPE_CONFIG.keys())
 AMP_MIN, AMP_MAX = 0, 255
 FREQ_MAX_LIMIT = 20000    # firmware 'F' command upper bound (Hz)
 FREQ_DRIVE_MIN = 50       # firmware 'F' command minimum (Hz)
-DEFAULT_PWM_FREQ = 224    # firmware boot default, restored when the sweep ends
+# Firmware boot default (motor_driver.cpp DEFAULT_PWM_FREQ), restored on
+# the port when the sweep ends - a firmware fact, not a preference.
+DEFAULT_PWM_FREQ = hc.FIRMWARE_BOOT_PWM_HZ
 
 # Scan precision -> (frequency step, amp step). A 2-D sweep's cell count is
 # frequencies x amps, so finer precision multiplies the run time fast.
@@ -486,6 +508,15 @@ def save_meta(csv_path: str, png_path: str, grid_pth: str, raw_path: str,
             "acc_interval_ms": ACC_INTERVAL_MS,
             "annotate_mode": annotate_mode,
         },
+        # The haptic config as it stood at run time. This experiment
+        # SWEEPS frequency and amp, so the config never sets what was
+        # driven - the swept ranges above are the record of that. It is
+        # kept so a run can be traced back to the rig's configuration.
+        "haptic_config": {
+            "snapshot": hc.config_snapshot(),
+            "note": ("informational: every cell's drive comes from the "
+                     "swept ranges in 'parameters', not from this config"),
+        },
         "files": {
             "csv": os.path.basename(csv_path),
             "heatmap": os.path.basename(png_path),
@@ -613,9 +644,9 @@ def set_display_options(csv_path: str, annotate_mode: Optional[str] = None,
     meta = load_meta(csv_path)
     params = meta.get("parameters", {}) if meta else {}
     metrics_meta = meta.get("metrics", {}) if meta else {}
-    defaults = type_defaults(params.get("motor_type", DEFAULT_MOTOR_TYPE))
-    motor_index = params.get("motor_index", MOTOR_INDEX)
-    motor_type = params.get("motor_type", DEFAULT_MOTOR_TYPE)
+    defaults = type_defaults(params.get("motor_type", HISTORICAL_MOTOR_TYPE))
+    motor_index = params.get("motor_index", HISTORICAL_MOTOR_INDEX)
+    motor_type = params.get("motor_type", HISTORICAL_MOTOR_TYPE)
     amp_min = params.get("amp_min", defaults["amp_min"])
     amp_max = params.get("amp_max", defaults["amp_max"])
     freq_min = params.get("freq_min", defaults["freq_min"])
@@ -668,10 +699,10 @@ def render_csv(csv_path: str, out_png: str,
     meta = load_meta(csv_path)
     params = meta.get("parameters", {}) if meta else {}
     metrics_meta = meta.get("metrics", {}) if meta else {}
-    defaults = type_defaults(params.get("motor_type", DEFAULT_MOTOR_TYPE))
+    defaults = type_defaults(params.get("motor_type", HISTORICAL_MOTOR_TYPE))
     if motor_index is None:
-        motor_index = params.get("motor_index", MOTOR_INDEX)
-    motor_type = params.get("motor_type", DEFAULT_MOTOR_TYPE)
+        motor_index = params.get("motor_index", HISTORICAL_MOTOR_INDEX)
+    motor_type = params.get("motor_type", HISTORICAL_MOTOR_TYPE)
     amp_min = params.get("amp_min", defaults["amp_min"])
     amp_max = params.get("amp_max", defaults["amp_max"])
     freq_min = params.get("freq_min", defaults["freq_min"])
@@ -706,6 +737,103 @@ def render_csv(csv_path: str, out_png: str,
 # ==========================================
 # Experiment
 # ==========================================
+
+#: Above this many cells the full matrix is replaced by a per-frequency
+#: best-cell listing: a Fine sweep can be hundreds of cells wide, and a
+#: wrapped 200-column table is less readable than no table at all.
+MAX_REPORT_CELLS = 400
+
+
+def summary_report(csv_path: str, summary: Optional[dict] = None) -> list:
+    """The map's statistics as text, rebuilt from a saved
+    spectrogram_*.csv (+ its .meta.json): the parameters, the measured
+    intensity of every cell (or, for a large grid, the strongest amp per
+    frequency), and the peak the heat map marks.
+
+    Values are shown for the metric the displayed map uses, so the text
+    and the colours always describe the same numbers."""
+    results = load_results(csv_path)
+    meta = load_meta(csv_path)
+    params = (meta or {}).get("parameters", {})
+    metrics_meta = (meta or {}).get("metrics", {})
+    chosen = normalise_metric(
+        (summary or {}).get("metric")
+        or metrics_meta.get("selected_plot_metric")
+        or select_metric(results, None))
+    freqs, amps = grid_axes(results)
+    peak = peak_cell(results, chosen)
+
+    details = [
+        f"{params.get('motor_type', '?')} on motor port "
+        f"{params.get('motor_index', '?')}, ACC sensor "
+        f"{params.get('acc_sensor_id', '?')}",
+        f"amp {params.get('amp_min', '?')}-{params.get('amp_max', '?')} "
+        f"step {params.get('amp_step', '?')}, freq "
+        f"{params.get('freq_min', '?')}-{params.get('freq_max', '?')} Hz "
+        f"step {params.get('freq_step', '?')} "
+        f"({params.get('precision', '?')} precision)",
+        f"{len(freqs)} frequencies x {len(amps)} amps = {len(results)} cells, "
+        f"{params.get('measure_s', '?')} s per cell",
+        f"values shown: {metric_spec(chosen).short_label} in m/s²",
+    ]
+    lines = report.header("Spectrogram statistics", csv_path, meta, details)
+    lines.append("")
+
+    by_freq = {}
+    for cell in results:
+        by_freq.setdefault(cell.freq_hz, []).append(cell)
+
+    if len(results) <= MAX_REPORT_CELLS and amps:
+        # The full grid, as a frequency x amp matrix - the text form of
+        # the picture, with each cell's own measured value.
+        lines.append(f"  Intensity map (m/s², rows = drive frequency, "
+                     f"columns = amp):")
+        rows = []
+        for freq in freqs:
+            cells = {c.amp: c for c in by_freq.get(freq, [])}
+            rows.append([freq] + [
+                report.number(
+                    get_metric_value(cells[a], chosen, unit="ms2")
+                    if a in cells else None, 2)
+                for a in amps])
+        lines.extend(report.table(["freq Hz"] + [f"amp {a}" for a in amps],
+                                  rows, indent="    "))
+    else:
+        lines.append(f"  Strongest amp per frequency ({len(results)} cells - "
+                     f"too many for a full matrix, over "
+                     f"{MAX_REPORT_CELLS}):")
+        rows = []
+        for freq in freqs:
+            cells = by_freq.get(freq, [])
+            if not cells:
+                continue
+            best = peak_cell(cells, chosen)
+            rows.append((freq, best.amp,
+                         report.number(get_metric_value(best, chosen,
+                                                        unit="ms2"), 3),
+                         len(cells)))
+        lines.extend(report.table(
+            ("freq Hz", "best amp", "m/s²", "cells"), rows, indent="    "))
+
+    lines.append("")
+    lines.append(f"Strongest vibration at freq={peak.freq_hz} Hz, "
+                 f"amp={peak.amp} "
+                 f"({get_metric_value(peak, chosen, unit='ms2'):.2f} m/s², "
+                 f"{metric_spec(chosen).short_label})")
+    for name in METRIC_NAMES:
+        if name == chosen:
+            continue
+        try:
+            alt = peak_cell(results, name)
+        except Exception:
+            continue
+        lines.append(f"  (for reference, {metric_spec(name).short_label} "
+                     f"peaks at freq={alt.freq_hz} Hz, amp={alt.amp}: "
+                     f"{get_metric_value(alt, name, unit='ms2'):.2f} m/s²)")
+    lines.append("Every cell above was driven at its own (frequency, amp) - "
+                 "the map is the sweep's own grid, not a configured default.")
+    return lines
+
 
 def estimated_duration_s(precision: str = DEFAULT_PRECISION,
                          measure_s: float = MEASURE_S,

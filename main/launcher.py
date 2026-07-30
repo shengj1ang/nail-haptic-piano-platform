@@ -46,6 +46,7 @@ from app.gui.camera_selection_window import CameraSelectionWindow
 from app.gui.cue_selection_window import CueSelectionWindow
 from app.gui.experiment_session_window import ExperimentSessionWindow
 from app.gui.finger_detector_window import FingerDetectorWindow
+from app.gui.haptic_config_window import HapticConfigWindow
 from app.gui.key_preview import KeyPreviewWindow
 from app.gui.midi_mapping_wizard import MidiMappingWizard
 from app.gui.pilot_schedule_window import PilotScheduleWindow
@@ -79,6 +80,10 @@ SECTIONS = [
             ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
             ("MIDI Mapping Wizard", MidiMappingWizard),
             ("Visual Guidance Cue Selection", CueSelectionWindow),
+            # Which actuator the rig drives (LRA/ERM) and each type's
+            # default frequency/amp - the whole project's haptic
+            # defaults come from here (config.json "haptic").
+            ("Haptic Actuator Defaults", HapticConfigWindow),
         ],
     ),
     (

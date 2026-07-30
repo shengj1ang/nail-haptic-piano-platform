@@ -12,10 +12,20 @@ drives the same rig from a keyboard for manual testing).
 Finger -> motor index is a fixed fact about how this rig is wired, not
 tied to any keyboard profile - motor indices 10/11 exist on the board but
 aren't wired to a finger, so no finger maps to them.
+
+HOW HARD IT BUZZES is not fixed here: the drive amp and the PWM
+frequency come from config.json's haptic block (common.haptic_config),
+for whichever actuator type is currently in use - so switching the rig
+from LRA to ERM in Initial Setup changes what the cue sends, with no
+code change. The frequency matters as much as the amp: the firmware
+boots every motor pin at the LRA's resonance, which an ERM cannot even
+start from, so the cue sets each finger port's frequency when it
+connects.
 """
 
 from typing import Optional
 
+from common import haptic_config as hc
 from common.controller import VibratorController
 
 from .quiz import CueOutput
@@ -33,22 +43,45 @@ FINGER_TO_MOTOR = {
     "R5": 9,
 }
 
-# Calibrated cue strength: at the LRA's 224 Hz resonance, amp=64 measures
-# 0.49 m/s^2 RMS - the middle of the 0.4-0.6 m/s^2 "clearly perceptible,
-# not annoying" target band. See
-# validation_experiments/lra_resonance_intensity_calibration/README.md.
-HAPTIC_AMPLITUDE = 64
+def cue_amplitude() -> int:
+    """The configured cue strength of the actuator in use.
+
+    The LRA default (amp 64 at its 224 Hz resonance) measures 0.49 m/s^2
+    RMS - the middle of the 0.4-0.6 m/s^2 "clearly perceptible, not
+    annoying" target band; see
+    validation_experiments/lra_resonance_intensity_calibration/README.md.
+    Changing the actuator (or its amp) in Initial Setup changes this."""
+    return hc.get_active_haptic_defaults().default_amp
+
+
+def cue_frequency() -> int:
+    """The configured drive frequency of the actuator in use."""
+    return hc.get_active_haptic_defaults().default_frequency
 
 
 class HapticCueOutput(CueOutput):
     """Connects to the vibration rig on construction - raises if it can't,
     same as this quiz's Camera()/RawMidiRecorder() do for their hardware,
-    since haptic feedback is the entire point of this guidance_type."""
+    since haptic feedback is the entire point of this guidance_type.
+
+    The configured drive is read ONCE, on construction, so a config edit
+    mid-quiz can never change the cue between two events of the same
+    session (and the session's own record says what it delivered)."""
 
     def __init__(self):
+        config = hc.get_haptic_config()
+        self.actuator_type = config.using
+        self.amplitude = config.active.default_amp
+        self.frequency = config.active.default_frequency
         self.controller = VibratorController()
         self.controller.connect()
         self.controller.stop_all()
+        # Every motor pin boots at the firmware's default PWM frequency
+        # (the LRA's resonance): an ERM chopped that slowly never starts,
+        # so each finger port is retuned to the configured frequency
+        # before the first cue.
+        for motor in sorted(set(FINGER_TO_MOTOR.values())):
+            self.controller.send(f"F {motor} {self.frequency}")
         self._active_motor: Optional[int] = None
 
     def show_target(self, note: int, finger: Optional[str]) -> None:
@@ -56,7 +89,7 @@ class HapticCueOutput(CueOutput):
         motor = FINGER_TO_MOTOR.get(finger) if finger else None
         if motor is None:
             return  # unresolved finger - nothing to buzz
-        self.controller.send(f"S {1 << motor} {HAPTIC_AMPLITUDE}")
+        self.controller.send(f"S {1 << motor} {self.amplitude}")
         self._active_motor = motor
 
     def show_message(self, text: str) -> None:

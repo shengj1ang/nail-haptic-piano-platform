@@ -67,6 +67,7 @@ try:
         select_metric,
     )
     from ..rig import SweepAborted, collect_samples, open_rig, send
+    from .. import report
 except ImportError:  # direct execution rather than package import
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from acceleration_metrics import (
@@ -90,6 +91,14 @@ except ImportError:  # direct execution rather than package import
         select_metric,
     )
     from rig import SweepAborted, collect_samples, open_rig, send
+    import report
+
+try:
+    from common import haptic_config as hc
+except ImportError:  # direct execution from this folder - add main/ to the path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))))
+    from common import haptic_config as hc
 
 
 # ==========================================
@@ -113,7 +122,12 @@ SETTLE_S = 0.15          # motor-on settling before measuring (LRA ring-up)
 MEASURE_S = 0.40         # vibration measurement window
 REST_S = 0.15            # motor-off rest between steps
 
-DEFAULT_PWM_FREQ = 224   # restored to the pin when the sweep ends (firmware boot default)
+# Restored to the pin when the sweep ends: the FIRMWARE boot default
+# (motor_driver.cpp), not the configured LRA default - this puts the rig
+# back the way the firmware left it. The sweep itself covers
+# COARSE_START_HZ..COARSE_STOP_HZ and is never narrowed by the config:
+# finding the resonance is the entire point of this experiment.
+DEFAULT_PWM_FREQ = hc.FIRMWARE_BOOT_PWM_HZ
 
 # Data lives under main/data/ like every other experiment output.
 OUTPUT_DIR = os.path.normpath(os.path.join(
@@ -297,6 +311,10 @@ def save_meta(csv_path: str, png_path: str, raw_path: Optional[str],
             "rest_s": REST_S,
             "acc_interval_ms": ACC_INTERVAL_MS,
         },
+        # The rig's haptic configuration at run time, for traceability.
+        # This sweep's frequency points are its own (COARSE/FINE steps) -
+        # the configured LRA default never restricts what is measured.
+        "haptic_config": {"snapshot": hc.config_snapshot()},
         "files": {
             "csv": os.path.basename(csv_path),
             "png": os.path.basename(png_path),
@@ -424,6 +442,77 @@ def render_csv(csv_path: str, out_png: str,
         "csv_path": csv_path,
         "png_path": out_png,
     }
+
+
+def summary_report(csv_path: str, summary: Optional[dict] = None) -> list:
+    """The sweep's statistics as text, rebuilt from a saved sweep_*.csv
+    (+ its .meta.json): the parameters, every measured step under BOTH
+    metrics, and the resonance the chart marks.
+
+    The metric that decides the resonance is the one in `summary`
+    (i.e. whatever the chart on screen is showing), so the text and the
+    picture always name the same peak."""
+    results = load_results(csv_path)
+    meta = load_meta(csv_path)
+    params = (meta or {}).get("parameters", {})
+    metrics_meta = (meta or {}).get("metrics", {})
+    chosen = normalise_metric(
+        (summary or {}).get("metric")
+        or metrics_meta.get("selected_plot_metric")
+        or select_metric(results, None))
+
+    coarse = [r for r in results if r.sweep_pass == "coarse"]
+    fine = [r for r in results if r.sweep_pass == "fine"]
+    candidates = fine if fine else coarse
+    resonance = resonance_step(candidates, chosen)
+
+    details = [
+        f"motor port {params.get('motor_index', '?')}, amp "
+        f"{params.get('amp', '?')}, ACC sensor "
+        f"{params.get('acc_sensor_id', '?')}",
+        f"coarse {params.get('coarse_start_hz', COARSE_START_HZ)}-"
+        f"{params.get('coarse_stop_hz', COARSE_STOP_HZ)} Hz in "
+        f"{params.get('coarse_step_hz', COARSE_STEP_HZ)} Hz steps, then "
+        f"fine {params.get('fine_step_hz', FINE_STEP_HZ)} Hz around the peak",
+        f"resonance decided by: {metric_spec(chosen).short_label}",
+    ]
+    lines = report.header("Frequency-sweep statistics", csv_path, meta, details)
+
+    for label, steps in (("Coarse pass", coarse), ("Fine pass", fine)):
+        if not steps:
+            continue
+        lines.append("")
+        lines.append(f"  {label} ({len(steps)} steps):")
+        lines.extend(report.table(
+            ("freq Hz", "vector RMS counts", "vector m/s²",
+             "legacy RMS counts", "legacy m/s²", "peak delta", "n"),
+            [(r.frequency_hz,
+              report.number(r.vector_rms_counts, 1),
+              report.number(r.vector_rms_ms2, 3),
+              report.number(r.legacy_magnitude_rms_counts, 1),
+              report.number(r.legacy_magnitude_rms_ms2, 3),
+              report.number(r.peak_magnitude_delta_counts, 1),
+              r.n_samples) for r in steps],
+            indent="    "))
+
+    lines.append("")
+    lines.append(f"Resonant frequency: {resonance.frequency_hz} Hz "
+                 f"({metric_spec(chosen).short_label} = "
+                 f"{get_metric_value(resonance, chosen, 'counts'):.1f} counts "
+                 f"= {get_metric_value(resonance, chosen, 'ms2'):.3f} m/s²)")
+    for name in METRIC_NAMES:
+        if name == chosen:
+            continue
+        try:
+            alt = resonance_step(candidates, name)
+        except Exception:
+            continue
+        lines.append(f"  (for reference, {metric_spec(name).short_label} "
+                     f"peaks at {alt.frequency_hz} Hz: "
+                     f"{get_metric_value(alt, name, 'counts'):.1f} counts)")
+    lines.append("The sweep measures every step above; the resonance is the "
+                 "strongest of them under the selected metric.")
+    return lines
 
 
 # ==========================================
