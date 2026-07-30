@@ -11,6 +11,40 @@ from CSV" re-renders the plot from any saved sweep CSV (to a temp file
 - saved outputs are never modified). The experiment logic and the
 CSV/PNG/meta outputs under data/validation_experiments/ are exactly the
 same as running the script from the command line.
+
+The three vibration-intensity experiments also carry a "Plot metric"
+selector (validation_experiments/acceleration_metrics.py): demeaned
+three-axis vector RMS (the recommended default) or the legacy magnitude
+RMS. Both are always measured and saved, so switching the selector
+re-plots the displayed run - peak/recommendation, annotations and
+colour-bar label all follow the choice - with no new hardware run. A run
+saved before raw three-axis samples were kept offers the legacy metric
+only; the vector option is then disabled rather than faked, because a
+stored scalar magnitude RMS cannot be turned back into a vector RMS.
+The Motor -> ACC Delay window has no selector: its figure is a latency
+plot and its onset detector is deliberately left alone (see that
+experiment's module docstring). It does carry a "Vibration duration"
+input (0.5-10 s, default 2 s): the motor runs that long in every trial,
+the whole window is recorded, and the value feeds the run-time estimate
+shown next to the controls.
+
+FULL-SIZE CHARTS: the in-window preview is a thumbnail - a four-panel
+latency summary or a spectrogram carries far too much detail to read at
+that size. Clicking the preview (or "Enlarge Chart") opens the PNG at
+its own resolution in PlotPreviewWindow: fit / 100% / zoom buttons,
+Ctrl+scroll and Ctrl+±, scrollbars for panning once it is bigger than
+the window. ONE such window is SHARED by every validation experiment
+(shared_plot_preview()) - clicking a chart in another window swaps the
+image instead of piling up windows - and it follows its source panel, so
+a finished run or a Plot-metric switch refreshes what it shows. It
+closes with the last validation window.
+
+LAYOUT RULE FOR THESE WINDOWS: controls go on several short rows
+(_extra_config_rows), and any sentence-length text is built with
+_wrapped_label so it wraps instead of setting the window's minimum
+width. A single long QLabel in a QHBoxLayout cannot wrap - it made
+every one of these windows demand ~920 px and run off a laptop screen.
+The opening size is clamped to the screen by _size_to_screen().
 """
 
 import glob
@@ -20,9 +54,14 @@ from functools import partial
 from typing import Callable
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFontDatabase, QPixmap
+from PySide6.QtGui import (
+    QFontDatabase,
+    QGuiApplication,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -33,6 +72,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QSplitter,
@@ -41,6 +81,11 @@ from PySide6.QtWidgets import (
 )
 
 from app.gui.accelerometer_window import AccelerometerWindow
+from validation_experiments.acceleration_metrics import (
+    DEFAULT_METRIC,
+    METRIC_NAMES,
+    metric_spec,
+)
 from validation_experiments.actuator_spectrogram import actuator_spectrogram
 from validation_experiments.lra_resonance_intensity_calibration import (
     lra_amplitude_sweep,
@@ -91,26 +136,268 @@ class _SweepWorker(QThread):
             self.succeeded.emit(summary)
 
 
+class PlotPreviewWindow(QMainWindow):
+    """Full-size viewer for a saved chart, SHARED by every validation
+    window (see shared_plot_preview()).
+
+    These figures are dense - a four-panel latency summary or a
+    spectrogram is unreadable at in-panel size - so clicking any preview
+    opens the PNG here at its own resolution, scrollable and zoomable.
+    One instance is reused: clicking a chart in another experiment window
+    swaps this window's image instead of piling up windows."""
+
+    #: Fit never enlarges past 1:1 - upscaling a 150-dpi PNG only blurs it.
+    MAX_FIT_ZOOM = 1.0
+    ZOOM_STEP = 1.25
+    MIN_ZOOM, MAX_ZOOM = 0.1, 8.0
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Chart preview")
+        self._pixmap: QPixmap | None = None
+        self._zoom = 1.0
+        self._fit = True
+        #: The _PlotView this window is currently showing, so a re-render
+        #: in that panel (new run, metric switch) refreshes the preview.
+        self.owner = None
+
+        self._image = QLabel()
+        self._image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  QSizePolicy.Policy.Ignored)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._image)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.fit_btn = QPushButton("Fit to window")
+        self.fit_btn.setToolTip("Scale the chart to the window (Ctrl+0)")
+        self.fit_btn.clicked.connect(self.fit_to_window)
+        self.actual_btn = QPushButton("100%")
+        self.actual_btn.setToolTip("Show the chart at its saved resolution "
+                                   "(Ctrl+1)")
+        self.actual_btn.clicked.connect(lambda: self.set_zoom(1.0))
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_out_btn.setToolTip("Zoom out (Ctrl+−, or Ctrl+scroll)")
+        self.zoom_out_btn.clicked.connect(
+            lambda: self.set_zoom(self._zoom / self.ZOOM_STEP))
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setToolTip("Zoom in (Ctrl++, or Ctrl+scroll)")
+        self.zoom_in_btn.clicked.connect(
+            lambda: self.set_zoom(self._zoom * self.ZOOM_STEP))
+        for button in (self.zoom_out_btn, self.zoom_in_btn):
+            button.setFixedWidth(36)
+
+        self.info = QLabel()
+        self.info.setStyleSheet("color: #9a9ba5;")  # muted
+
+        bar = QHBoxLayout()
+        bar.addWidget(self.fit_btn)
+        bar.addWidget(self.actual_btn)
+        bar.addWidget(self.zoom_out_btn)
+        bar.addWidget(self.zoom_in_btn)
+        bar.addSpacing(12)
+        bar.addWidget(self.info)
+        bar.addStretch(1)
+
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.addLayout(bar)
+        layout.addWidget(self._scroll, 1)
+        self.setCentralWidget(central)
+
+        for keys, slot in (
+                (QKeySequence.StandardKey.ZoomIn,
+                 lambda: self.set_zoom(self._zoom * self.ZOOM_STEP)),
+                (QKeySequence("Ctrl+="),
+                 lambda: self.set_zoom(self._zoom * self.ZOOM_STEP)),
+                (QKeySequence.StandardKey.ZoomOut,
+                 lambda: self.set_zoom(self._zoom / self.ZOOM_STEP)),
+                (QKeySequence("Ctrl+0"), self.fit_to_window),
+                (QKeySequence("Ctrl+1"), lambda: self.set_zoom(1.0)),
+                (QKeySequence("Esc"), self.close)):
+            QShortcut(keys, self, activated=slot)
+
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            self.resize(int(available.width() * 0.85),
+                        int(available.height() * 0.85))
+        else:
+            self.resize(1100, 800)
+
+    # -- content --------------------------------------------------------
+
+    def show_image(self, path: str, title: str = "", caption: str = "",
+                   owner=None) -> None:
+        """Display `path` (raising on an unreadable file), re-fitting for
+        a NEW image but keeping the user's zoom when the same panel just
+        re-rendered the same chart underneath them."""
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            raise ValueError(f"Could not read image: {path}")
+        same_owner = owner is not None and owner is self.owner
+        self._pixmap = pixmap
+        self.owner = owner
+        caption = caption or os.path.basename(path)
+        self.setWindowTitle(f"{title} - {caption}" if title else caption)
+        if not same_owner:
+            self._fit = True
+        self._apply_zoom()
+
+    def fit_to_window(self) -> None:
+        self._fit = True
+        self._apply_zoom()
+
+    def set_zoom(self, zoom: float) -> None:
+        self._fit = False
+        self._zoom = max(self.MIN_ZOOM, min(self.MAX_ZOOM, float(zoom)))
+        self._apply_zoom()
+
+    def _fit_zoom(self) -> float:
+        viewport = self._scroll.viewport().size()
+        if self._pixmap is None or self._pixmap.width() == 0:
+            return 1.0
+        return min(viewport.width() / self._pixmap.width(),
+                   viewport.height() / self._pixmap.height(),
+                   self.MAX_FIT_ZOOM)
+
+    def _apply_zoom(self) -> None:
+        if self._pixmap is None:
+            return
+        if self._fit:
+            self._zoom = self._fit_zoom()
+        size = self._pixmap.size() * self._zoom
+        scaled = self._pixmap.scaled(size, Qt.AspectRatioMode.KeepAspectRatio,
+                                     Qt.TransformationMode.SmoothTransformation)
+        # setWidgetResizable(True) makes the scroll area stretch the label
+        # to the VIEWPORT, which clips anything larger instead of
+        # scrolling it - so it is only right while the image fits (where
+        # it also keeps the image centred). Once the image is bigger, the
+        # label must be sized to the image so scrollbars appear and the
+        # user can pan.
+        viewport = self._scroll.viewport().size()
+        fits = (scaled.width() <= viewport.width()
+                and scaled.height() <= viewport.height())
+        self._scroll.setWidgetResizable(fits)
+        self._image.setPixmap(scaled)
+        if not fits:
+            self._image.resize(scaled.size())
+        self.info.setText(
+            f"{self._pixmap.width()} × {self._pixmap.height()} px   ·   "
+            f"{self._zoom * 100:.0f}%" + ("  (fit)" if self._fit else ""))
+
+    # -- interaction ----------------------------------------------------
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._fit:
+            self._apply_zoom()
+
+    def wheelEvent(self, event) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta:
+                self.set_zoom(self._zoom * (self.ZOOM_STEP if delta > 0
+                                            else 1 / self.ZOOM_STEP))
+                event.accept()
+                return
+        super().wheelEvent(event)
+
+
+#: The one preview window every validation experiment shares.
+_shared_preview: PlotPreviewWindow | None = None
+
+
+def shared_plot_preview() -> PlotPreviewWindow:
+    """The shared full-size chart viewer, created on first use."""
+    global _shared_preview
+    if _shared_preview is None:
+        _shared_preview = PlotPreviewWindow()
+    return _shared_preview
+
+
+def close_shared_plot_preview() -> None:
+    """Drop the shared viewer - called when the last validation window
+    closes, so it never lingers on its own."""
+    global _shared_preview
+    if _shared_preview is not None:
+        _shared_preview.close()
+        _shared_preview = None
+
+
 class _PlotView(QLabel):
     """Shows a response-curve PNG scaled to the available space (aspect
     kept). Ignored size policy so the scaled pixmap never feeds back
-    into the layout's size negotiation."""
+    into the layout's size negotiation.
+
+    CLICKING IT opens the chart full size in the shared
+    PlotPreviewWindow - these figures carry far too much detail to read
+    in a panel this size."""
 
     PLACEHOLDER = "No saved output yet - run the experiment or load a CSV."
+    HINT = "Click the chart to open it full size in a separate window."
+
+    clicked = Signal()
 
     def __init__(self):
         super().__init__(self.PLACEHOLDER)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.setMinimumHeight(200)
+        # Deliberately small: this is the floor the whole window can be
+        # squeezed to on a short laptop screen, not the working size (the
+        # splitter gives the preview most of the space by default and the
+        # user can drag it).
+        self.setMinimumHeight(130)
         self._pixmap: QPixmap | None = None
+        self._path: str | None = None
+        self._caption = ""
+        self._title = ""
 
-    def show_png(self, path: str) -> None:
+    def set_title(self, title: str) -> None:
+        """Names this panel's chart in the shared preview's title bar."""
+        self._title = title
+
+    @property
+    def path(self) -> str | None:
+        return self._path
+
+    def show_png(self, path: str, caption: str | None = None) -> None:
+        """Display `path`. `caption` names the chart in the full-size
+        preview's title bar - re-renders go to throwaway temp files whose
+        names ("render_2.png") would tell the user nothing, so those
+        callers pass the source run and metric instead."""
         pixmap = QPixmap(path)
         if pixmap.isNull():
             raise ValueError(f"Could not read image: {path}")
         self._pixmap = pixmap
+        self._path = path
+        self._caption = caption or os.path.basename(path)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(self.HINT)
         self._rescale()
+        # A finished run or a metric switch replaces the image under an
+        # open preview - keep that preview on the current chart.
+        preview = _shared_preview
+        if preview is not None and preview.isVisible() and preview.owner is self:
+            preview.show_image(path, self._title, self._caption, owner=self)
+
+    def open_full_size(self) -> bool:
+        """Show this panel's chart in the shared preview window."""
+        if self._path is None:
+            return False
+        preview = shared_plot_preview()
+        preview.show_image(self._path, self._title, self._caption, owner=self)
+        preview.show()
+        preview.raise_()
+        preview.activateWindow()
+        return True
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -135,6 +422,18 @@ class _SweepWindowBase(QMainWindow):
     MODULE = None       # validation_experiments module with run_experiment/render_csv
     PNG_GLOB = ""       # e.g. "frequency_response_*.png" - the module's plot files
     CSV_GLOB = ""       # e.g. "sweep_*.csv" - the module's data files
+    # Whether this experiment plots a vibration-intensity metric the user
+    # may choose. False for experiments whose figure is not an intensity
+    # plot (the delay test's latency figure).
+    METRIC_SELECTOR = True
+    # Opening size, clamped to the screen by _size_to_screen(). Controls
+    # belong on several wrapped rows (_extra_config_rows) rather than one
+    # long one, so no window needs to be wider than this.
+    PREFERRED_SIZE = (900, 760)
+
+    #: Every open validation window, across all subclasses - the shared
+    #: full-size chart preview is closed when the last one goes.
+    _live_windows = set()
     # Physical-mounting instructions shown under the description; the
     # default is the sweeps' desk-mounted protocol - experiments with a
     # different protocol (e.g. the suspended delay test) override it.
@@ -151,16 +450,21 @@ class _SweepWindowBase(QMainWindow):
         super().__init__()
         self.cfg = cfg  # unused, accepted for the launcher's window_cls(cfg) call
         self.setWindowTitle(self.TITLE)
+        _SweepWindowBase._live_windows.add(self)
         self._worker = None
         # Holds CSV re-renders so saved output files are never touched.
         self._tmpdir = tempfile.TemporaryDirectory(prefix="validation_sweep_")
         self._render_count = 0
+        # The run whose chart is on screen (its CSV path): set by the
+        # latest-output preview, by Load CSV and by a finished run. The
+        # Plot metric selector re-plots THAT run.
+        self._current_csv = None
 
-        description = QLabel(self.DESCRIPTION)
-        description.setWordWrap(True)
-
-        setup_hint = QLabel(self.SETUP_HINT)
-        setup_hint.setWordWrap(True)
+        # Long prose wraps to whatever width the window has instead of
+        # dictating one: without this a paragraph-length DESCRIPTION sets
+        # the window's minimum width and pushes it off a laptop screen.
+        description = self._wrapped_label(self.DESCRIPTION)
+        setup_hint = self._wrapped_label(self.SETUP_HINT)
 
         self.motor_spin = QSpinBox()
         self.motor_spin.setRange(0, 15)
@@ -195,10 +499,13 @@ class _SweepWindowBase(QMainWindow):
         self._config_inputs = [self.motor_spin, self.acc_spin]
         self._build_extra_config(config_row)
         config_row.addWidget(self.test_buzz_btn)
-        defaults_note = QLabel("<i>Defaults recommended - only change them "
-                               "when the rig setup demands it.</i>")
-        config_row.addWidget(defaults_note)
         config_row.addStretch(1)
+        # Its own wrapped line rather than a trailing item on the config
+        # row: as a row item this note alone added ~380 px of unwrappable
+        # width to every one of these windows.
+        defaults_note = self._wrapped_label(
+            "<i>Defaults recommended - only change them when the rig setup "
+            "demands it.</i>")
 
         self.status = QLabel("Idle - connect the rig and press Start.")
         self.status.setWordWrap(True)
@@ -209,9 +516,20 @@ class _SweepWindowBase(QMainWindow):
         self.progress_bar.setFormat("%v / %m steps")
 
         self.plot_view = _PlotView()
+        self.plot_view.setToolTip(_PlotView.HINT)
+        self.plot_view.set_title(self.TITLE)
+        self.plot_view.clicked.connect(self._open_plot_preview)
+        self.enlarge_btn = QPushButton("Enlarge Chart")
+        self.enlarge_btn.setToolTip(
+            "Open the chart full size in a separate window - these figures "
+            "are too detailed to read in the panel. You can also just click "
+            "the chart. The window is shared by every validation "
+            "experiment, so it swaps to whichever chart you click last.")
+        self.enlarge_btn.clicked.connect(self._open_plot_preview)
 
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
+        self.log_view.setMinimumHeight(70)
         self.log_view.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
 
         self.start_btn = QPushButton("Start")
@@ -233,8 +551,11 @@ class _SweepWindowBase(QMainWindow):
         buttons.addWidget(self.stop_btn)
         buttons.addSpacing(12)
         buttons.addWidget(self.load_csv_btn)
+        buttons.addWidget(self.enlarge_btn)
         buttons.addWidget(self.acc_view_btn)
         buttons.addStretch(1)
+
+        metric_row = self._build_metric_row()
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.plot_view)
@@ -251,14 +572,46 @@ class _SweepWindowBase(QMainWindow):
         # rows here, so the config area wraps instead of running off-screen.
         for extra_row in self._extra_config_rows():
             layout.addLayout(extra_row)
+        layout.addWidget(defaults_note)
+        if metric_row is not None:
+            layout.addLayout(metric_row)
         layout.addLayout(buttons)
         layout.addWidget(self.progress_bar)
         layout.addWidget(splitter, 1)
         layout.addWidget(self.status)
         self.setCentralWidget(central)
-        self.resize(860, 760)
+        self._size_to_screen()
 
         self._show_latest_output()
+
+    # -- layout helpers -------------------------------------------------
+
+    @staticmethod
+    def _wrapped_label(text: str) -> QLabel:
+        """A prose label that wraps instead of widening the window. The
+        minimum width keeps a sensible measure on a narrow window; the
+        Minimum vertical policy lets it grow taller as it wraps."""
+        label = QLabel(text)
+        label.setWordWrap(True)
+        # Qt derives a window's minimum HEIGHT from heightForWidth at this
+        # width, so too small a value makes long prose wrap into a very
+        # tall minimum; 520 keeps both dimensions inside a laptop screen.
+        label.setMinimumWidth(520)
+        label.setSizePolicy(QSizePolicy.Policy.Preferred,
+                            QSizePolicy.Policy.Minimum)
+        return label
+
+    def _size_to_screen(self) -> None:
+        """Open at the preferred size but never larger than the screen -
+        no fixed over-wide geometry that runs off a laptop display."""
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(*self.PREFERRED_SIZE)
+            return
+        available = screen.availableGeometry()
+        width = min(self.PREFERRED_SIZE[0], int(available.width() * 0.92))
+        height = min(self.PREFERRED_SIZE[1], int(available.height() * 0.92))
+        self.resize(width, height)
 
     # -- subclass hooks -------------------------------------------------
 
@@ -288,6 +641,152 @@ class _SweepWindowBase(QMainWindow):
     def _summary_text(self, summary: dict) -> str:
         raise NotImplementedError
 
+    # -- plot metric ----------------------------------------------------
+
+    def _build_metric_row(self) -> QHBoxLayout | None:
+        """The "Plot metric" selector row (None when this experiment does
+        not plot a vibration-intensity metric)."""
+        if not self.METRIC_SELECTOR:
+            self.metric_combo = None
+            return None
+        self.metric_combo = QComboBox()
+        for name in METRIC_NAMES:
+            self.metric_combo.addItem(metric_spec(name).gui_label, name)
+        self.metric_combo.setCurrentIndex(
+            self.metric_combo.findData(DEFAULT_METRIC))
+        self.metric_combo.setToolTip(
+            "Which vibration-intensity metric the chart, its peak and its "
+            "colour-bar/axis label are based on.\n\n"
+            "• Demeaned 3-axis vector RMS (recommended): each axis is "
+            "demeaned over the measurement window, so gravity, the sensor's "
+            "static bias and the mounting orientation drop out.\n"
+            "• Legacy magnitude RMS: the original baseline-subtracted |a| "
+            "formula, kept so new runs can be compared with historical ones.\n\n"
+            "Both metrics are always measured and saved, so switching this "
+            "only re-plots the displayed run - no new hardware run needed. "
+            "Runs saved before raw three-axis samples were kept can only "
+            "use the legacy metric.")
+        # The user's own choice, separate from the combo's current value:
+        # displaying a legacy-only run forces the combo to legacy, and a
+        # NEW run must still default to the recommended metric.
+        self._user_metric = DEFAULT_METRIC
+        self.metric_combo.currentIndexChanged.connect(self._on_metric_changed)
+        self._config_inputs.append(self.metric_combo)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Plot metric:"))
+        row.addWidget(self.metric_combo)
+        row.addSpacing(12)
+        # Short by design - the full explanation is the combo's tooltip;
+        # as a row item a long sentence sets the window's minimum width.
+        row.addWidget(QLabel("<i>Both are measured every run.</i>"))
+        row.addStretch(1)
+        return row
+
+    def _selected_metric(self) -> str | None:
+        if not self.METRIC_SELECTOR or self.metric_combo is None:
+            return None
+        return self.metric_combo.currentData()
+
+    def _set_metric_item_enabled(self, name: str, enabled: bool) -> None:
+        index = self.metric_combo.findData(name)
+        if index < 0:
+            return
+        item = self.metric_combo.model().item(index)
+        item.setEnabled(enabled)
+        if not enabled:
+            item.setToolTip("Not available for this run - it has no raw "
+                            "three-axis samples.")
+
+    def _sync_metric_combo(self, csv_path: str | None) -> str:
+        """Enable only the metrics the displayed run actually supports and
+        select one of them, without triggering a re-render. Returns a
+        note to append to the status line when the run is restricted."""
+        if not self.METRIC_SELECTOR or self.metric_combo is None:
+            return ""
+        supported = list(METRIC_NAMES)
+        if csv_path is not None:
+            try:
+                supported = self.MODULE.available_metrics_for(csv_path)
+            except Exception:
+                supported = list(METRIC_NAMES)
+        self.metric_combo.blockSignals(True)
+        for name in METRIC_NAMES:
+            self._set_metric_item_enabled(name, name in supported)
+        if supported and self.metric_combo.currentData() not in supported:
+            self.metric_combo.setCurrentIndex(
+                self.metric_combo.findData(supported[0]))
+        self.metric_combo.blockSignals(False)
+        if DEFAULT_METRIC in supported:
+            return ""
+        return (" This run has no raw three-axis samples, so only the "
+                f"{metric_spec(supported[0]).short_label} is available - "
+                "the vector RMS cannot be derived from a stored scalar RMS.")
+
+    def _set_current_run(self, csv_path) -> str:
+        """Remember which saved run the preview is showing, point the
+        metric selector at what that run supports, and return the note
+        (if any) the caller should append to its status line."""
+        self._current_csv = csv_path
+        return self._sync_metric_combo(csv_path)
+
+    def _rerender_current(self, metric: str):
+        """Re-plot the displayed run with `metric`; returns
+        (png_path, summary_or_None). The summary is what lets the status
+        line restate the metric-dependent RESULT (e.g. the amplitude
+        sweep's target band and cue amp), not just the curve. Renders to
+        a temp file so saved outputs stay untouched; subclasses that keep
+        their own PNG in sync override this."""
+        self._render_count += 1
+        out_png = os.path.join(self._tmpdir.name,
+                               f"render_{self._render_count}.png")
+        summary = self.MODULE.render_csv(self._current_csv, out_png,
+                                         metric=metric)
+        return out_png, summary
+
+    def _restore_user_metric(self) -> None:
+        """Re-arm the selector for a NEW run: every metric is available
+        again (a new run always saves raw samples), and the user's own
+        choice - not the value a legacy-only preview forced - applies."""
+        if not self.METRIC_SELECTOR or self.metric_combo is None:
+            return
+        self.metric_combo.blockSignals(True)
+        for name in METRIC_NAMES:
+            self._set_metric_item_enabled(name, True)
+        self.metric_combo.setCurrentIndex(
+            self.metric_combo.findData(self._user_metric))
+        self.metric_combo.blockSignals(False)
+
+    def _on_metric_changed(self) -> None:
+        metric = self._selected_metric()
+        self._user_metric = metric          # an explicit, user-made choice
+        if self._worker is not None or self._current_csv is None:
+            return
+        try:
+            png_path, summary = self._rerender_current(metric)
+            self.plot_view.show_png(
+                png_path,
+                caption=f"{os.path.basename(self._current_csv)} · "
+                        f"{metric_spec(metric).short_label}")
+        except Exception as e:
+            self.status.setText(f"Couldn't re-plot with that metric: {e}")
+            return
+        text = (f"Chart re-plotted from {os.path.basename(self._current_csv)} "
+                f"using {metric_spec(metric).short_label}.")
+        # Everything the metric governs - target band, recommendation,
+        # in-band values - is restated here, so the status line can never
+        # keep describing the metric that was showing a moment ago.
+        if summary is not None:
+            text += " " + self._summary_text(summary, saved=False)
+        self.status.setText(text)
+
+    # -- full-size chart preview ----------------------------------------
+
+    def _open_plot_preview(self) -> None:
+        if not self.plot_view.open_full_size():
+            self.status.setText("No chart to enlarge yet - run the "
+                                "experiment or load a CSV first.")
+
     # -- saved-output preview -------------------------------------------
 
     def _latest(self, pattern: str) -> str | None:
@@ -304,9 +803,12 @@ class _SweepWindowBase(QMainWindow):
             self.plot_view.show_png(latest_png)
         except ValueError:
             return
+        # The PNG and its CSV share the run's <ts> stem, so the newest of
+        # each belong to the same run.
+        note = self._set_current_run(self._latest(self.CSV_GLOB))
         self.status.setText(
             f"Showing latest saved result: {os.path.basename(latest_png)} "
-            "- press Start for a new run."
+            "- press Start for a new run." + note
         )
 
     def _load_csv(self) -> None:
@@ -316,20 +818,32 @@ class _SweepWindowBase(QMainWindow):
             self, "Load sweep CSV", start_dir, "Sweep CSV (*.csv)")
         if not csv_path:
             return
+        # Point the metric selector at what THIS run supports before
+        # rendering, so an old legacy-only CSV is asked for the legacy
+        # metric rather than one it cannot provide.
+        note = self._set_current_run(csv_path)
         # Unique temp name per render: QPixmap must never see a stale file.
         self._render_count += 1
         out_png = os.path.join(self._tmpdir.name, f"render_{self._render_count}.png")
         try:
-            summary = self.MODULE.render_csv(csv_path, out_png)
-            self.plot_view.show_png(out_png)
+            summary = self.MODULE.render_csv(csv_path, out_png,
+                                             **self._render_kwargs())
+            self.plot_view.show_png(out_png,
+                                    caption=os.path.basename(csv_path))
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load CSV", str(e))
             return
         self._on_csv_loaded(csv_path)
         self.status.setText(
             f"Chart re-rendered from {os.path.basename(csv_path)} - "
-            + self._summary_text(summary, saved=False)
+            + self._summary_text(summary, saved=False) + note
         )
+
+    def _render_kwargs(self) -> dict:
+        """Extra kwargs for the module's render_csv() - the chosen plot
+        metric for the intensity experiments, nothing for the others."""
+        metric = self._selected_metric()
+        return {} if metric is None else {"metric": metric}
 
     # -- accelerometer live view (single shared serial port!) -----------
 
@@ -416,6 +930,7 @@ class _SweepWindowBase(QMainWindow):
         if self._worker is not None:
             return
         self.log_view.clear()
+        self._restore_user_metric()
         # The sweep worker opens the port itself - release every other
         # connection first (test buzz, live view stream); a double-open
         # would fail on Windows and silently interleave reads on macOS.
@@ -437,10 +952,12 @@ class _SweepWindowBase(QMainWindow):
         self.test_buzz_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
 
+        metric = self._selected_metric()
         run_fn = partial(
             self.MODULE.run_experiment,
             motor_index=self.motor_spin.value(),
             acc_sensor_id=self.acc_spin.value(),
+            **({} if metric is None else {"plot_metric": metric}),
             **self._extra_run_kwargs(),
         )
         self._worker = _SweepWorker(run_fn)
@@ -473,7 +990,9 @@ class _SweepWindowBase(QMainWindow):
             self.plot_view.show_png(summary["png_path"])
         except ValueError:
             pass
-        self.status.setText("Done - " + self._summary_text(summary, saved=True))
+        note = self._set_current_run(summary.get("csv_path"))
+        self.status.setText("Done - " + self._summary_text(summary, saved=True)
+                            + note)
 
     def _on_aborted(self) -> None:
         self.status.setText("Stopped - no output files written; the rig was "
@@ -495,10 +1014,18 @@ class _SweepWindowBase(QMainWindow):
             self._acc_view.set_connect_allowed(True)
 
     def closeEvent(self, event) -> None:
+        # The full-size preview is shared, so it only goes away with the
+        # LAST validation window - closing one of several must not pull
+        # the chart out from under the others.
+        _SweepWindowBase._live_windows.discard(self)
+        if not _SweepWindowBase._live_windows:
+            close_shared_plot_preview()
         if self._worker is not None:
             self._worker.request_stop()
-            # A step lasts ~1 s; the finally-block also restores the rig.
-            self._worker.wait(15000)
+            # Long enough for the slowest step to notice the request (the
+            # delay test's drive window can be 10 s); the finally-block
+            # also restores the rig.
+            self._worker.wait(20000)
         if self._acc_view is not None:
             self._acc_view.close()
             self._acc_view = None
@@ -545,7 +1072,8 @@ class FrequencySweepWindow(_SweepWindowBase):
 
     def _summary_text(self, summary: dict, saved: bool) -> str:
         text = (f"resonant frequency: {summary['resonance_hz']} Hz "
-                f"(rms_delta={summary['rms_delta']:.1f}).")
+                f"({metric_spec(summary['metric']).short_label} = "
+                f"{summary['resonance_counts']:.1f} counts).")
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")
@@ -558,16 +1086,24 @@ class AmplitudeSweepWindow(_SweepWindowBase):
     PNG_GLOB = "amplitude_response_*.png"
     CSV_GLOB = "amp_sweep_*.csv"
     DESCRIPTION = (
-        "Finds the drive amplitude for a clearly perceptible, comfortable cue: "
-        f"with the PWM frequency fixed at the measured resonance "
+        "Finds the drive amplitude for a clearly perceptible, comfortable "
+        f"cue: with the PWM frequency fixed at the measured resonance "
         f"({lra_amplitude_sweep.FREQ_HZ} Hz), steps amp "
-        f"{lra_amplitude_sweep.AMP_VALUES[0]}-{lra_amplitude_sweep.AMP_VALUES[-1]} "
-        "and recommends the value whose RMS acceleration lands in the "
-        f"{lra_amplitude_sweep.TARGET_BAND_MS2[0]}-{lra_amplitude_sweep.TARGET_BAND_MS2[1]} "
-        f"m/s² target band. Takes ~{lra_amplitude_sweep.estimated_duration_s():.0f} s; "
+        f"{lra_amplitude_sweep.AMP_VALUES[0]}-"
+        f"{lra_amplitude_sweep.AMP_VALUES[-1]} and reports the "
+        "<b>recommended cue amp</b> — the amp whose measured intensity is "
+        "closest to the target cue intensity, <i>not</i> the amp that "
+        "vibrates hardest. <b>Each metric has its own target band</b> (they "
+        "are different rulers): "
+        + " · ".join(
+            f"{metric_spec(name).short_label} "
+            f"{lra_amplitude_sweep.cue_target(name).band_label} "
+            f"({lra_amplitude_sweep.cue_target(name).status_label})"
+            for name in METRIC_NAMES)
+        + f". Takes ~{lra_amplitude_sweep.estimated_duration_s():.0f} s; "
         "CSV + response curve are saved to "
-        "data/validation_experiments/lra_resonance_intensity_calibration/. Adopted "
-        "project value: amp = 64 (see the folder's README)."
+        "data/validation_experiments/lra_resonance_intensity_calibration/. "
+        "Adopted project value: amp = 64 (see the folder's README)."
     )
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
@@ -590,8 +1126,30 @@ class AmplitudeSweepWindow(_SweepWindowBase):
         return {"freq_hz": self.freq_spin.value()}
 
     def _summary_text(self, summary: dict, saved: bool) -> str:
-        text = (f"recommended amp: {summary['recommended_amp']} "
-                f"({summary['recommended_rms_ms2']:.2f} m/s² RMS).")
+        # Every number here is metric-specific: each metric has its own
+        # target band (they are different rulers), so the band is always
+        # quoted next to the amp it produced.
+        label = metric_spec(summary["metric"]).short_label
+        band = summary.get("target_band_ms2")
+        amp = summary.get("recommended_cue_amp",
+                          summary.get("recommended_amp"))
+        if amp is None or not band:
+            text = (f"{lra_amplitude_sweep.UNCALIBRATED_LABEL} for the "
+                    f"{label} - curve plotted, but no cue amp is "
+                    "recommended (another metric's band is never "
+                    "substituted).")
+        else:
+            value = summary.get("recommended_cue_amp_ms2",
+                                summary.get("recommended_ms2"))
+            status = summary.get("target_calibration_status", "")
+            text = (f"recommended cue amp: {amp} ({value:.2f} m/s², {label}) "
+                    f"- closest to the {band[0]:g}-{band[1]:g} m/s² target "
+                    f"band{f' [{status}]' if status else ''}. This is the "
+                    "amp nearest the target INTENSITY, not the strongest "
+                    "vibration.")
+            in_band = summary.get("in_band_amps") or []
+            if in_band:
+                text += f" In band: {', '.join(str(a) for a in in_band)}."
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")
@@ -608,7 +1166,10 @@ class SpectrogramWindow(_SweepWindowBase):
     DESCRIPTION = (
         "Drives the motor at every (drive-frequency, amp) combination and "
         "fills a grid box with the measured accelerometer RMS intensity — "
-        "x = amp, y = drive frequency, darker = stronger. Selecting the Type "
+        "x = amp, y = drive frequency, darker = stronger. Both intensity "
+        "metrics are measured per cell and the full three-axis samples are "
+        "saved, so \"Plot metric\" re-colours the map (and moves the peak) "
+        "without a new run. Selecting the Type "
         "seeds the amp/frequency ranges (then adjustable). Test Buzz uses the "
         "LRA config (224 Hz, amp 64) for both types. Outputs are saved to "
         "data/validation_experiments/actuator_spectrogram/."
@@ -693,16 +1254,15 @@ class SpectrogramWindow(_SweepWindowBase):
         self.annotate_combo.addItem("RMS value", "rms")
         self.annotate_combo.addItem("Normalized", "normalized")
         self.annotate_combo.setToolTip(
-            "Print each cell's value inside its box: the raw RMS m/s² number, "
-            "or a 0-1 normalised value (its position between the map's min and "
-            "max). Text colour auto-contrasts per cell. Changing this "
-            "re-renders the displayed run immediately and saves it straight "
-            "into the run's PNG file. Best with Coarse precision - a dense "
-            "grid gets crowded.")
-        # The run whose heatmap is on screen (its CSV path): set by the latest
-        # -output preview, by Load CSV, and by a finished run. Changing the
-        # Annotate mode re-renders THAT run's own PNG in place.
-        self._current_csv = None
+            "Print each cell's value inside its box: the selected metric's "
+            "raw m/s² number, or a 0-1 normalised value (its position between "
+            "the map's min and max). Text colour auto-contrasts per cell. "
+            "Changing this re-renders the displayed run immediately and saves "
+            "it straight into the run's PNG file. Best with Coarse precision "
+            "- a dense grid gets crowded.")
+        # Changing the Annotate mode (or the Plot metric) re-renders the
+        # displayed run's own PNG in place; _current_csv, set by the base
+        # class, says which run that is.
         self.annotate_combo.currentIndexChanged.connect(self._on_annotate_changed)
 
         row2 = QHBoxLayout()
@@ -718,11 +1278,10 @@ class SpectrogramWindow(_SweepWindowBase):
 
         # Row 3: live run-time estimate for each precision, at the current
         # type / ranges / Vibrate time (so it reflects what you actually set).
-        self.estimate_label = QLabel()
+        self.estimate_label = self._wrapped_label("")
         self.estimate_label.setStyleSheet("color: #9a9ba5;")  # muted
         row3 = QHBoxLayout()
         row3.addWidget(self.estimate_label)
-        row3.addStretch(1)
 
         # Seed the ranges from the default type, then wire the change handlers
         # (so seeding itself doesn't re-trigger them).
@@ -777,7 +1336,7 @@ class SpectrogramWindow(_SweepWindowBase):
         self.motor_spin.setValue(11 if self.type_combo.currentData() == "LRA" else 10)
         self._update_estimate()
 
-    # -- live annotate switching (writes the run's own PNG) --------------
+    # -- live annotate / metric switching (writes the run's own PNG) -----
 
     def _sync_annotate_combo(self, csv_path: str) -> None:
         """Point the Annotate combo at the mode the displayed run was last
@@ -791,25 +1350,22 @@ class SpectrogramWindow(_SweepWindowBase):
             self.annotate_combo.setCurrentIndex(idx)
             self.annotate_combo.blockSignals(False)
 
-    def _set_current_run(self, csv_path) -> None:
-        self._current_csv = csv_path
+    def _set_current_run(self, csv_path) -> str:
+        note = super()._set_current_run(csv_path)
         if csv_path is not None:
             self._sync_annotate_combo(csv_path)
-
-    def _show_latest_output(self) -> None:
-        super()._show_latest_output()
-        latest_png = self._latest(self.PNG_GLOB)
-        if latest_png is None:
-            return
-        csv_path = os.path.splitext(latest_png)[0] + ".csv"
-        self._set_current_run(csv_path if os.path.exists(csv_path) else None)
+        return note
 
     def _on_csv_loaded(self, csv_path: str) -> None:
         self._set_current_run(csv_path)
 
-    def _on_succeeded(self, summary: dict) -> None:
-        super()._on_succeeded(summary)
-        self._set_current_run(summary.get("csv_path"))
+    def _rerender_current(self, metric: str):
+        # This experiment keeps its saved PNG in step with the displayed
+        # options (as the Annotate control already did), so the file on
+        # disk always matches what the map claims in its colour-bar.
+        # set_display_options returns only the path, so no summary.
+        return actuator_spectrogram.set_display_options(
+            self._current_csv, metric=metric), None
 
     def _on_annotate_changed(self) -> None:
         """Re-render the displayed run with the new annotate mode, saving
@@ -818,8 +1374,9 @@ class SpectrogramWindow(_SweepWindowBase):
             return
         mode = self.annotate_combo.currentData()
         try:
-            png_path = actuator_spectrogram.set_annotate_mode(
-                self._current_csv, mode)
+            png_path = actuator_spectrogram.set_display_options(
+                self._current_csv, annotate_mode=mode,
+                metric=self._selected_metric())
             self.plot_view.show_png(png_path)
         except Exception as e:
             self.status.setText(f"Couldn't re-render annotation: {e}")
@@ -848,7 +1405,8 @@ class SpectrogramWindow(_SweepWindowBase):
     def _summary_text(self, summary: dict, saved: bool) -> str:
         text = (f"{summary.get('motor_type', '')} map done - strongest "
                 f"vibration at {summary['peak_freq_hz']} Hz, amp "
-                f"{summary['peak_amp']} ({summary['peak_rms_ms2']:.2f} m/s² RMS).")
+                f"{summary['peak_amp']} ({summary['peak_ms2']:.2f} m/s², "
+                f"{metric_spec(summary['metric']).short_label}).")
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")
@@ -860,33 +1418,40 @@ class MotorAccDelayWindow(_SweepWindowBase):
     MODULE = motor_acc_delay
     PNG_GLOB = "delay_summary_*.png"
     CSV_GLOB = "delay_trials_*.csv"
+    # No plot-metric selector: this window's figure is a LATENCY plot, and
+    # the onset detector runs on a per-sample statistic that a windowed RMS
+    # cannot replace (see motor_acc_delay's module docstring). The run
+    # still saves raw three-axis samples and both offline intensity
+    # metrics per trial, shared with the sweeps.
+    METRIC_SELECTOR = False
+    # Kept short on purpose: the detail lives in the control tooltips and
+    # in the experiment's README, so this window's minimum height stays
+    # inside a laptop screen.
     SETUP_HINT = (
         "<b>Physical setup (this test only):</b> glue the accelerometer to "
-        "the motor under test, then <b>suspend the pair freely in the air</b> "
-        "(e.g. hanging from its own wires) - do NOT fix it to the desk: desk "
-        "mounting damps the vibration below reliable detection. Any starting "
-        "orientation is fine; each trial automatically <b>waits until the rig "
-        "hangs still</b> before measuring, so just let it settle after "
-        "hanging it (and after each buzz). Use \"Test Buzz\" to confirm the "
-        "selected motor port drives the actuator the sensor is attached to."
+        "the motor, then <b>suspend the pair freely in the air</b> — do NOT "
+        "fix it to the desk (desk mounting damps the vibration below "
+        "reliable detection). Any orientation is fine; each trial waits "
+        "until the rig hangs still. Use \"Test Buzz\" to check the port."
     )
     DESCRIPTION = (
-        "Measures the command-to-vibration latency of an actuator with two "
-        "standard onset metrics per trial: MOTION ONSET (CUSUM change-point "
-        "detection - the first instant the signal departs from baseline "
-        "noise, fair to both impulsive ERM starts and gradual LRA ring-ups) "
-        "and DETECTION-LEVEL CROSSING "
-        f"({motor_acc_delay.NOISE_MULT}× noise p95 - includes the LRA's "
-        "resonant ring-up); both instants sub-sample refined by linear "
-        f"interpolation. {motor_acc_delay.NUM_TRIALS} trials at amp="
-        f"{motor_acc_delay.AMP}, ~{motor_acc_delay.estimated_duration_s():.0f} "
-        f"s plus settling. Requires firmware ≥ v2.9.0 "
-        f"({motor_acc_delay.ACC_INTERVAL_MS} ms stream at 1.344 kHz ODR). "
-        "CSV + trace/summary figure + meta are saved to "
+        "Measures two <b>separate</b> per-trial times: <b>vibration onset "
+        "latency</b> (command → the first sustained departure from rest "
+        "noise, by CUSUM change-point detection with a spike guard) and "
+        "<b>settling time</b> (onset → the vibration envelope entering and "
+        "holding the steady band). Both settling forms are saved — from the "
+        "onset and from the command — plus the historical detection-level "
+        f"crossing. {motor_acc_delay.NUM_TRIALS} trials at amp="
+        f"{motor_acc_delay.AMP}; the motor runs for the whole Vibration "
+        "duration and every raw X/Y/Z sample of it is saved. Firmware "
+        "≥ v2.9.0. Outputs → "
         "data/validation_experiments/motor_acc_delay_experiment/."
     )
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
+        # Only the actuator picker shares the first row with the motor
+        # port and ACC sensor id; everything else lives on the wrapped
+        # rows below, so the window fits a laptop screen.
         self.actuator_combo = QComboBox()
         self.actuator_combo.addItems(list(motor_acc_delay.ACTUATOR_MOTORS))
         self.actuator_combo.setToolTip(
@@ -899,6 +1464,7 @@ class MotorAccDelayWindow(_SweepWindowBase):
         config_row.addSpacing(12)
         self._config_inputs.append(self.actuator_combo)
 
+    def _extra_config_rows(self) -> list:
         self.amp_spin = QSpinBox()
         self.amp_spin.setRange(1, 255)
         self.amp_spin.setValue(motor_acc_delay.AMP)
@@ -909,10 +1475,6 @@ class MotorAccDelayWindow(_SweepWindowBase):
             "timestamp error. Higher amps ring the LRA up faster and will "
             "read lower, but measure a different cue than the study "
             "delivers; use them for exploration only.")
-        config_row.addWidget(QLabel("Drive amp:"))
-        config_row.addWidget(self.amp_spin)
-        config_row.addSpacing(12)
-        self._config_inputs.append(self.amp_spin)
 
         self.freq_spin = QSpinBox()
         self.freq_spin.setRange(50, 20000)  # firmware 'F' command's valid range
@@ -926,10 +1488,33 @@ class MotorAccDelayWindow(_SweepWindowBase):
             "224 Hz). Override only with a reason: an off-resonance LRA "
             "or a sub-kHz ERM invalidates the measurement. Restored to "
             "the boot default when the run ends.")
-        config_row.addWidget(QLabel("PWM freq:"))
-        config_row.addWidget(self.freq_spin)
-        config_row.addSpacing(12)
-        self._config_inputs.append(self.freq_spin)
+
+        self.duration_spin = QDoubleSpinBox()
+        self.duration_spin.setRange(motor_acc_delay.VIB_DURATION_MIN_S,
+                                    motor_acc_delay.VIB_DURATION_MAX_S)
+        self.duration_spin.setDecimals(1)
+        self.duration_spin.setSingleStep(motor_acc_delay.VIB_DURATION_STEP_S)
+        self.duration_spin.setValue(motor_acc_delay.VIB_DURATION_S)
+        self.duration_spin.setSuffix(" s")
+        self.duration_spin.setToolTip(
+            "How long the motor is driven in each trial - and how much "
+            "data the settling detector gets.\n\n"
+            "The motor vibrates continuously for this whole time and every "
+            "raw X/Y/Z accelerometer sample of the window is saved, so the "
+            "trial can be re-analysed offline.\n\n"
+            f"Default {motor_acc_delay.VIB_DURATION_S:g} s, range "
+            f"{motor_acc_delay.VIB_DURATION_MIN_S:g}-"
+            f"{motor_acc_delay.VIB_DURATION_MAX_S:g} s. The steady state is "
+            "estimated from the last "
+            f"{motor_acc_delay.STEADY_REF_FRACTION:.0%} of the window and "
+            "the envelope must hold inside the steady band for "
+            f"{motor_acc_delay.STEADY_HOLD_FRACTION:.0%} of the duration "
+            f"(min {motor_acc_delay.STEADY_HOLD_MIN_S * 1000:.0f} ms, max "
+            f"{motor_acc_delay.STEADY_HOLD_MAX_S * 1000:.0f} ms), so a "
+            "longer window demands more evidence but takes longer to run. "
+            "Shorten it only for a fast-settling actuator: a slow ERM "
+            "spin-up needs the room.")
+        self.duration_spin.valueChanged.connect(self._update_estimate)
 
         self.still_spin = QSpinBox()
         self.still_spin.setRange(10, 500)
@@ -941,10 +1526,49 @@ class MotorAccDelayWindow(_SweepWindowBase):
             "reads ~30-45 counts, real swinging well over 100 - raise this "
             "if the log shows the p95 plateauing just above the limit while "
             "the rig looks still (that plateau is this rig's noise floor).")
-        config_row.addWidget(QLabel("Stillness limit:"))
-        config_row.addWidget(self.still_spin)
-        config_row.addSpacing(12)
-        self._config_inputs.append(self.still_spin)
+
+        # Row 1: how the actuator is driven.
+        drive_row = QHBoxLayout()
+        drive_row.addWidget(QLabel("Drive amp:"))
+        drive_row.addWidget(self.amp_spin)
+        drive_row.addSpacing(16)
+        drive_row.addWidget(QLabel("PWM freq:"))
+        drive_row.addWidget(self.freq_spin)
+        drive_row.addSpacing(16)
+        drive_row.addWidget(QLabel("Vibration duration:"))
+        drive_row.addWidget(self.duration_spin)
+        drive_row.addStretch(1)
+
+        # Row 2: how the measurement is gated, plus the live run-time
+        # estimate (which the Vibration duration moves).
+        measure_row = QHBoxLayout()
+        measure_row.addWidget(QLabel("Stillness limit:"))
+        measure_row.addWidget(self.still_spin)
+        measure_row.addStretch(1)
+
+        # Row 3: the live run-time estimate, on its own wrapped line (as
+        # a row item this sentence alone forced a ~700 px window).
+        self.estimate_label = self._wrapped_label("")
+        self.estimate_label.setStyleSheet("color: #9a9ba5;")  # muted
+        estimate_row = QHBoxLayout()
+        estimate_row.addWidget(self.estimate_label)
+
+        self._config_inputs.extend([self.amp_spin, self.freq_spin,
+                                    self.duration_spin, self.still_spin])
+        self._update_estimate()
+        return [drive_row, measure_row, estimate_row]
+
+    def _update_estimate(self) -> None:
+        duration = self.duration_spin.value()
+        total = motor_acc_delay.estimated_duration_s(duration)
+        hold_ms = motor_acc_delay.steady_hold_s(duration) * 1000.0
+        self.estimate_label.setText(
+            f"<i>Est. run time ~{total:.0f} s plus settling — "
+            f"{motor_acc_delay.NUM_TRIALS} × "
+            f"({motor_acc_delay.BASELINE_DURATION_S:g} s baseline + "
+            f"{duration:g} s vibration + "
+            f"{motor_acc_delay.INTER_TRIAL_REST_S:g} s rest); "
+            f"steady-state hold {hold_ms:.0f} ms.</i>")
 
     def _on_actuator_changed(self, actuator: str) -> None:
         # Selecting an actuator resets every actuator-dependent parameter
@@ -962,29 +1586,59 @@ class MotorAccDelayWindow(_SweepWindowBase):
         return {"actuator_type": self.actuator_combo.currentText(),
                 "still_max_dev": float(self.still_spin.value()),
                 "amp": self.amp_spin.value(),
-                "pwm_freq_hz": self.freq_spin.value()}
+                "pwm_freq_hz": self.freq_spin.value(),
+                "vib_duration_s": self.duration_spin.value()}
+
+    @staticmethod
+    def _stat_phrase(summary: dict, prefix: str, label: str) -> str | None:
+        """"<label> mean ± SD (median M, range lo-hi, n=N)" for one of the
+        latency series, or None when nothing was detected."""
+        mean = summary.get(f"{prefix}_mean_ms")
+        if mean is None:
+            return None
+        sd = summary.get(f"{prefix}_sd_ms")
+        text = f"{label} {mean:.2f} ms"
+        if sd is not None:
+            text += f" ± {sd:.2f}"
+        median = summary.get(f"{prefix}_median_ms")
+        low = summary.get(f"{prefix}_min_ms")
+        high = summary.get(f"{prefix}_max_ms")
+        details = []
+        if median is not None:
+            details.append(f"median {median:.2f}")
+        if low is not None and high is not None:
+            details.append(f"range {low:.2f}-{high:.2f}")
+        details.append(f"n={summary.get(f'{prefix}_n', 0)}")
+        return text + " (" + ", ".join(details) + ")"
 
     def _summary_text(self, summary: dict, saved: bool) -> str:
-        parts = []
-        if summary.get("onset_mean_ms") is not None:
-            sd = summary.get("onset_sd_ms")
-            parts.append(f"motion onset {summary['onset_mean_ms']:.2f} ms"
-                         + (f" (SD {sd:.2f})" if sd is not None else ""))
-        if summary.get("mean_delay_ms") is not None:
-            sd = summary.get("sd_delay_ms")
-            parts.append(f"detection-level crossing "
-                         f"{summary['mean_delay_ms']:.2f} ms"
-                         + (f" (SD {sd:.2f})" if sd is not None else ""))
+        # Onset latency and settling time are reported as separate
+        # numbers - never combined into one "delay".
+        parts = [p for p in (
+            self._stat_phrase(summary, "onset", "onset latency"),
+            self._stat_phrase(summary, "settling", "settling time"),
+        ) if p]
         label = summary.get("actuator_type", "?")
+        duration = summary.get("vib_duration_s")
+        if duration:
+            label += f", {duration:g} s drive"
         # Flag non-default drive so exploratory runs are never mistaken
         # for the calibrated-cue measurement.
         amp = summary.get("amp")
         if amp is not None and amp != motor_acc_delay.AMP:
             label += f" (amp {amp}, NOT the calibrated cue)"
         if parts:
-            text = f"{label}: " + ", ".join(parts) + f", n={summary['n_ok']}."
+            text = f"{label}: " + "; ".join(parts) + "."
         else:
-            text = f"{label}: no successful detections."
+            text = f"{label}: no vibration onset detected."
+        failures = [f"{summary.get(key, 0)} {name}"
+                    for key, name in (("n_no_onset", "no_onset"),
+                                      ("n_not_settled", "not settled"),
+                                      ("n_insufficient_data",
+                                       "insufficient data"))
+                    if summary.get(key)]
+        text += f" {summary.get('n_ok', 0)}/{summary.get('n_trials', 0)} ok"
+        text += (" (" + ", ".join(failures) + ")." if failures else ".")
         if saved:
             text += (f" Saved {os.path.basename(summary['csv_path'])} and "
                      f"{os.path.basename(summary['png_path'])}.")

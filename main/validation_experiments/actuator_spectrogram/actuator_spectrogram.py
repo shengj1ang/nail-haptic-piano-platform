@@ -20,6 +20,18 @@ is the broadband RMS acceleration the drive produced; the y-axis is the
 frequency the motor is DRIVEN at, not a frequency read back from the
 accelerometer.
 
+Two intensity metrics are measured for EVERY cell (see
+validation_experiments/acceleration_metrics.py):
+
+  * demeaned three-axis vector RMS - the recommended default, immune to
+    gravity direction, sensor bias and mounting orientation;
+  * legacy magnitude RMS - the original baseline-subtracted |a| formula,
+    kept so new runs stay comparable with historical ones.
+
+The plot metric is chosen at plot time, not at measurement time: the run
+also saves every cell's FULL three-axis sample series, so a saved run can
+be re-analysed and re-plotted with either metric offline.
+
 You pick:
 
   * the motor port (0-11),
@@ -29,8 +41,9 @@ You pick:
   * the amp and frequency ranges (adjustable, seeded from the type),
   * a scan precision (how finely both axes are stepped),
   * a Vibrate time - how long each (freq, amp) cell is driven
-    continuously before its intensity is measured (default 2 s), and
-  * whether to print each cell's value inside its box, as the raw RMS
+    continuously before its intensity is measured (default 2 s),
+  * which intensity metric the map is coloured by, and
+  * whether to print each cell's value inside its box, as the raw metric
     number or as a 0-1 normalised value.
 
 Because it is a full 2-D sweep, the run length is (frequencies x amps x
@@ -39,8 +52,9 @@ start; use Coarse precision / a short Vibrate time for a quick look.
 
 Outputs (timestamped with Unix epoch seconds, like every other validation
 experiment) under data/validation_experiments/actuator_spectrogram/: the
-intensity grid (NPZ) for re-rendering, the map (PNG), a per-cell scalar
-table (CSV) and the run's parameter/result record (meta.json).
+raw three-axis samples (compressed NPZ), the intensity grid (NPZ) for
+re-rendering, the map (PNG), a per-cell summary table (CSV) and the run's
+parameter/result record (meta.json).
 
 Requires firmware >= v2.9.0 (the 'F' command and the "ACC,id,x,y,z"
 stream). Runs standalone (python actuator_spectrogram.py) or through the
@@ -49,13 +63,11 @@ launcher's "Validation Experiments" section.
 
 import csv
 import json
-import math
 import os
-import statistics
 import sys
 import time
-from dataclasses import dataclass, asdict
-from typing import Callable, List, Optional
+from dataclasses import dataclass, asdict, fields
+from typing import Callable, Dict, List, Optional
 
 import matplotlib
 
@@ -64,9 +76,55 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 try:
+    from ..acceleration_metrics import (
+        DEFAULT_METRIC,
+        METRIC_CSV_COLUMNS,
+        METRIC_LEGACY_MAGNITUDE_RMS,
+        METRIC_NAMES,
+        MS2_PER_COUNT,
+        PHASE_BASELINE,
+        PHASE_VIBRATION,
+        AccelerationMetrics,
+        RawSampleRecorder,
+        compute_acceleration_metrics,
+        compute_baseline_magnitude,
+        get_metric_value,
+        load_raw_acceleration_samples,
+        metric_axis_label,
+        metric_meta_block,
+        metric_spec,
+        metrics_available_in,
+        normalise_metric,
+        raw_path_for,
+        recompute_window_metrics,
+        select_metric,
+    )
     from ..rig import SweepAborted, collect_samples, open_rig, send
 except ImportError:  # direct execution rather than package import
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from acceleration_metrics import (
+        DEFAULT_METRIC,
+        METRIC_CSV_COLUMNS,
+        METRIC_LEGACY_MAGNITUDE_RMS,
+        METRIC_NAMES,
+        MS2_PER_COUNT,
+        PHASE_BASELINE,
+        PHASE_VIBRATION,
+        AccelerationMetrics,
+        RawSampleRecorder,
+        compute_acceleration_metrics,
+        compute_baseline_magnitude,
+        get_metric_value,
+        load_raw_acceleration_samples,
+        metric_axis_label,
+        metric_meta_block,
+        metric_spec,
+        metrics_available_in,
+        normalise_metric,
+        raw_path_for,
+        recompute_window_metrics,
+        select_metric,
+    )
     from rig import SweepAborted, collect_samples, open_rig, send
 
 
@@ -107,8 +165,10 @@ DEFAULT_PRECISION = "Coarse"   # 2-D sweeps are large; Coarse is a sane default
 MEASURE_S = 2.00
 MEASURE_S_MIN, MEASURE_S_MAX = 0.5, 30.0
 
-# Value annotation inside each box: off, the raw RMS number, or a 0-1
+# Value annotation inside each box: off, the raw metric number, or a 0-1
 # normalised value (position between the map's min and max intensity).
+# "rms" is kept as the mode name for backward compatibility with runs
+# whose meta already records it; it prints the SELECTED metric's m/s².
 ANNOTATE_MODES = ("off", "rms", "normalized")
 DEFAULT_ANNOTATE = "off"
 
@@ -116,9 +176,6 @@ ACC_INTERVAL_MS = 1       # fast stream so the RMS captures the vibration
 BASELINE_S = 0.30         # quiet window, re-measured once per frequency row
 SETTLE_S = 0.30           # motor-on spin-up before the measurement window
 REST_S = 0.15             # motor-off rest between cells
-
-# LIS3DH high-resolution mode, +/-2 g: 1 count = 1 mg.
-MS2_PER_COUNT = 0.001 * 9.80665
 
 # High intensity -> dark: magma reversed runs pale (low) to near-black
 # (high), matching "darker = stronger".
@@ -134,13 +191,35 @@ ProgressFn = Callable[[int, int], None]
 
 @dataclass
 class CellResult:
+    """One (freq, amp) cell: its identity plus BOTH intensity metrics and
+    the per-axis statistics they were derived from. The field names are
+    the CSV column names. Metric fields are Optional because a CSV
+    written before the two-metric refactor carries only the legacy
+    columns - those rows load with the vector fields left as None."""
     freq_hz: int
     amp: int
-    rms_delta_counts: float
-    rms_ms2: float
-    peak_delta_counts: float
-    baseline_mag: float
     n_samples: int
+    mean_x_counts: Optional[float] = None
+    mean_y_counts: Optional[float] = None
+    mean_z_counts: Optional[float] = None
+    rms_x_counts: Optional[float] = None
+    rms_y_counts: Optional[float] = None
+    rms_z_counts: Optional[float] = None
+    legacy_magnitude_rms_counts: Optional[float] = None
+    legacy_magnitude_rms_ms2: Optional[float] = None
+    vector_rms_counts: Optional[float] = None
+    vector_rms_ms2: Optional[float] = None
+    baseline_magnitude_counts: Optional[float] = None
+    peak_magnitude_delta_counts: Optional[float] = None
+
+    @classmethod
+    def from_metrics(cls, freq_hz: int, amp: int,
+                     metrics: AccelerationMetrics) -> "CellResult":
+        return cls(freq_hz=int(freq_hz), amp=int(amp),
+                   **{c: getattr(metrics, c) for c in METRIC_CSV_COLUMNS})
+
+
+CSV_COLUMNS = tuple(f.name for f in fields(CellResult))
 
 
 # ==========================================
@@ -186,24 +265,15 @@ def steps_for(precision: str):
 # Measurement
 # ==========================================
 
-def _baseline_mag(ser, acc_sensor_id: int) -> Optional[float]:
-    """Mean |a| over a quiet window (motor off) - the rest floor RMS is
-    measured against."""
-    baseline = collect_samples(ser, BASELINE_S, acc_sensor_id)
-    if not baseline:
-        return None
-    return statistics.fmean(
-        math.sqrt(x * x + y * y + z * z) for _, x, y, z in baseline)
-
-
-def measure_cell(ser, freq_hz: int, amp: int, baseline_mag: float,
+def measure_cell(ser, freq_hz: int, amp: int, baseline_magnitude: float,
                  measure_s: float, log: LogFn,
                  motor_index: int = MOTOR_INDEX,
-                 acc_sensor_id: int = ACC_SENSOR_ID) -> Optional[CellResult]:
-    """Drive one (freq, amp) cell for measure_s and return its scalar
-    vibration intensity (baseline-subtracted RMS acceleration). The PWM
-    frequency is assumed already set (once per frequency row); this drives
-    the amp, waits out the settle + window, then stops."""
+                 acc_sensor_id: int = ACC_SENSOR_ID):
+    """Drive one (freq, amp) cell for measure_s and return
+    (CellResult, raw samples). The PWM frequency is assumed already set
+    (once per frequency row); this drives the amp, waits out the settle +
+    window, then stops. Both intensity metrics come from the same window,
+    so the two are always directly comparable."""
     send(ser, f"S {1 << motor_index} {amp}", wait_s=0.0)
     time.sleep(SETTLE_S)
     vib = collect_samples(ser, measure_s, acc_sensor_id)
@@ -212,30 +282,47 @@ def measure_cell(ser, freq_hz: int, amp: int, baseline_mag: float,
 
     if not vib:
         log(f"  freq={freq_hz} amp={amp}: no samples")
-        return None
+        return None, []
 
-    mags = [math.sqrt(x * x + y * y + z * z) for _, x, y, z in vib]
-    rms_counts = math.sqrt(statistics.fmean([(m - baseline_mag) ** 2 for m in mags]))
-    peak_counts = max(abs(m - baseline_mag) for m in mags)
-    return CellResult(freq_hz, amp, rms_counts, rms_counts * MS2_PER_COUNT,
-                      peak_counts, baseline_mag, len(vib))
+    metrics = compute_acceleration_metrics(vib, baseline_magnitude,
+                                           MS2_PER_COUNT)
+    return CellResult.from_metrics(freq_hz, amp, metrics), vib
 
 
 # ==========================================
 # Grid assembly
 # ==========================================
 
-def build_matrix(freqs: List[int], amps: List[int],
-                 results: List[CellResult]) -> np.ndarray:
-    """(len(freqs) x len(amps)) matrix of rms_ms2, NaN where a cell is
-    missing (a dropped measurement)."""
+def build_matrix(freqs: List[int], amps: List[int], results: List[CellResult],
+                 metric: str = DEFAULT_METRIC) -> np.ndarray:
+    """(len(freqs) x len(amps)) matrix of the chosen metric in m/s², NaN
+    where a cell is missing (a dropped measurement, or a metric the row
+    does not carry)."""
     fi = {f: i for i, f in enumerate(freqs)}
     ai = {a: j for j, a in enumerate(amps)}
     mat = np.full((len(freqs), len(amps)), np.nan)
     for r in results:
         if r.freq_hz in fi and r.amp in ai:
-            mat[fi[r.freq_hz], ai[r.amp]] = r.rms_ms2
+            value = get_metric_value(r, metric, unit="ms2")
+            mat[fi[r.freq_hz], ai[r.amp]] = np.nan if value is None else value
     return mat
+
+
+def grid_axes(results: List[CellResult]):
+    """The sweep's (freqs, amps) axes, recovered from the cell rows."""
+    freqs = sorted({r.freq_hz for r in results})
+    amps = sorted({r.amp for r in results})
+    return freqs, amps
+
+
+def peak_cell(results: List[CellResult], metric: str) -> CellResult:
+    """The strongest cell UNDER THE CHOSEN METRIC - switching the metric
+    can legitimately move the peak, which is the point of offering both."""
+    scored = [(get_metric_value(r, metric, unit="ms2"), r) for r in results]
+    scored = [(v, r) for v, r in scored if v is not None]
+    if not scored:
+        raise ValueError(f"No cell carries the {metric!r} metric.")
+    return max(scored, key=lambda pair: pair[0])[1]
 
 
 # ==========================================
@@ -244,28 +331,59 @@ def build_matrix(freqs: List[int], amps: List[int],
 
 def save_csv(path: str, results: List[CellResult]) -> None:
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(asdict(results[0]).keys()))
+        writer = csv.DictWriter(f, fieldnames=list(CSV_COLUMNS))
         writer.writeheader()
         for r in results:
             writer.writerow(asdict(r))
 
 
 def save_grid(path: str, freqs: List[int], amps: List[int],
-              matrix: np.ndarray) -> None:
-    """Persist the intensity grid so the map can be re-rendered
-    (render_csv) without re-running the hardware."""
-    np.savez(path, freqs=np.asarray(freqs, dtype=int),
-             amps=np.asarray(amps, dtype=int),
-             intensity=np.asarray(matrix, dtype=float))
+              matrices: Dict[str, np.ndarray]) -> None:
+    """Persist the intensity grid, one matrix per metric, so the map can
+    be re-rendered without re-running the hardware.
+
+    `intensity` is also written as the legacy magnitude RMS grid, which
+    is exactly what that key meant in pre-refactor files - so an old
+    reader keeps working and never silently reads a different metric."""
+    arrays = {
+        "freqs": np.asarray(freqs, dtype=int),
+        "amps": np.asarray(amps, dtype=int),
+    }
+    for name, matrix in matrices.items():
+        arrays[f"intensity_{name}_ms2"] = np.asarray(matrix, dtype=float)
+    legacy = matrices.get(METRIC_LEGACY_MAGNITUDE_RMS)
+    if legacy is not None:
+        arrays["intensity"] = np.asarray(legacy, dtype=float)
+    np.savez(path, **arrays)
+
+
+def load_grid(path: str, metric: str = DEFAULT_METRIC):
+    """(freqs, amps, matrix) for one metric from a saved grid NPZ - the
+    reader for the documented grid output. Re-rendering no longer needs
+    it (render_csv rebuilds the matrix from the CSV, which carries both
+    metrics); this is for anyone consuming the grid file directly.
+    Raises when that metric is not in the file (an old grid only holds
+    the legacy magnitude RMS)."""
+    data = np.load(path)
+    key = f"intensity_{normalise_metric(metric)}_ms2"
+    if key in data:
+        return data["freqs"], data["amps"], data[key]
+    if normalise_metric(metric) == METRIC_LEGACY_MAGNITUDE_RMS and "intensity" in data:
+        return data["freqs"], data["amps"], data["intensity"]
+    raise ValueError(
+        f"{os.path.basename(path)} does not contain the "
+        f"{metric_spec(metric).short_label} grid - it predates the "
+        "two-metric refactor.")
 
 
 def _annotate_cells(ax, freqs: np.ndarray, amps: np.ndarray,
                     M: np.ndarray, mesh, mode: str) -> None:
     """Print each finite cell's value at its centre, in white or black
     picked per cell so the text always contrasts with the cell colour.
-    mode 'rms' prints the raw m/s² value; 'normalized' prints the cell's
-    0-1 position between the map's min and max. Font shrinks as the grid
-    gets denser; edge cells are aligned inward so nothing clips."""
+    mode 'rms' prints the selected metric's raw m/s² value; 'normalized'
+    prints the cell's 0-1 position between the map's min and max. Font
+    shrinks as the grid gets denser; edge cells are aligned inward so
+    nothing clips."""
     n = max(len(amps), len(freqs))
     fontsize = 7 if n <= 12 else 6 if n <= 20 else 5 if n <= 32 else 4
     cmap = mesh.cmap
@@ -289,10 +407,13 @@ def _annotate_cells(ax, freqs: np.ndarray, amps: np.ndarray,
 def save_heatmap(path: str, freqs, amps, matrix, motor_index: int,
                  motor_type: str, amp_min: int, amp_max: int,
                  freq_min: float, freq_max: float,
-                 annotate_mode: str = DEFAULT_ANNOTATE) -> None:
+                 annotate_mode: str = DEFAULT_ANNOTATE,
+                 metric: str = DEFAULT_METRIC) -> None:
     """The intensity map: amp x drive-frequency cells filled with the
-    measured RMS acceleration (m/s²), darker = stronger. annotate_mode
-    ('rms'/'normalized') prints each cell's value inside its box."""
+    measured RMS acceleration (m/s²), darker = stronger. The colour-bar
+    names the metric the matrix was built from, so a legacy map and a
+    vector-RMS map can never be confused. annotate_mode ('rms'/
+    'normalized') prints each cell's value inside its box."""
     amps = np.asarray(amps, dtype=float)
     freqs = np.asarray(freqs, dtype=float)
     M = np.asarray(matrix, dtype=float)               # (n_freq, n_amp)
@@ -305,7 +426,7 @@ def save_heatmap(path: str, freqs, amps, matrix, motor_index: int,
     # (the "boxes" of the grid), centred on its amp / drive-frequency.
     mesh = ax.pcolormesh(amps, freqs, masked, shading="nearest", cmap=cmap)
     cbar = fig.colorbar(mesh, ax=ax, pad=0.02)
-    cbar.set_label("RMS acceleration (m/s²) - darker = stronger")
+    cbar.set_label(f"{metric_axis_label(metric)} - darker = stronger")
 
     if annotate_mode in ("rms", "normalized"):
         _annotate_cells(ax, freqs, amps, M, mesh, annotate_mode)
@@ -326,7 +447,8 @@ def meta_path_for(csv_path: str) -> str:
 
 
 def grid_path_for(csv_path: str) -> str:
-    """spectrogram_<ts>.csv -> spectrogram_<ts>.npz (same folder)."""
+    """spectrogram_<ts>.csv -> spectrogram_<ts>.npz (same folder) - where
+    a run's grid file lives, for load_grid()."""
     d = os.path.dirname(csv_path)
     base = os.path.basename(csv_path)
     stamp = base[len("spectrogram_"):-len(".csv")] if (
@@ -334,11 +456,12 @@ def grid_path_for(csv_path: str) -> str:
     return os.path.join(d, f"spectrogram_{stamp}.npz")
 
 
-def save_meta(csv_path: str, png_path: str, grid_pth: str, stamp: str,
-              firmware, motor_index: int, acc_sensor_id: int, motor_type: str,
-              amp_min: int, amp_max: int, freq_min: float, freq_max: float,
-              precision: str, freq_step: int, amp_step: int, measure_s: float,
-              annotate_mode: str, peak: CellResult) -> str:
+def save_meta(csv_path: str, png_path: str, grid_pth: str, raw_path: str,
+              stamp: str, firmware, motor_index: int, acc_sensor_id: int,
+              motor_type: str, amp_min: int, amp_max: int, freq_min: float,
+              freq_max: float, precision: str, freq_step: int, amp_step: int,
+              measure_s: float, annotate_mode: str, metric: str,
+              peak: CellResult) -> str:
     meta = {
         "experiment": "actuator_spectrogram",
         "saved_at": int(stamp),
@@ -367,11 +490,22 @@ def save_meta(csv_path: str, png_path: str, grid_pth: str, stamp: str,
             "csv": os.path.basename(csv_path),
             "heatmap": os.path.basename(png_path),
             "grid": os.path.basename(grid_pth),
+            "raw_acceleration": os.path.basename(raw_path) if raw_path else None,
         },
+        # metric_version / available_metrics / selected_plot_metric /
+        # raw_acceleration_file / raw_data_format / ms2_per_count
+        "metrics": metric_meta_block(metric, raw_path is not None,
+                                     os.path.basename(raw_path) if raw_path
+                                     else None, MS2_PER_COUNT),
+        # The headline result is always stated FOR THE SELECTED METRIC.
         "result": {
+            "metric": normalise_metric(metric),
             "peak_freq_hz": peak.freq_hz,
             "peak_amp": peak.amp,
-            "peak_rms_ms2": peak.rms_ms2,
+            "peak_ms2": get_metric_value(peak, metric, unit="ms2"),
+            "peak_counts": get_metric_value(peak, metric, unit="counts"),
+            # Kept under its historical name so old readers still find it.
+            "peak_rms_ms2": get_metric_value(peak, metric, unit="ms2"),
         },
     }
     path = meta_path_for(csv_path)
@@ -388,34 +522,97 @@ def load_meta(csv_path: str) -> Optional[dict]:
         return json.load(f)
 
 
+def _opt_float(row: dict, key: str) -> Optional[float]:
+    value = row.get(key)
+    if value is None or value == "":
+        return None
+    return float(value)
+
+
 def load_results(csv_path: str) -> List[CellResult]:
+    """Read back a saved spectrogram_*.csv.
+
+    Accepts both the current two-metric columns and the pre-refactor
+    single-metric ones (rms_delta_counts / rms_ms2 / peak_delta_counts /
+    baseline_mag), which map onto the legacy metric; the vector fields of
+    such a row stay None so nothing can pretend to derive them."""
     results: List[CellResult] = []
     with open(csv_path, newline="") as f:
         for row in csv.DictReader(f):
+            legacy_counts = _opt_float(row, "legacy_magnitude_rms_counts")
+            if legacy_counts is None:
+                legacy_counts = _opt_float(row, "rms_delta_counts")
+            legacy_ms2 = _opt_float(row, "legacy_magnitude_rms_ms2")
+            if legacy_ms2 is None:
+                legacy_ms2 = _opt_float(row, "rms_ms2")
+            peak_counts = _opt_float(row, "peak_magnitude_delta_counts")
+            if peak_counts is None:
+                peak_counts = _opt_float(row, "peak_delta_counts")
+            baseline = _opt_float(row, "baseline_magnitude_counts")
+            if baseline is None:
+                baseline = _opt_float(row, "baseline_mag")
             results.append(CellResult(
                 freq_hz=int(row["freq_hz"]),
                 amp=int(row["amp"]),
-                rms_delta_counts=float(row["rms_delta_counts"]),
-                rms_ms2=float(row["rms_ms2"]),
-                peak_delta_counts=float(row["peak_delta_counts"]),
-                baseline_mag=float(row["baseline_mag"]),
                 n_samples=int(row["n_samples"]),
+                mean_x_counts=_opt_float(row, "mean_x_counts"),
+                mean_y_counts=_opt_float(row, "mean_y_counts"),
+                mean_z_counts=_opt_float(row, "mean_z_counts"),
+                rms_x_counts=_opt_float(row, "rms_x_counts"),
+                rms_y_counts=_opt_float(row, "rms_y_counts"),
+                rms_z_counts=_opt_float(row, "rms_z_counts"),
+                legacy_magnitude_rms_counts=legacy_counts,
+                legacy_magnitude_rms_ms2=legacy_ms2,
+                vector_rms_counts=_opt_float(row, "vector_rms_counts"),
+                vector_rms_ms2=_opt_float(row, "vector_rms_ms2"),
+                baseline_magnitude_counts=baseline,
+                peak_magnitude_delta_counts=peak_counts,
             ))
     if not results:
         raise ValueError(f"No sweep rows found in {csv_path}")
     return results
 
 
-def set_annotate_mode(csv_path: str, annotate_mode: str) -> str:
-    """Switch a saved run's value annotation and re-render ITS OWN heatmap
-    PNG in place (the file next to the CSV), so the saved image always
-    matches the chosen mode. Also records the mode in the run's meta so
-    later re-renders keep it. Returns the PNG path. Never touches the
-    CSV/NPZ measurement data."""
-    if annotate_mode not in ANNOTATE_MODES:
+def raw_file_for(csv_path: str) -> Optional[str]:
+    """The run's raw three-axis sample file, or None for a run saved
+    before raw data was kept (an old CSV)."""
+    path = raw_path_for(csv_path)
+    return path if os.path.exists(path) else None
+
+
+def available_metrics_for(csv_path: str) -> List[str]:
+    """Which metrics a saved run can be plotted with. Old runs offer the
+    legacy metric only - the vector RMS needs per-axis samples and is
+    NOT derivable from a stored scalar magnitude RMS."""
+    return metrics_available_in(load_results(csv_path), METRIC_NAMES)
+
+
+def recompute_from_raw(csv_path: str) -> List[CellResult]:
+    """Rebuild every cell's metrics from the run's raw sample file - the
+    proof that the saved raw data alone reproduces the summary table.
+    Raises when the run has no raw file."""
+    raw_path = raw_file_for(csv_path)
+    if raw_path is None:
+        raise ValueError(f"{os.path.basename(csv_path)} has no raw "
+                         "acceleration file - it predates raw-sample saving.")
+    raw = load_raw_acceleration_samples(raw_path)
+    return [CellResult.from_metrics(int(w.commanded_freq_hz),
+                                    int(w.commanded_amp), w.metrics)
+            for w in recompute_window_metrics(raw, phase=PHASE_VIBRATION)]
+
+
+def set_display_options(csv_path: str, annotate_mode: Optional[str] = None,
+                        metric: Optional[str] = None) -> str:
+    """Switch a saved run's plot metric and/or value annotation and
+    re-render ITS OWN heatmap PNG in place (the file next to the CSV), so
+    the saved image always matches the chosen options. Both choices are
+    recorded in the run's meta so later re-renders keep them. Returns the
+    PNG path. Never touches the CSV/NPZ/raw measurement data."""
+    if annotate_mode is not None and annotate_mode not in ANNOTATE_MODES:
         raise ValueError(f"annotate_mode must be one of {ANNOTATE_MODES}")
     meta = load_meta(csv_path)
     params = meta.get("parameters", {}) if meta else {}
+    metrics_meta = meta.get("metrics", {}) if meta else {}
     defaults = type_defaults(params.get("motor_type", DEFAULT_MOTOR_TYPE))
     motor_index = params.get("motor_index", MOTOR_INDEX)
     motor_type = params.get("motor_type", DEFAULT_MOTOR_TYPE)
@@ -423,35 +620,54 @@ def set_annotate_mode(csv_path: str, annotate_mode: str) -> str:
     amp_max = params.get("amp_max", defaults["amp_max"])
     freq_min = params.get("freq_min", defaults["freq_min"])
     freq_max = params.get("freq_max", defaults["freq_max"])
+    if annotate_mode is None:
+        annotate_mode = params.get("annotate_mode", DEFAULT_ANNOTATE)
 
-    npz_path = grid_path_for(csv_path)
-    if not os.path.exists(npz_path):
-        raise ValueError(
-            f"Grid file {os.path.basename(npz_path)} not found - the map can "
-            "only be re-rendered from the run's .npz.")
+    results = load_results(csv_path)
+    chosen = select_metric(results, metric
+                           or metrics_meta.get("selected_plot_metric"))
+    freqs, amps = grid_axes(results)
+    matrix = build_matrix(freqs, amps, results, chosen)
+
     # The run's own PNG sits next to its CSV (same <ts> stem).
     png_path = os.path.splitext(csv_path)[0] + ".png"
+    save_heatmap(png_path, freqs, amps, matrix, motor_index, motor_type,
+                 amp_min, amp_max, freq_min, freq_max,
+                 annotate_mode=annotate_mode, metric=chosen)
 
-    data = np.load(npz_path)
-    save_heatmap(png_path, data["freqs"], data["amps"], data["intensity"],
-                 motor_index, motor_type, amp_min, amp_max, freq_min, freq_max,
-                 annotate_mode=annotate_mode)
-
-    if meta is not None:   # keep the stored mode in sync for future renders
+    if meta is not None:   # keep the stored options in sync for future renders
         meta.setdefault("parameters", {})["annotate_mode"] = annotate_mode
+        meta.setdefault("metrics", {})["selected_plot_metric"] = chosen
+        peak = peak_cell(results, chosen)
+        meta["result"] = {
+            "metric": chosen,
+            "peak_freq_hz": peak.freq_hz,
+            "peak_amp": peak.amp,
+            "peak_ms2": get_metric_value(peak, chosen, unit="ms2"),
+            "peak_counts": get_metric_value(peak, chosen, unit="counts"),
+            "peak_rms_ms2": get_metric_value(peak, chosen, unit="ms2"),
+        }
         with open(meta_path_for(csv_path), "w") as f:
             json.dump(meta, f, indent=2)
     return png_path
 
 
+def set_annotate_mode(csv_path: str, annotate_mode: str) -> str:
+    """Backwards-compatible alias for set_display_options(annotate_mode=...)."""
+    return set_display_options(csv_path, annotate_mode=annotate_mode)
+
+
 def render_csv(csv_path: str, out_png: str,
-               motor_index: Optional[int] = None) -> dict:
-    """Re-render the intensity map from a saved run's sibling
-    spectrogram_*.npz (this experiment always writes one). Labels/ranges
-    come from the run's .meta.json. Returns a summary dict like
-    run_experiment()'s."""
+               motor_index: Optional[int] = None,
+               metric: Optional[str] = None) -> dict:
+    """Re-render the intensity map from a saved run's CSV, with the
+    chosen metric (default: the metric stored in the run's meta, falling
+    back to the recommended one; an old legacy-only CSV falls back to the
+    legacy metric rather than failing). Labels/ranges come from the run's
+    .meta.json. Returns a summary dict like run_experiment()'s."""
     meta = load_meta(csv_path)
     params = meta.get("parameters", {}) if meta else {}
+    metrics_meta = meta.get("metrics", {}) if meta else {}
     defaults = type_defaults(params.get("motor_type", DEFAULT_MOTOR_TYPE))
     if motor_index is None:
         motor_index = params.get("motor_index", MOTOR_INDEX)
@@ -462,23 +678,26 @@ def render_csv(csv_path: str, out_png: str,
     freq_max = params.get("freq_max", defaults["freq_max"])
     annotate_mode = params.get("annotate_mode", DEFAULT_ANNOTATE)
 
-    npz_path = grid_path_for(csv_path)
-    if not os.path.exists(npz_path):
-        raise ValueError(
-            f"Grid file {os.path.basename(npz_path)} not found - the map can "
-            "only be re-rendered from the run's .npz.")
-    data = np.load(npz_path)
-    save_heatmap(out_png, data["freqs"], data["amps"], data["intensity"],
-                 motor_index, motor_type, amp_min, amp_max, freq_min, freq_max,
-                 annotate_mode=annotate_mode)
-
     results = load_results(csv_path)
-    peak = max(results, key=lambda r: r.rms_ms2)
+    supported = metrics_available_in(results, METRIC_NAMES)
+    requested = metric or metrics_meta.get("selected_plot_metric")
+    chosen = select_metric(results, requested)
+    freqs, amps = grid_axes(results)
+    matrix = build_matrix(freqs, amps, results, chosen)
+    save_heatmap(out_png, freqs, amps, matrix, motor_index, motor_type,
+                 amp_min, amp_max, freq_min, freq_max,
+                 annotate_mode=annotate_mode, metric=chosen)
+
+    peak = peak_cell(results, chosen)
     return {
         "motor_type": motor_type,
+        "metric": chosen,
+        "requested_metric": normalise_metric(requested) if requested else None,
+        "available_metrics": supported,
         "peak_freq_hz": peak.freq_hz,
         "peak_amp": peak.amp,
-        "peak_rms_ms2": peak.rms_ms2,
+        "peak_ms2": get_metric_value(peak, chosen, unit="ms2"),
+        "peak_rms_ms2": get_metric_value(peak, chosen, unit="ms2"),
         "csv_path": csv_path,
         "png_path": out_png,
     }
@@ -509,6 +728,7 @@ def run_experiment(log: Optional[LogFn] = None,
                    precision: str = DEFAULT_PRECISION,
                    measure_s: float = MEASURE_S,
                    annotate_mode: str = DEFAULT_ANNOTATE,
+                   plot_metric: str = DEFAULT_METRIC,
                    amp_min: Optional[int] = None,
                    amp_max: Optional[int] = None,
                    freq_min: Optional[float] = None,
@@ -517,17 +737,21 @@ def run_experiment(log: Optional[LogFn] = None,
 
     for freq in freq_min..freq_max (step from precision):
         for amp in amp_min..amp_max (step from precision):
-            drive at (freq, amp) for measure_s, measure RMS intensity
+            drive at (freq, amp) for measure_s, measure BOTH metrics
 
     motor_type ('ERM'/'LRA') seeds the default ranges; amp_min/amp_max/
     freq_min/freq_max override them; precision sets both steps; measure_s
     is the per-cell drive/measure time; annotate_mode prints each cell's
-    value ('rms'/'normalized') or nothing ('off'). Writes the
-    NPZ/PNG/CSV/meta outputs and returns a summary dict."""
+    value ('rms'/'normalized') or nothing ('off'); plot_metric picks
+    which intensity metric colours the map and defines the reported peak
+    (both are measured and saved regardless). Writes the raw-sample NPZ,
+    the grid NPZ, the PNG, the CSV and the meta, and returns a summary
+    dict."""
     log = log if log is not None else print
     progress = progress if progress is not None else (lambda done, total: None)
     should_stop = should_stop if should_stop is not None else (lambda: False)
 
+    plot_metric = normalise_metric(plot_metric)
     d = type_defaults(motor_type)
     amp_min = d["amp_min"] if amp_min is None else int(amp_min)
     amp_max = d["amp_max"] if amp_max is None else int(amp_max)
@@ -545,8 +769,23 @@ def run_experiment(log: Optional[LogFn] = None,
     log(f"drive frequency {freqs[0]}..{freqs[-1]} Hz step {freq_step} "
         f"({len(freqs)} rows) x amp {amps[0]}..{amps[-1]} step {amp_step} "
         f"({len(amps)} cols) = {total_cells} cells, {measure_s:.1f} s each")
+    log(f"Plot metric: {metric_spec(plot_metric).short_label} "
+        "(both metrics are measured and saved; the map can be re-plotted "
+        "with either afterwards)")
     log(f"Estimated duration: ~{est:.0f} s. "
         "Keep the rig still during the sweep.\n")
+
+    stamp = str(int(time.time()))     # Unix epoch seconds (project rule)
+    recorder = RawSampleRecorder(
+        run_id=f"actuator_spectrogram_{stamp}",
+        experiment="actuator_spectrogram",
+        ms2_per_count=MS2_PER_COUNT,
+        sensor_id=acc_sensor_id,
+        meta={"motor_index": motor_index, "motor_type": motor_type,
+              "acc_interval_ms": ACC_INTERVAL_MS, "measure_s": measure_s,
+              "baseline_s": BASELINE_S, "settle_s": SETTLE_S,
+              "rest_s": REST_S, "precision": precision},
+    )
 
     ser = open_rig(log=log, interactive=interactive)
     try:
@@ -557,64 +796,95 @@ def run_experiment(log: Optional[LogFn] = None,
 
         results: List[CellResult] = []
         done = 0
+        cell_id = 0
         for freq in freqs:
             if should_stop():
                 raise SweepAborted()
             send(ser, f"F {motor_index} {freq}")   # set the row's drive frequency
-            baseline_mag = _baseline_mag(ser, acc_sensor_id)  # motor off here
-            if baseline_mag is None:
+            # Motor off here: this window is the row's quiet baseline, and
+            # its mean |a| is what the LEGACY metric subtracts.
+            baseline_samples = collect_samples(ser, BASELINE_S, acc_sensor_id)
+            if baseline_samples:
+                baseline_magnitude = compute_baseline_magnitude(baseline_samples)
+                baseline_window = recorder.add_window(
+                    baseline_samples, phase=PHASE_BASELINE, cell_id=-1,
+                    commanded_freq_hz=freq, commanded_amp=0)
+            else:
                 log(f"freq={freq}: no baseline samples - is the stream running?")
-                baseline_mag = 0.0
+                baseline_magnitude = 0.0
+                baseline_window = -1
             row_peak = 0.0
             for amp in amps:
                 if should_stop():
                     raise SweepAborted()
-                cell = measure_cell(ser, freq, amp, baseline_mag, measure_s, log,
-                                    motor_index=motor_index,
-                                    acc_sensor_id=acc_sensor_id)
+                cell, samples = measure_cell(
+                    ser, freq, amp, baseline_magnitude, measure_s, log,
+                    motor_index=motor_index, acc_sensor_id=acc_sensor_id)
                 done += 1
                 progress(done, total_cells)
                 if cell is not None:
                     results.append(cell)
-                    row_peak = max(row_peak, cell.rms_ms2)
+                    recorder.add_window(
+                        samples, phase=PHASE_VIBRATION, cell_id=cell_id,
+                        baseline_window_id=baseline_window,
+                        commanded_freq_hz=freq, commanded_amp=amp)
+                    cell_id += 1
+                    value = get_metric_value(cell, plot_metric, unit="ms2")
+                    row_peak = max(row_peak, value if value is not None else 0.0)
             log(f"freq={freq:5d} Hz  row peak {row_peak:5.3f} m/s²")
         if not results:
             raise RuntimeError("Sweep produced no data - check wiring and stream")
 
-        matrix = build_matrix(freqs, amps, results)
-        peak = max(results, key=lambda r: r.rms_ms2)
+        matrices = {name: build_matrix(freqs, amps, results, name)
+                    for name in METRIC_NAMES}
+        peak = peak_cell(results, plot_metric)
+        peak_ms2 = get_metric_value(peak, plot_metric, unit="ms2")
 
         os.makedirs(OUTPUT_DIR, exist_ok=True)
-        stamp = str(int(time.time()))     # Unix epoch seconds (project rule)
         csv_path = os.path.join(OUTPUT_DIR, f"spectrogram_{stamp}.csv")
         grid_pth = os.path.join(OUTPUT_DIR, f"spectrogram_{stamp}.npz")
         png_path = os.path.join(OUTPUT_DIR, f"spectrogram_{stamp}.png")
+        raw_pth = raw_path_for(csv_path)
         save_csv(csv_path, results)
-        save_grid(grid_pth, freqs, amps, matrix)
-        save_heatmap(png_path, freqs, amps, matrix, motor_index, motor_type,
-                     amp_min, amp_max, freq_min, freq_max,
-                     annotate_mode=annotate_mode)
-        meta_path = save_meta(csv_path, png_path, grid_pth, stamp,
+        save_grid(grid_pth, freqs, amps, matrices)
+        recorder.save(raw_pth)
+        save_heatmap(png_path, freqs, amps, matrices[plot_metric], motor_index,
+                     motor_type, amp_min, amp_max, freq_min, freq_max,
+                     annotate_mode=annotate_mode, metric=plot_metric)
+        meta_path = save_meta(csv_path, png_path, grid_pth, raw_pth, stamp,
                               getattr(ser, "rig_identity", None),
                               motor_index, acc_sensor_id, motor_type,
                               amp_min, amp_max, freq_min, freq_max,
                               precision, freq_step, amp_step, measure_s,
-                              annotate_mode, peak)
+                              annotate_mode, plot_metric, peak)
 
         log(f"\n=== Strongest vibration at freq={peak.freq_hz} Hz, "
-            f"amp={peak.amp} ({peak.rms_ms2:.2f} m/s² RMS) ===")
+            f"amp={peak.amp} ({peak_ms2:.2f} m/s² "
+            f"{metric_spec(plot_metric).short_label}) ===")
+        other = [n for n in METRIC_NAMES if n != plot_metric]
+        for name in other:
+            alt = peak_cell(results, name)
+            alt_ms2 = get_metric_value(alt, name, unit="ms2")
+            log(f"    (for reference, {metric_spec(name).short_label} peaks at "
+                f"freq={alt.freq_hz} Hz, amp={alt.amp}: {alt_ms2:.2f} m/s²)")
         log(f"Grid:     {grid_pth}")
+        log(f"Raw ACC:  {raw_pth} ({recorder.n_samples} samples, "
+            f"{recorder.n_windows} windows)")
         log(f"Heatmap:  {png_path}")
         log(f"Data:     {csv_path}")
         log(f"Meta:     {meta_path}")
 
         return {
             "motor_type": motor_type,
+            "metric": plot_metric,
+            "available_metrics": list(METRIC_NAMES),
             "peak_freq_hz": peak.freq_hz,
             "peak_amp": peak.amp,
-            "peak_rms_ms2": peak.rms_ms2,
+            "peak_ms2": peak_ms2,
+            "peak_rms_ms2": peak_ms2,
             "csv_path": csv_path,
             "png_path": png_path,
+            "raw_path": raw_pth,
         }
     finally:
         try:

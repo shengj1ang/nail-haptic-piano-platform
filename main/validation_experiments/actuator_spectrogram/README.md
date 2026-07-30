@@ -19,13 +19,30 @@ for freq in freq_min .. freq_max:   # PWM drive frequency (F command)
 | **y** | **drive frequency** — the value set with the `F` command |
 | **colour** | measured **RMS acceleration** at that (amp, frequency) cell — **darker = stronger** |
 
-Each box is simply the broadband RMS intensity the drive produced
-(baseline-subtracted `√(mean((|a| − baseline)²)) × 0.00981`, m/s²) — the
-same intensity metric the LRA/ERM amplitude sweeps use. There is no
-frequency analysis of the signal: the y-axis is the frequency the motor
-is *driven* at, and each box is one scalar intensity measurement. Cells
-are drawn as discrete filled boxes, so the picture reads as the grid of
-measured intensities the boxes were "filled" with.
+Each box is simply the broadband RMS intensity the drive produced, in
+m/s². There is no frequency analysis of the signal: the y-axis is the
+frequency the motor is *driven* at, and each box is one scalar intensity
+measurement. Cells are drawn as discrete filled boxes, so the picture
+reads as the grid of measured intensities the boxes were "filled" with.
+
+## Which intensity metric?
+
+Every cell is measured with **both** shared vibration-intensity metrics
+(the same ones the LRA sweeps use — full definitions in
+[`../README.md`](../README.md)):
+
+- **Demeaned 3-axis vector RMS** — `√(mean(Σₐₓᵢₛ(a−mean_axis)²))`, the
+  **default**: gravity, sensor bias and mounting pose all drop out.
+- **Legacy magnitude RMS** — `√(mean((|a| − baseline)²))`, the original
+  project formula, kept for comparison with historical runs.
+
+The **Plot metric** dropdown chooses which one colours the map — and
+therefore which cell is reported as the strongest. Because the run also
+saves every cell's full three-axis sample series, switching the dropdown
+re-colours a saved run instantly, with no new hardware sweep. The two
+metrics can legitimately peak at *different* cells (the legacy metric
+barely sees vibration perpendicular to gravity); the run log prints
+where the other metric peaks so a divergence is never silent.
 
 You pick:
 
@@ -43,9 +60,16 @@ You pick:
 - **Vibrate time** — how long (seconds) each (freq, amp) cell is driven
   continuously before its intensity is measured. Default **2 s**, range
   0.5–30 s.
-- **Annotate** — print each cell's value inside its box, as either the raw
-  **RMS value** (m/s²) or a **Normalized** 0–1 value (the cell's position
-  between the map's min and max). The text is white or black, chosen per
+- **Plot metric** — **Demeaned 3-axis vector RMS (Recommended)** or
+  **Legacy magnitude RMS**. Both are always measured; this chooses the
+  one that colours the map, defines the reported peak, feeds the cell
+  annotations and names the colour bar. Changing it re-renders the
+  displayed run (and updates that run's PNG and meta `result`) without
+  re-running the hardware.
+- **Annotate** — print each cell's value inside its box, as either the
+  selected metric's raw **RMS value** (m/s²) or a **Normalized** 0–1
+  value (the cell's position between the map's min and max). The text is
+  white or black, chosen per
   cell from that cell's colour luminance so it always contrasts (readable
   on both dark and light cells); edge cells are aligned inward so nothing
   clips off the plot. Best with Coarse precision — a dense grid gets
@@ -116,14 +140,26 @@ convention as every other validation experiment:
 
 | File | Content |
 |------|---------|
-| `spectrogram_<ts>.npz` | the intensity grid for re-rendering: `freqs` (n_freq,), `amps` (n_amp,), `intensity` (n_freq × n_amp, RMS m/s², NaN where a cell was dropped) |
-| `spectrogram_<ts>.png` | the amp × drive-frequency intensity map (darker = stronger) |
-| `spectrogram_<ts>.csv` | one row per (freq, amp) cell: freq_hz, amp, rms_delta_counts, rms_ms2, peak_delta_counts, baseline_mag, n_samples |
-| `spectrogram_<ts>.meta.json` | full parameter set (motor type, amp/frequency ranges, precision, freq/amp steps, Vibrate time, annotate mode, timing), firmware identity, linked files, and the run result (strongest-vibration freq / amp / RMS) |
+| `spectrogram_<ts>.raw_acc.npz` | **the raw three-axis samples of every cell** (and of every row baseline), long format, lossless `int32` counts with Unix-epoch timestamps — the file both metrics and every chart can be regenerated from. Format documented in [`../README.md`](../README.md) § 4 |
+| `spectrogram_<ts>.npz` | the intensity grid for re-rendering: `freqs` (n_freq,), `amps` (n_amp,), `intensity_vector_rms_ms2` and `intensity_legacy_magnitude_rms_ms2` (each n_freq × n_amp, NaN where a cell was dropped), plus `intensity` = the legacy grid, which is exactly what that key meant in pre-refactor files |
+| `spectrogram_<ts>.png` | the amp × drive-frequency intensity map (darker = stronger); the colour bar names the metric it shows |
+| `spectrogram_<ts>.csv` | one row per (freq, amp) cell: `freq_hz`, `amp`, then the shared metric block (`n_samples`, `mean_*_counts`, `rms_*_counts`, `legacy_magnitude_rms_counts/_ms2`, `vector_rms_counts/_ms2`, `baseline_magnitude_counts`, `peak_magnitude_delta_counts`) |
+| `spectrogram_<ts>.meta.json` | full parameter set (motor type, amp/frequency ranges, precision, freq/amp steps, Vibrate time, annotate mode, timing), firmware identity, linked files, the `metrics` block (`metric_version`, `available_metrics`, `selected_plot_metric`, `raw_acceleration_file`, `raw_data_format`, `ms2_per_count`), and the run result **for the selected metric** |
 
 "Load Chart from CSV" re-renders the map from any saved run — the heatmap
-is redrawn from the run's sibling `.npz`, with labels from its
-`.meta.json`.
+is rebuilt from the run's CSV (which carries both metrics), with labels
+from its `.meta.json`.
+
+### Old runs
+
+A `spectrogram_*.csv` written before this refactor has only the single
+`rms_delta_counts` / `rms_ms2` columns and no raw file. Such a run still
+loads and plots — under the **legacy** metric, whose old column names are
+read automatically. The vector-RMS option is **disabled** for it, because
+a stored scalar magnitude RMS genuinely cannot be turned back into a
+vector RMS; the window says so instead of inventing a number. Its
+sibling `.npz` (which contains only `intensity`) likewise still loads as
+the legacy grid.
 
 ## Configuration constants
 
@@ -137,7 +173,10 @@ At the top of `actuator_spectrogram.py`:
 | `FREQ_DRIVE_MIN` / `FREQ_MAX_LIMIT` | 50 / 20000 | firmware `F`-command min/max (Hz); the sweep starts at the min |
 | `PRECISION_STEPS` | Coarse/Medium/Fine → freq 100/50/25 Hz, amp 32/16/8 | scan precision → (freq step, amp step) |
 | `MEASURE_S` (Vibrate) | 2.00 | default per-cell continuous drive/measure window; set per run (`MEASURE_S_MIN`/`MEASURE_S_MAX` = 0.5–30 s) |
-| `ANNOTATE_MODES` | off / rms / normalized | print each cell's value: none, raw RMS, or 0–1 normalised |
+| `ANNOTATE_MODES` | off / rms / normalized | print each cell's value: none, the selected metric's raw m/s², or 0–1 normalised |
 | `COLORMAP` | `magma_r` | pale (low) → near-black (high): darker = stronger |
 | `BASELINE_S` / `SETTLE_S` / `REST_S` | 0.30 / 0.30 / 0.15 | other per-step timing (baseline re-measured once per frequency row) |
-| `MS2_PER_COUNT` | 0.00981 | LIS3DH HR ±2 g: 1 count = 1 mg |
+
+`MS2_PER_COUNT` (0.00980665 — LIS3DH HR ±2 g, 1 count = 1 mg) and the
+metric names/formulas live in `../acceleration_metrics.py`, shared with
+every other accelerometer experiment.

@@ -12,7 +12,7 @@ check, raw access to the ACC stream, and a non-interactive mode so a
 GUI worker thread fails with an error instead of blocking on input().
 """
 
-import math
+import os
 import sys
 import time
 from typing import Callable, List, Optional, Tuple
@@ -20,7 +20,18 @@ from typing import Callable, List, Optional, Tuple
 import serial
 from serial.tools import list_ports
 
+try:
+    from .acceleration_metrics import magnitudes
+except ImportError:  # direct execution rather than package import
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from acceleration_metrics import magnitudes
+
 BAUD = 115200
+
+#: One accelerometer sample as the collectors below produce it:
+#: (host-arrival time in time.monotonic() seconds, x, y, z raw counts).
+#: acceleration_metrics accepts this shape directly.
+Sample = Tuple[float, int, int, int]
 
 
 class SweepAborted(Exception):
@@ -124,37 +135,18 @@ def parse_acc_line(raw: str, sensor_id: int) -> Optional[Tuple[int, int, int]]:
         return None
 
 
-def collect_magnitudes(ser: serial.Serial, duration_s: float,
-                       sensor_id: int) -> List[float]:
-    """Read the ACC stream for duration_s and return |a| magnitudes."""
-    ser.reset_input_buffer()  # drop samples from before this window
-    mags: List[float] = []
-    deadline = time.monotonic() + duration_s
-    while time.monotonic() < deadline:
-        raw = ser.readline().decode("utf-8", errors="ignore").strip()
-        if not raw:
-            continue
-        sample = parse_acc_line(raw, sensor_id)
-        if sample is None:
-            continue
-        x, y, z = sample
-        mags.append(math.sqrt(x * x + y * y + z * z))
-    return mags
-
-
 def collect_samples(ser: serial.Serial, duration_s: float,
-                    sensor_id: int) -> List[Tuple[float, int, int, int]]:
+                    sensor_id: int) -> List[Sample]:
     """Read the ACC stream for duration_s and return (t, x, y, z) tuples.
 
-    t is the host-arrival time (time.monotonic seconds); x/y/z are raw
-    LIS3DH counts. Like collect_magnitudes but keeps the per-axis values
-    and a timestamp per sample, so a caller can both compute the |a|
-    magnitude (sqrt(x^2+y^2+z^2)) and estimate a vibration frequency from
-    the sample series. Host timestamps jitter per sample, but their mean
-    rate over the window equals the firmware ODR, which is what a
+    THE collector for every accelerometer experiment: it keeps the raw
+    per-axis counts and a timestamp per sample, which is what both
+    vibration-intensity metrics and the raw-sample store need (see
+    acceleration_metrics). Host timestamps jitter per sample, but their
+    mean rate over the window equals the firmware ODR, which is what a
     dominant-frequency estimate needs."""
     ser.reset_input_buffer()  # drop samples from before this window
-    samples: List[Tuple[float, int, int, int]] = []
+    samples: List[Sample] = []
     deadline = time.monotonic() + duration_s
     while time.monotonic() < deadline:
         raw = ser.readline().decode("utf-8", errors="ignore").strip()
@@ -166,3 +158,18 @@ def collect_samples(ser: serial.Serial, duration_s: float,
         x, y, z = sample
         samples.append((time.monotonic(), x, y, z))
     return samples
+
+
+def collect_magnitudes(ser: serial.Serial, duration_s: float,
+                       sensor_id: int) -> List[float]:
+    """Read the ACC stream for duration_s and return |a| magnitudes.
+
+    Retained for compatibility with older callers only. New code should
+    use collect_samples() and acceleration_metrics: a magnitude series
+    throws away the per-axis values, so the demeaned three-axis vector
+    RMS can no longer be computed from it. The |a| formula itself lives
+    in acceleration_metrics.magnitudes()."""
+    samples = collect_samples(ser, duration_s, sensor_id)
+    if not samples:
+        return []
+    return [float(m) for m in magnitudes(samples)]

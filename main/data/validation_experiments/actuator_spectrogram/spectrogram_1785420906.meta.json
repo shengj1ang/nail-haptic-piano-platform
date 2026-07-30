@@ -1,0 +1,55 @@
+{
+  "experiment": "actuator_spectrogram",
+  "saved_at": 1785420906,
+  "firmware": "haptic-piano v2.10.0",
+  "parameters": {
+    "motor_index": 1,
+    "acc_sensor_id": 0,
+    "motor_type": "LRA",
+    "amp_min": 0,
+    "amp_max": 255,
+    "freq_min": 0,
+    "freq_max": 350,
+    "freq_drive_min_hz": 50,
+    "precision": "Fine",
+    "freq_step": 25,
+    "amp_step": 8,
+    "ms2_per_count": 0.00980665,
+    "baseline_s": 0.3,
+    "settle_s": 0.3,
+    "measure_s": 2.0,
+    "rest_s": 0.15,
+    "acc_interval_ms": 1,
+    "annotate_mode": "off"
+  },
+  "files": {
+    "csv": "spectrogram_1785420906.csv",
+    "heatmap": "spectrogram_1785420906.png",
+    "grid": "spectrogram_1785420906.npz",
+    "raw_acceleration": "spectrogram_1785420906.raw_acc.npz"
+  },
+  "metrics": {
+    "metric_version": 2,
+    "available_metrics": [
+      "vector_rms",
+      "legacy_magnitude_rms"
+    ],
+    "selected_plot_metric": "vector_rms",
+    "default_plot_metric": "vector_rms",
+    "raw_acceleration_file": "spectrogram_1785420906.raw_acc.npz",
+    "raw_data_format": "acceleration_raw_npz_v1",
+    "ms2_per_count": 0.00980665,
+    "metric_definitions": {
+      "legacy_magnitude_rms": "sqrt(mean((|a_i| - baseline_magnitude)^2)); the original project formula, kept for comparability with historical runs",
+      "vector_rms": "sqrt(mean(sum_axes((a_i - mean_axis)^2))); removes gravity, static sensor bias and mounting orientation - the recommended metric"
+    }
+  },
+  "result": {
+    "metric": "vector_rms",
+    "peak_freq_hz": 225,
+    "peak_amp": 112,
+    "peak_ms2": 7.584463350406706,
+    "peak_counts": 773.4000245146616,
+    "peak_rms_ms2": 7.584463350406706
+  }
+}

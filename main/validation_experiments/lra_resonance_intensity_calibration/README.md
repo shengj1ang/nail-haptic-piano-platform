@@ -6,9 +6,14 @@ configuration of the LRA** used by the haptic-piano system:
 1. **Frequency sweep** (`lra_frequency_sweep.py`) — find the mounted
    resonant frequency f₀, the frequency at which the LRA vibrates the
    strongest.
-2. **Amplitude sweep** (`lra_amplitude_sweep.py`) — at f₀, find the PWM
-   amplitude (`amp`) whose measured acceleration lands in the target
-   "clearly perceptible, not annoying" band.
+2. **Amplitude sweep** (`lra_amplitude_sweep.py`) — at f₀, find the
+   **recommended cue amp**: the PWM amplitude (`amp`) whose measured
+   acceleration is *closest to the target "clearly perceptible, not
+   annoying" intensity*. Note what this is **not** — it is not the amp
+   that produces the strongest vibration (that is just the top of the
+   sweep range) and not a physically optimal operating point of the
+   actuator. It is the amp nearest a chosen target intensity, and the
+   target is defined **per metric** (§ 2.5).
 
 Outcome adopted by the project: **f₀ = 224 Hz** (firmware boot default
 since v2.7.0) and **`amp = 64`** (default intensity in all Python
@@ -79,14 +84,79 @@ Frequency fixed at the Experiment 1 result (224 Hz); `amp` stepped
 
 ### 2.4 Measures
 
-The per-step metric is the **RMS delta**: the root-mean-square of
-`|a| − baseline_mean` over the measurement window, in raw LIS3DH
-counts. For Experiment 2 it is converted to absolute units via the
-sensor's high-resolution sensitivity, 1 count = 1 mg:
-`a[m/s²] = counts × 0.00981`. `peak_delta` (largest single-sample
-deviation) is logged as a secondary metric.
+Every measurement window is scored with **both** shared
+vibration-intensity metrics (defined in full in
+[`../README.md`](../README.md) § 1, implemented once in
+`../acceleration_metrics.py`):
 
-### 2.5 Standards and choice of the target band
+| Metric | Formula (raw LIS3DH counts) | Role |
+|---|---|---|
+| `vector_rms` — **demeaned 3-axis vector RMS** | `√(mean((x−x̄)² + (y−ȳ)² + (z−z̄)²))`, equivalently `√(rms_x² + rms_y² + rms_z²)` | **the default.** Each axis is demeaned over the window, so gravity, the sensor's static bias and the mounting pose drop out |
+| `legacy_magnitude_rms` — **legacy magnitude RMS** | `√(mean((\|a\|ᵢ − baseline_magnitude)²))` | the original formula (§ 3's historical numbers are in these units), kept for like-for-like comparison with earlier runs |
+
+`baseline_magnitude` is the mean `|a|` of the quiet window re-measured
+at every step. Both metrics are converted to absolute units **once**,
+via the sensor's high-resolution sensitivity (1 count = 1 mg):
+`a[m/s²] = counts × 0.00980665`; every stored field name carries a
+`_counts` or `_ms2` suffix. `peak_magnitude_delta_counts` (largest
+single-sample `|a|` deviation) is logged as a legacy secondary metric,
+and the per-axis means and RMS values are stored too.
+
+Which metric is **plotted** — and therefore which frequency is reported
+as f₀ and which amp is the recommended cue amp — is chosen with the
+**Plot metric** dropdown (default: vector RMS). It is a plot-time
+choice: both metrics and the full raw three-axis samples are saved, so a
+run can be re-analysed under either without re-running the hardware. The
+legacy metric is only second-order sensitive to vibration perpendicular
+to gravity, so on a rig whose LRA does not push along gravity the two
+can give different answers; the run log prints the other metric's peak
+so the difference is visible.
+
+**The two metrics are different rulers, so each has its OWN target
+band** — see § 2.5. Switching the Plot metric switches the curve, the
+shaded band, the target value, the recommended cue amp, the in-band
+list, the legend, the title, the meta `result` block and the GUI status
+line *together*.
+
+### 2.5 Target cue intensity — one band **per metric**
+
+The amplitude sweep does not look for the strongest vibration; it looks
+for the amp closest to a **target cue intensity**. That target is a
+number in m/s², so it only means anything alongside the metric that
+measures it — and **the two metrics are different rulers**. On this rig
+the same drive reads ≈ 0.5 m/s² under the legacy magnitude RMS and
+≈ 2.7 m/s² under the demeaned vector RMS, because the legacy formula is
+only second-order sensitive to vibration perpendicular to gravity while
+the vector RMS captures the full AC energy.
+
+> **This used to be a bug.** Both metrics shared the legacy
+> 0.4–0.6 m/s² band, so switching the Plot metric moved the recommended
+> amp from ≈ 52 to ≈ 4. That looked like a change in the actuator's
+> operating point but was only a change of ruler. Each metric now has
+> its own band and both select amp ≈ 52 on the same data.
+
+| Metric | Target band | Aim point | Calibration |
+|---|---|---|---|
+| Legacy magnitude RMS | **0.4–0.6 m/s²** | 0.5 m/s² | `historical` — the perception-based band the project adopted `amp = 64` from |
+| Demeaned 3-axis vector RMS | **2.4–3.0 m/s²** | 2.7 m/s² | `provisional` — estimated from the vector RMS this rig measured at amp ≈ 48–56 (2.55–2.94 m/s²) |
+
+The vector band is **provisional**: it is a rescaling of the historical
+band onto this metric's scale — the same physical drive range, measured
+with the better ruler — *not* an independent perceptual calibration.
+Expect it to be re-measured; every run's meta records the status so a
+saved result always states how firm its target was.
+
+All of these live in **one place**, `CUE_TARGETS` /
+`cue_target(metric)` in `lra_amplitude_sweep.py`. Nothing else — not the
+plot, not the recommendation, not the GUI — may hard-code a band.
+
+**Uncalibrated metrics.** `cue_target()` returns an *uncalibrated*
+target for any metric with no entry. Such a metric gets its curve
+plotted and nothing else: the plot and the meta say
+`Target band not calibrated`, no cue amp is recommended and the in-band
+list is empty. Another metric's thresholds are never substituted.
+
+#### Where the numbers come from
 
 No standard prescribes a haptic-cue intensity, so the target band is
 perception-based, with the relevant standards used to scope the
@@ -107,14 +177,15 @@ problem:
   sensitivity peak) are ~0.1–0.4 m/s² RMS, and a clearly perceptible
   but non-annoying cue is conventionally placed just above threshold.
 
-Target band adopted: **0.4–0.6 m/s² RMS**, aiming at its centre
-(0.5 m/s²).
+Target band adopted for the **legacy magnitude RMS**:
+**0.4–0.6 m/s² RMS**, aiming at its centre (0.5 m/s²). The vector-RMS
+band above is that same drive range re-expressed on the vector scale.
 
 ### 2.6 Running the experiments
 
 ```bash
 python lra_frequency_sweep.py    # ~1.5 min, prints f0
-python lra_amplitude_sweep.py    # ~35 s, prints recommended amp
+python lra_amplitude_sweep.py    # ~35 s, prints the recommended cue amp
 ```
 
 Alternatively, open them from `launcher.py`, section "9. Validation
@@ -138,38 +209,60 @@ the accelerometer stream. Outputs are timestamped into
 |------|------|
 | `sweep_<ts>.csv` / `frequency_response_<ts>.png` | Experiment 1 data and plot |
 | `amp_sweep_<ts>.csv` / `amplitude_response_<ts>.png` | Experiment 2 data and plot |
-| `sweep_<ts>.meta.json` / `amp_sweep_<ts>.meta.json` | Per-run record: full parameter set (motor/sensor/amp or freq + timing constants), firmware identity, linked csv/png filenames, and the headline result |
+| `sweep_<ts>.raw_acc.npz` / `amp_sweep_<ts>.raw_acc.npz` | **the raw three-axis samples of every baseline and measurement window** — lossless `int32` counts with Unix-epoch timestamps, keyed by step/pass/commanded frequency/amp. Both metrics and both plots can be regenerated from this file alone (format: [`../README.md`](../README.md) § 4) |
+| `sweep_<ts>.meta.json` / `amp_sweep_<ts>.meta.json` | Per-run record: full parameter set (motor/sensor/amp or freq + timing constants), firmware identity, linked csv/png/raw filenames, the `metrics` block (`metric_version`, `available_metrics`, `selected_plot_metric`, `raw_acceleration_file`, `raw_data_format`, `ms2_per_count`) and the headline result **for the selected metric** |
+
+Both CSVs carry the same shared metric block: `n_samples`,
+`mean_x_counts`/`mean_y_counts`/`mean_z_counts`,
+`rms_x_counts`/`rms_y_counts`/`rms_z_counts`,
+`legacy_magnitude_rms_counts`/`_ms2`, `vector_rms_counts`/`_ms2`,
+`baseline_magnitude_counts`, `peak_magnitude_delta_counts`.
 
 `<ts>` is the Unix epoch timestamp in seconds at save time (the
 project-wide timestamp convention), so runs never overwrite each other
 and sort chronologically by filename. "Load Chart from CSV" in the GUI
 reads the sibling meta to re-render an old run with the parameters it
-was actually measured at (the two pre-meta runs have backfilled meta
-files, flagged `"backfilled": true`).
+was actually measured at.
+
+**Old CSVs.** Runs written before this refactor carry only the
+pre-refactor columns (`rms_delta` / `rms_delta_counts` / `rms_ms2`,
+`peak_delta`, `baseline_mag`) and no raw file. They still load and plot,
+under the **legacy** metric, whose old column names are recognised
+automatically; the vector-RMS option is disabled for them, since it
+cannot be derived from a stored scalar magnitude RMS.
 
 ## 3. Results (runs of 2026-07-15)
+
+> **Note.** The numbers in this section were measured with the **legacy
+> magnitude RMS** (the only metric that existed then) and their data
+> files have since been cleared for re-measurement under the two-metric
+> pipeline. They are kept as the record of how f₀ = 224 Hz and amp = 64
+> were arrived at. When the calibration is re-run, compare new *legacy*
+> values against these, and use the vector RMS for the new headline.
 
 ### 3.1 Experiment 1 — resonant frequency
 
 Data `<data>/sweep_1784125356.csv`, plot
-`<data>/frequency_response_1784125356.png`.
+`<data>/frequency_response_1784125356.png` (both cleared).
 
-- **f₀ = 224 Hz** (fine-pass peak: `rms_delta = 111.1` counts,
-  `peak_delta = 298` counts).
-- The resonance region spans ~221–231 Hz (`rms_delta ≈ 103–111`), with
-  the sharp high-side cliff typical of a high-Q resonator (231 → 232 Hz
-  drops from 105 to 67).
-- At the previous 300 Hz default the same drive produced
-  `rms_delta ≈ 40`: retuning to 224 Hz yields **~2.8× more vibration**
-  from the same voltage.
+- **f₀ = 224 Hz** (fine-pass peak: legacy magnitude RMS = 111.1 counts,
+  peak magnitude delta = 298 counts).
+- The resonance region spans ~221–231 Hz (legacy RMS ≈ 103–111 counts),
+  with the sharp high-side cliff typical of a high-Q resonator
+  (231 → 232 Hz drops from 105 to 67).
+- At the previous 300 Hz default the same drive produced ≈ 40 counts:
+  retuning to 224 Hz yields **~2.8× more vibration** from the same
+  voltage.
 
 ### 3.2 Experiment 2 — amplitude at 224 Hz
 
 Data `<data>/amp_sweep_1784126365.csv`, plot
-`<data>/amplitude_response_1784126365.png`.
+`<data>/amplitude_response_1784126365.png` (both cleared).
 
-- **Recommended `amp = 64`** → 0.49 m/s² RMS, the centre of the target
-  band. In-band alternatives: `amp = 60` (0.40) and `amp = 68` (0.57).
+- **Recommended cue `amp = 64`** → 0.49 m/s² legacy RMS, the centre of
+  the legacy target band — i.e. the amp closest to the target
+  *intensity*, not the amp that vibrates hardest. In-band alternatives:
+  `amp = 60` (0.40) and `amp = 68` (0.57).
 - The interim default `amp = 75` measures ≈ 0.65 m/s² — above the
   band, consistent with pilot feedback that it felt too strong.
 - Below `amp ≈ 56` readings flatten at ~0.28–0.38 m/s²: this is the
@@ -211,7 +304,8 @@ Data `<data>/amp_sweep_1784126365.csv`, plot
 - Single actuator, single session: unit-to-unit spread and temperature
   drift are not characterised (both are typically a few Hz for coin
   LRAs — within the measured 221–231 Hz plateau).
-- The 0.4–0.6 m/s² band is a design target from perception literature,
+- The 0.4–0.6 m/s² legacy band (and the 2.4–3.0 m/s² vector band
+  rescaled from it) is a design target from perception literature,
   not a standard's requirement; per-user preference can still be
   exposed as a setting (60/64/68 are all in-band).
 
@@ -236,9 +330,13 @@ All knobs are constants at the top of each script:
 | `AMP` (Exp 1) | 128 | sweep drive amplitude (max AC fundamental) |
 | `FREQ_HZ` (Exp 2) | 224 | fixed drive frequency for the amplitude sweep |
 | `AMP_VALUES` (Exp 2) | 4–128 step 4 | amplitude steps |
-| `TARGET_BAND_MS2` / `TARGET_MS2` (Exp 2) | 0.4–0.6 / 0.5 | target cue band and aim point |
+| `CUE_TARGETS` (Exp 2) | legacy 0.4–0.6 / 0.5 (historical); vector 2.4–3.0 / 2.7 (provisional) | the target cue band and aim point **per metric** — the single definition, read via `cue_target(metric)` |
 | `COARSE_START_HZ` / `COARSE_STOP_HZ` / `COARSE_STEP_HZ` (Exp 1) | 100 / 350 / 5 | coarse pass range and step |
 | `FINE_SPAN_HZ` / `FINE_STEP_HZ` (Exp 1) | 10 / 1 | fine pass around the coarse peak |
 | `BASELINE_S` / `SETTLE_S` / `MEASURE_S` / `REST_S` | 0.30 / 0.15 / 0.40 / 0.15 | per-step timing |
 | `ACC_INTERVAL_MS` | 3 | stream interval (LIS3DH ODR is 400 Hz, keep ≥ 3) |
-| `MS2_PER_COUNT` (Exp 2) | 0.00981 | LIS3DH HR ±2 g: 1 count = 1 mg |
+
+`MS2_PER_COUNT` (0.00980665 — LIS3DH HR ±2 g, 1 count = 1 mg), the two
+metric formulas and the raw-sample format now live in
+`../acceleration_metrics.py`, shared with every other accelerometer
+experiment; see [`../README.md`](../README.md).

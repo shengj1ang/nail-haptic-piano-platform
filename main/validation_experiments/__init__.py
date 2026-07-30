@@ -4,7 +4,10 @@ not part of the main protocol (launcher section "Validation
 Experiments").
 
 One subfolder per experiment (e.g. lra_resonance_intensity_calibration/),
-with the shared serial-rig helpers in rig.py at this level. Each
+with the shared serial-rig helpers in rig.py and the shared vibration-
+intensity analysis in acceleration_metrics.py at this level (the two
+intensity metrics, the counts -> m/s^2 conversion and the raw
+three-axis sample store every accelerometer experiment writes). Each
 experiment is a standalone script that can still be run directly from
 its folder; the GUI windows in app/gui/validation_experiment_window.py
 are thin wrappers (progress bar + log) around the same run_experiment()
