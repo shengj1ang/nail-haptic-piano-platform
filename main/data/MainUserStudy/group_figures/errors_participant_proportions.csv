@@ -1,0 +1,127 @@
+participant,condition,category,count,n_events,proportion
+P01,A,Correct key + correct finger,47,270,0.17407407407407408
+P01,A,Correct key + wrong finger,223,270,0.825925925925926
+P01,A,Wrong key + correct finger,0,270,0.0
+P01,A,Wrong key + wrong finger,0,270,0.0
+P01,A,Unresolved finger,0,270,0.0
+P01,A,No response (timeout),0,270,0.0
+P01,B,Correct key + correct finger,265,270,0.9814814814814815
+P01,B,Correct key + wrong finger,5,270,0.018518518518518517
+P01,B,Wrong key + correct finger,0,270,0.0
+P01,B,Wrong key + wrong finger,0,270,0.0
+P01,B,Unresolved finger,0,270,0.0
+P01,B,No response (timeout),0,270,0.0
+P01,C,Correct key + correct finger,267,270,0.9888888888888889
+P01,C,Correct key + wrong finger,2,270,0.007407407407407408
+P01,C,Wrong key + correct finger,1,270,0.003703703703703704
+P01,C,Wrong key + wrong finger,0,270,0.0
+P01,C,Unresolved finger,0,270,0.0
+P01,C,No response (timeout),0,270,0.0
+P02,A,Correct key + correct finger,35,269,0.13011152416356878
+P02,A,Correct key + wrong finger,227,269,0.8438661710037175
+P02,A,Wrong key + correct finger,1,269,0.0037174721189591076
+P02,A,Wrong key + wrong finger,6,269,0.022304832713754646
+P02,A,Unresolved finger,0,269,0.0
+P02,A,No response (timeout),0,269,0.0
+P02,B,Correct key + correct finger,239,270,0.8851851851851852
+P02,B,Correct key + wrong finger,22,270,0.08148148148148149
+P02,B,Wrong key + correct finger,8,270,0.02962962962962963
+P02,B,Wrong key + wrong finger,1,270,0.003703703703703704
+P02,B,Unresolved finger,0,270,0.0
+P02,B,No response (timeout),0,270,0.0
+P02,C,Correct key + correct finger,259,270,0.9592592592592593
+P02,C,Correct key + wrong finger,8,270,0.02962962962962963
+P02,C,Wrong key + correct finger,3,270,0.011111111111111112
+P02,C,Wrong key + wrong finger,0,270,0.0
+P02,C,Unresolved finger,0,270,0.0
+P02,C,No response (timeout),0,270,0.0
+P03,A,Correct key + correct finger,49,270,0.1814814814814815
+P03,A,Correct key + wrong finger,214,270,0.7925925925925926
+P03,A,Wrong key + correct finger,2,270,0.007407407407407408
+P03,A,Wrong key + wrong finger,3,270,0.011111111111111112
+P03,A,Unresolved finger,0,270,0.0
+P03,A,No response (timeout),2,270,0.007407407407407408
+P03,B,Correct key + correct finger,261,270,0.9666666666666667
+P03,B,Correct key + wrong finger,7,270,0.025925925925925925
+P03,B,Wrong key + correct finger,2,270,0.007407407407407408
+P03,B,Wrong key + wrong finger,0,270,0.0
+P03,B,Unresolved finger,0,270,0.0
+P03,B,No response (timeout),0,270,0.0
+P03,C,Correct key + correct finger,266,270,0.9851851851851852
+P03,C,Correct key + wrong finger,2,270,0.007407407407407408
+P03,C,Wrong key + correct finger,2,270,0.007407407407407408
+P03,C,Wrong key + wrong finger,0,270,0.0
+P03,C,Unresolved finger,0,270,0.0
+P03,C,No response (timeout),0,270,0.0
+P04,A,Correct key + correct finger,43,270,0.15925925925925927
+P04,A,Correct key + wrong finger,224,270,0.8296296296296296
+P04,A,Wrong key + correct finger,0,270,0.0
+P04,A,Wrong key + wrong finger,3,270,0.011111111111111112
+P04,A,Unresolved finger,0,270,0.0
+P04,A,No response (timeout),0,270,0.0
+P04,B,Correct key + correct finger,265,270,0.9814814814814815
+P04,B,Correct key + wrong finger,4,270,0.014814814814814815
+P04,B,Wrong key + correct finger,0,270,0.0
+P04,B,Wrong key + wrong finger,0,270,0.0
+P04,B,Unresolved finger,0,270,0.0
+P04,B,No response (timeout),1,270,0.003703703703703704
+P04,C,Correct key + correct finger,269,270,0.9962962962962963
+P04,C,Correct key + wrong finger,1,270,0.003703703703703704
+P04,C,Wrong key + correct finger,0,270,0.0
+P04,C,Wrong key + wrong finger,0,270,0.0
+P04,C,Unresolved finger,0,270,0.0
+P04,C,No response (timeout),0,270,0.0
+P05,A,Correct key + correct finger,43,270,0.15925925925925927
+P05,A,Correct key + wrong finger,225,270,0.8333333333333334
+P05,A,Wrong key + correct finger,1,270,0.003703703703703704
+P05,A,Wrong key + wrong finger,1,270,0.003703703703703704
+P05,A,Unresolved finger,0,270,0.0
+P05,A,No response (timeout),0,270,0.0
+P05,B,Correct key + correct finger,253,270,0.937037037037037
+P05,B,Correct key + wrong finger,7,270,0.025925925925925925
+P05,B,Wrong key + correct finger,9,270,0.03333333333333333
+P05,B,Wrong key + wrong finger,1,270,0.003703703703703704
+P05,B,Unresolved finger,0,270,0.0
+P05,B,No response (timeout),0,270,0.0
+P05,C,Correct key + correct finger,264,270,0.9777777777777777
+P05,C,Correct key + wrong finger,6,270,0.022222222222222223
+P05,C,Wrong key + correct finger,0,270,0.0
+P05,C,Wrong key + wrong finger,0,270,0.0
+P05,C,Unresolved finger,0,270,0.0
+P05,C,No response (timeout),0,270,0.0
+P06,A,Correct key + correct finger,46,270,0.17037037037037037
+P06,A,Correct key + wrong finger,223,270,0.825925925925926
+P06,A,Wrong key + correct finger,1,270,0.003703703703703704
+P06,A,Wrong key + wrong finger,0,270,0.0
+P06,A,Unresolved finger,0,270,0.0
+P06,A,No response (timeout),0,270,0.0
+P06,B,Correct key + correct finger,258,270,0.9555555555555556
+P06,B,Correct key + wrong finger,12,270,0.044444444444444446
+P06,B,Wrong key + correct finger,0,270,0.0
+P06,B,Wrong key + wrong finger,0,270,0.0
+P06,B,Unresolved finger,0,270,0.0
+P06,B,No response (timeout),0,270,0.0
+P06,C,Correct key + correct finger,270,270,1.0
+P06,C,Correct key + wrong finger,0,270,0.0
+P06,C,Wrong key + correct finger,0,270,0.0
+P06,C,Wrong key + wrong finger,0,270,0.0
+P06,C,Unresolved finger,0,270,0.0
+P06,C,No response (timeout),0,270,0.0
+P07,A,Correct key + correct finger,53,270,0.1962962962962963
+P07,A,Correct key + wrong finger,215,270,0.7962962962962963
+P07,A,Wrong key + correct finger,0,270,0.0
+P07,A,Wrong key + wrong finger,2,270,0.007407407407407408
+P07,A,Unresolved finger,0,270,0.0
+P07,A,No response (timeout),0,270,0.0
+P07,B,Correct key + correct finger,265,270,0.9814814814814815
+P07,B,Correct key + wrong finger,5,270,0.018518518518518517
+P07,B,Wrong key + correct finger,0,270,0.0
+P07,B,Wrong key + wrong finger,0,270,0.0
+P07,B,Unresolved finger,0,270,0.0
+P07,B,No response (timeout),0,270,0.0
+P07,C,Correct key + correct finger,258,270,0.9555555555555556
+P07,C,Correct key + wrong finger,11,270,0.040740740740740744
+P07,C,Wrong key + correct finger,1,270,0.003703703703703704
+P07,C,Wrong key + wrong finger,0,270,0.0
+P07,C,Unresolved finger,0,270,0.0
+P07,C,No response (timeout),0,270,0.0

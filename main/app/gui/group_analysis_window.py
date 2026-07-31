@@ -5,7 +5,13 @@ group-level picture over the same within-subject design the
 single-participant window shows: condition and difficulty comparisons,
 paired condition contrasts, a descriptive speed-accuracy trade-off,
 learning/order trends, event-outcome composition, homologous per-finger
-profiles, and a data-quality audit.
+profiles, the Condition x Finger repeated-measures ANOVA, the
+finger-benefit (compensation / equalisation / weakest-finger) analyses,
+and a data-quality audit.
+
+The Finger Benefit tab is rendered by .finger_benefit_tab and computed
+by app.finger_benefit, app.finger_equalisation and app.finger_weakest -
+one module per question, none of them importing the others.
 
 All computation lives in app.group_analysis, which reads the
 reviewed-and-exported <participant>_{trials,events}.csv files (the
@@ -16,21 +22,29 @@ Design rules enforced here:
   - the independent unit of every mean, interval and test is the
     PARTICIPANT (thin lines/dots per participant, group centre on top);
   - conditions are compared within-subject (paired contrasts; Friedman /
-    paired Wilcoxon only, gated by complete-case N and labelled
-    exploratory at small N - at N=1 no inferential test runs at all);
+    paired Wilcoxon over conditions, and the two-way repeated-measures
+    ANOVA over Condition x Finger, all gated by complete-case N and
+    labelled exploratory at small N - at N=1 no inferential test runs
+    at all);
   - missing cells stay missing (no zero-fill), carry-over-invalidated
     events stay out of outcomes, QC counters stay out of outcomes;
   - every Analyse click recomputes from disk for exactly the current
     selection - no cached results survive a selection change.
 
-Export ("Export figures + data", participant-window pattern) currently
-covers the Trade-off tab's figures and tidy CSVs; the other tabs stay
-review-in-window only for now.
+Export ("Export figures + data", participant-window pattern) covers
+EVERY tab: each figure as 300 dpi PNG + SVG, every tidy table behind it
+as CSV, and a _manifest.csv naming the files and the participants they
+came from. Registration is done by _add_tab, not by the individual
+_build_ methods, so a new tab cannot ship without its output; empty
+tables (e.g. "missing cells" when nothing is missing) are skipped rather
+than written as zero-row files. test-script/test_group_export.py asserts
+that every tab contributes at least one figure and one table.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 from PySide6.QtCore import Qt
@@ -61,11 +75,13 @@ from ..participant_analysis import (
     compute_wrong_key_distance,
     wrong_key_stats,
 )
+from . import finger_benefit_tab
 from .participant_analysis_window import (
     CATEGORY_COLORS,
     CONDITION_COLORS,
     ScrollFriendlyCanvas,
 )
+from .stats_format import fmt, fmt_p
 
 CONDITIONS = ga.CONDITIONS
 LEVELS = ga.LEVELS
@@ -73,16 +89,11 @@ LEVEL_SYMBOLS = ga.LEVEL_SYMBOLS
 PARTICIPANT_LINE = "#9a9a9a"
 
 
-def _fmt(x, decimals=0, suffix="") -> str:
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "n/a"
-    return f"{x:.{decimals}f}{suffix}"
-
-
-def _fmt_p(p) -> str:
-    if p is None or np.isnan(p):
-        return "n/a"
-    return "< 0.001" if p < 0.001 else f"= {p:.3f}"
+# Formatting lives in .stats_format so the "&lt;" rule (a bare "<" in a
+# RichText caption opens a tag and Qt eats the rest of the line) has one
+# home shared with the other analysis tabs.
+_fmt = fmt
+_fmt_p = fmt_p
 
 
 class GroupAnalysisWindow(QMainWindow):
@@ -239,6 +250,8 @@ class GroupAnalysisWindow(QMainWindow):
         self._add_tab("Learning / Order", *self._build_learning())
         self._add_tab("Errors", *self._build_errors())
         self._add_tab("Fingers", *self._build_fingers())
+        self._add_tab("RM-ANOVA", *self._build_rm_anova())
+        self._add_tab("Finger Benefit", *self._build_finger_benefit())
         self._add_tab("Quality", *self._build_quality())
         self.save_figs_btn.setEnabled(True)
 
@@ -252,14 +265,25 @@ class GroupAnalysisWindow(QMainWindow):
             titles[c] = f"{c} ({label})" if label else c
         return titles
 
-    def _add_tab(self, title: str, caption_html: str, figures: List[Figure]) -> None:
+    def _add_tab(self, title: str, caption_html: str,
+                 figures: Dict[str, Figure],
+                 datasets: Optional[Dict[str, object]] = None) -> None:
+        """Render one tab AND register everything on it for export.
+
+        Registration happens here, not in the individual _build_ methods,
+        so a tab physically cannot be added without its figures and its
+        underlying tidy tables joining the export - the previous
+        arrangement let six tabs ship with nothing exported at all. Keys
+        are the file stems written by _save_figures."""
+        self._figures.update(figures)
+        self._register_datasets(datasets)
         content = QWidget()
         layout = QVBoxLayout(content)
         caption = QLabel(caption_html)
         caption.setWordWrap(True)
         caption.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(caption)
-        for fig in figures:
+        for fig in figures.values():
             canvas = ScrollFriendlyCanvas(fig)
             canvas.setFixedHeight(int(fig.get_figheight() * 100))
             canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -270,6 +294,18 @@ class GroupAnalysisWindow(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(content)
         self.tabs.addTab(scroll, title)
+
+    def _register_datasets(self, datasets: Optional[Dict[str, object]]) -> None:
+        """Register tidy tables for export, skipping the empty ones.
+
+        A table can be legitimately empty - "missing cells" when nothing
+        is missing, threshold sensitivity when the export carries no
+        fa_theta_ columns - and a zero-row CSV in a results folder is
+        noise that reads like a failed export. The captions already state
+        those cases in words."""
+        for slug, df in (datasets or {}).items():
+            if df is not None and len(df):
+                self._datasets[slug] = df
 
     # ------------------------------------------------------------------
     # Shared plotting: participant lines/dots + group centre per condition
@@ -385,7 +421,37 @@ class GroupAnalysisWindow(QMainWindow):
         legend_note = ("<i>Figures: thin grey lines = individual participants (within-subject "
                        "pairing), diamonds = group mean, bars = 95% CI across participants.</i>")
         lines.append(legend_note)
-        return "".join(f"<p>{line}</p>" for line in lines), [fig1, fig2]
+
+        # The participant x condition table is the source every group
+        # number on this page is derived from, so it is exported first
+        # and the group summary beside it - a reader must be able to
+        # recompute the summary from the tidy file.
+        datasets = {
+            "overview_participant_condition_metrics": self._pc,
+            "overview_group_summary_by_condition": self._metric_centers(
+                self._pc, [m[0] for m in metric_specs], ["condition"]),
+            "overview_cell_availability": avail,
+            "overview_data_completeness": quality,
+        }
+        return ("".join(f"<p>{line}</p>" for line in lines),
+                {"group_overview_accuracy": fig1, "group_overview_rt": fig2},
+                datasets)
+
+    @staticmethod
+    def _metric_centers(df, metrics: List[str], group_cols: List[str]):
+        """Long tidy table of group_center over several metrics at once:
+        one row per (group cell, metric) with n / mean / sd / 95% CI.
+        This is the shape the report tables are built from."""
+        frames = []
+        for metric in metrics:
+            center = ga.group_center(df, metric, group_cols)
+            if len(center):
+                frames.append(center.assign(metric=metric))
+        if not frames:
+            return pd.DataFrame(columns=group_cols + ["metric", "n", "mean", "sd", "sem",
+                                                      "ci95_lo", "ci95_hi"])
+        out = pd.concat(frames, ignore_index=True)
+        return out[group_cols + ["metric", "n", "mean", "sd", "sem", "ci95_lo", "ci95_hi"]]
 
     # ------------------------------------------------------------------
     # Condition x Difficulty
@@ -456,7 +522,14 @@ class GroupAnalysisWindow(QMainWindow):
             f"<p>{missing_note}</p>"
             "<p>Descriptive within-subject comparison; the full condition × level interaction model "
             "is not fitted in this version (see Contrasts for the paired condition tests).</p>")
-        return caption, [fig]
+        datasets = {
+            "condition_difficulty_participant_cells": cells,
+            "condition_difficulty_group_summary": self._metric_centers(
+                cells, [m[0] for m in specs], ["condition", "level"]),
+            "condition_difficulty_missing_cells": pd.DataFrame(
+                missing, columns=["participant", "condition", "level"]),
+        }
+        return caption, {"group_condition_difficulty": fig}, datasets
 
     # ------------------------------------------------------------------
     # Paired contrasts
@@ -469,6 +542,7 @@ class GroupAnalysisWindow(QMainWindow):
             ("rt_complete_s", 1000, "ms", "RT — complete correct (ms)"),
         ]
         contrast_labels = [f"{a}−{b}" for a, b in ga.CONTRASTS]
+        all_diffs, inference_rows = [], []
         fig = Figure(figsize=(10.5, 7.4))
         axes = fig.subplots(2, 2).ravel()
         cap_blocks = ["<h3>Paired condition contrasts (within-participant)</h3>",
@@ -479,6 +553,8 @@ class GroupAnalysisWindow(QMainWindow):
                       "proportions (previous tabs) stay the computation basis."]
         for ax, (metric, scale, unit, title) in zip(axes, specs):
             diffs = ga.paired_differences(self._pc, metric)
+            all_diffs.append(diffs.assign(metric=metric))
+            inference_rows.extend(self._inference_rows(metric))
             x = np.arange(len(contrast_labels))
             ax.axhline(0, color="#bbbbbb", linewidth=1)
             metric_lines = [f"<b>{title}</b>"]
@@ -508,7 +584,36 @@ class GroupAnalysisWindow(QMainWindow):
             metric_lines.append(self._inference_html(metric, scale, unit))
             cap_blocks.append("<br>".join(metric_lines))
         fig.tight_layout()
-        return "".join(f"<p>{b}</p>" for b in cap_blocks), [fig]
+        datasets = {
+            "contrasts_participant_differences": (pd.concat(all_diffs, ignore_index=True)
+                                                  if all_diffs else pd.DataFrame()),
+            "contrasts_tests": pd.DataFrame(inference_rows),
+        }
+        return ("".join(f"<p>{b}</p>" for b in cap_blocks),
+                {"group_contrasts": fig}, datasets)
+
+    def _inference_rows(self, metric: str) -> List[dict]:
+        """The Friedman + pairwise Wilcoxon results of one metric as tidy
+        rows, so the exported CSV carries exactly the numbers rendered in
+        the caption (including the Holm-adjusted p and the gating reason
+        when no test ran)."""
+        res = ga.condition_inference(self._pc, metric)
+        base = {"metric": metric, "n_participants": res["n_participants"],
+                "n_complete": res["n_complete"], "exploratory": res["exploratory"],
+                "reason": res["reason"]}
+        if res["reason"]:
+            return [dict(base, test="not run")]
+        f = res["friedman"]
+        rows = [dict(base, test=f["test"], contrast="overall (A/B/C)", n=f["n"],
+                     statistic=f["statistic"], p=f["p"], p_holm=np.nan,
+                     effect_name=f["effect_name"], effect_size=f["effect_size"],
+                     mean_diff=np.nan, note=f.get("note"))]
+        for e in res["pairwise"]:
+            rows.append(dict(base, test=e["test"], contrast=e["contrast"], n=e["n_pairs"],
+                             statistic=e["statistic"], p=e["p"], p_holm=e["p_holm"],
+                             effect_name=e["effect_name"], effect_size=e["effect_size"],
+                             mean_diff=e["mean_diff"], note=e["note"]))
+        return rows
 
     def _inference_html(self, metric: str, scale: float, unit: str) -> str:
         res = ga.condition_inference(self._pc, metric)
@@ -547,7 +652,7 @@ class GroupAnalysisWindow(QMainWindow):
         toggles for busy plots. Registers the figures and tidy CSVs for
         Export figures + data."""
         self._tradeoff = gt.compute(self._data.trial_rows, self._data.included)
-        self._datasets.update(gt.export_datasets(self._tradeoff))
+        self._register_datasets(gt.export_datasets(self._tradeoff))
 
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -701,21 +806,58 @@ class GroupAnalysisWindow(QMainWindow):
         return "".join(f"<p>{line}</p>" for line in lines)
 
     def _save_figures(self) -> None:
-        """Export figures + data (participant-window pattern): 300 dpi
-        PNG + SVG per registered figure plus the tidy CSVs, under
-        data/MainUserStudy/group_figures/."""
+        """Export figures + data (participant-window pattern): every
+        figure on every tab as 300 dpi PNG + SVG, every tidy table behind
+        them as CSV, plus a manifest, under
+        data/MainUserStudy/group_figures/.
+
+        Registration happens in _add_tab, so this writes exactly what the
+        window is showing. One unwritable file is reported and skipped
+        rather than aborting the other fifty."""
         out_dir = STUDY_DATA_DIR / "group_figures"
         out_dir.mkdir(parents=True, exist_ok=True)
-        figs = csvs = 0
-        for slug, fig in self._figures.items():
-            fig.savefig(out_dir / f"{slug}.png", dpi=300, bbox_inches="tight")
-            fig.savefig(out_dir / f"{slug}.svg", bbox_inches="tight")
+        manifest, figs, csvs, failures = [], 0, 0, []
+
+        for slug, fig in sorted(self._figures.items()):
+            try:
+                fig.savefig(out_dir / f"{slug}.png", dpi=300, bbox_inches="tight")
+                fig.savefig(out_dir / f"{slug}.svg", bbox_inches="tight")
+            except Exception as e:
+                failures.append(f"{slug}.png/.svg ({type(e).__name__}: {e})")
+                continue
             figs += 1
-        for slug, df in self._datasets.items():
-            df.to_csv(out_dir / f"{slug}.csv", index=False)
+            manifest.append({"file": f"{slug}.png / {slug}.svg", "kind": "figure",
+                             "rows": "", "columns": ""})
+        for slug, df in sorted(self._datasets.items()):
+            try:
+                df.to_csv(out_dir / f"{slug}.csv", index=False)
+            except Exception as e:
+                failures.append(f"{slug}.csv ({type(e).__name__}: {e})")
+                continue
             csvs += 1
-        self.status_label.setText(
-            f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs to {out_dir}")
+            manifest.append({"file": f"{slug}.csv", "kind": "table",
+                             "rows": len(df), "columns": ", ".join(map(str, df.columns))})
+
+        # The manifest makes a flat folder of ~60 files navigable, and
+        # records WHICH participants and analysis the export came from -
+        # a CSV sitting in a report appendix has to be self-identifying.
+        header = pd.DataFrame([{
+            "file": "(export)", "kind": "provenance",
+            "rows": f"N = {self._data.n}",
+            "columns": (f"participants: {', '.join(self._data.included)}; "
+                        f"{len(self._data.trial_rows)} trials, "
+                        f"{len(self._data.event_rows)} events "
+                        f"({len(ga.valid_events(self._data.event_rows))} valid); "
+                        f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
+        }])
+        pd.concat([header, pd.DataFrame(manifest)], ignore_index=True).to_csv(
+            out_dir / "_manifest.csv", index=False)
+
+        msg = (f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs "
+               f"+ _manifest.csv to {out_dir}")
+        if failures:
+            msg += "  —  FAILED: " + "; ".join(failures)
+        self.status_label.setText(msg)
 
     # ------------------------------------------------------------------
     # Learning / order
@@ -777,7 +919,17 @@ class GroupAnalysisWindow(QMainWindow):
             "session-level progression/fatigue only — never as a condition comparison. Grey lines: "
             "individual participants; black: group mean over the participants contributing at each "
             "position.</p>")
-        return caption, [fig1, fig2]
+        datasets = {
+            "learning_within_cell_repetition": ga.within_cell_repetition(self._data.trial_rows),
+            "learning_participant_repetition": rep,
+            "learning_repetition_group_summary": self._metric_centers(
+                rep, ["fa_main", "rt_correct_key_s"], ["condition", "repetition"]),
+            "learning_session_position": pos,
+            "learning_session_position_group_summary": self._metric_centers(
+                pos, ["fa_main", "rt_correct_key_s"], ["position"]),
+        }
+        return caption, {"group_learning_repetition": fig1,
+                         "group_learning_session_position": fig2}, datasets
 
     # ------------------------------------------------------------------
     # Errors
@@ -875,7 +1027,18 @@ class GroupAnalysisWindow(QMainWindow):
             + "<p>" + "".join(pooled_tab) + "</p>"
             + "<p><b>Wrong-key distance</b> (pooled over participants, descriptive): "
             + "; ".join(wk_lines) + "</p>")
-        return caption, [fig1, fig2]
+        datasets = {
+            # Participant-level proportions are the analysis basis; the
+            # pooled counts are the supplement, and both are exported so
+            # the distinction survives into the report's appendix.
+            "errors_participant_proportions": props,
+            "errors_group_summary": ga.group_center(props, "proportion",
+                                                    ["condition", "category"]),
+            "errors_pooled_counts": pooled,
+            "errors_wrong_key_distance": wk_stats,
+        }
+        return caption, {"group_errors_composition": fig1,
+                         "group_errors_correct_key_wrong_finger": fig2}, datasets
 
     # ------------------------------------------------------------------
     # Fingers
@@ -936,7 +1099,342 @@ class GroupAnalysisWindow(QMainWindow):
             "Cells with few observations per participant are noisy — check the counts before "
             "reading differences.</p>"
             "<p>" + "; ".join(cap_lines) + "</p>")
-        return caption, [fig]
+        datasets = {
+            # The per-finger cell table is the input to the RM-ANOVA and
+            # to all three Finger Benefit analyses, so it is the single
+            # most re-used export on this window.
+            "fingers_participant_cells": pf,
+            "fingers_group_summary": self._metric_centers(
+                pf, ["fa", "rt_s", "rt_complete_s"], ["condition", "finger_id"]),
+            "fingers_left_right_counts": (pf.groupby(["condition", "finger_id"])
+                                          [["n", "n_left", "n_right", "n_judged",
+                                            "n_rt_complete"]].sum().reset_index()),
+        }
+        return caption, {"group_fingers": fig}, datasets
+
+    # ------------------------------------------------------------------
+    # Condition x Finger repeated-measures ANOVA
+    #
+    # The Method's finger-specific model. Everything numeric is computed
+    # in app.group_analysis (model, error terms, Mauchly, Greenhouse-
+    # Geisser, and the ceiling diagnostics that justify keeping finger
+    # accuracy descriptive); this section only renders it.
+
+    def _build_rm_anova(self):
+        pf = ga.per_finger_metrics(self._data.event_rows)
+        conditions = ga.ANOVA_CONDITIONS
+        primary_metric, primary_label = ga.ANOVA_METRICS[0]
+        results = [(label, ga.rm_anova_finger(pf, metric, conditions))
+                   for metric, label in ga.ANOVA_METRICS]
+        primary = results[0][1]
+        fa_desc = ga.finger_cell_descriptives(pf, "fa", conditions)
+        ceiling = ga.ceiling_diagnostics(pf, "fa", conditions)
+
+        blocks = [
+            "<h3>Condition × Finger repeated-measures ANOVA</h3>",
+            "Two-way within-participant ANOVA with <b>Condition</b> (B visual, C haptic) and "
+            "<b>homologous Finger ID</b> (1 thumb … 5 little) as repeated factors, fitted on the "
+            "per-finger cell means of the Fingers tab. Each participant contributes one value per "
+            f"cell, so the design is {len(conditions)} × {len(ga.FINGER_IDS)} = "
+            f"{len(conditions) * len(ga.FINGER_IDS)} cells per participant and the independent unit "
+            "stays the participant. Every effect is tested against its own participant × effect "
+            "interaction as the error term: F<sub>Condition</sub> = MS<sub>C</sub>/MS<sub>C×S</sub>, "
+            "F<sub>Finger</sub> = MS<sub>F</sub>/MS<sub>F×S</sub>, F<sub>C×F</sub> = "
+            "MS<sub>C×F</sub>/MS<sub>C×F×S</sub>. Effect size is partial η² = "
+            "SS<sub>effect</sub> / (SS<sub>effect</sub> + SS<sub>error</sub>). "
+            "Condition A is excluded by design — it carries no finger cue, so a per-digit cue "
+            "effect is undefined there; A stays visible in the descriptive Fingers tab.",
+            self._anova_design_html(primary, pf, conditions),
+        ]
+
+        for i, (label, res) in enumerate(results):
+            role = ("<b>Primary model</b>" if i == 0 else
+                    "<b>Sensitivity model</b> (same design, the Fingers tab's all-responded RT "
+                    "definition instead of the correct-complete-action one)")
+            blocks.append(f"{role} — {label}<br>" + self._anova_table_html(res))
+
+        blocks.append(self._fa_descriptive_html(fa_desc, ceiling, conditions))
+
+        figs, datasets = {}, {}
+        # The RT panels are descriptive (cell means and the paired C − B
+        # difference) and need no pingouin, so they are drawn whenever a
+        # cell grid exists - a failed or gated fit must not also cost the
+        # reader the picture the model is about.
+        if len(primary["frame"]):
+            figs["group_rm_anova_rt"] = self._anova_rt_figure(primary, primary_label)
+            datasets["rm_anova_cells"] = primary["frame"]
+        if not fa_desc.empty:
+            figs["group_rm_anova_fa_descriptive"] = self._anova_fa_figure(
+                pf, fa_desc, conditions)
+            datasets["rm_anova_fa_descriptives"] = fa_desc
+            datasets["rm_anova_fa_ceiling"] = pd.DataFrame([
+                {k: v for k, v in ceiling.items() if k != "dropped"}])
+        # Both models, not only the primary one: the sensitivity fit is
+        # rendered on the page, so it belongs in the export too.
+        effect_tables = [self._anova_effect_table(res) for _label, res in results]
+        effect_tables = [t for t in effect_tables if not t.empty]
+        if effect_tables:
+            datasets["rm_anova_effects"] = pd.concat(effect_tables, ignore_index=True)
+
+        blocks.append(
+            "<i>Figures: left/top — cell means per condition across finger IDs (thin lines = "
+            "individual participants, bold = group mean, bars = 95% t-CI across participants); "
+            "right/bottom — the paired C − B difference per finger, which is the interaction term "
+            "made visible (dots = participants, diamond = group mean, bar = 95% t-CI, dashed line "
+            "= no difference).</i>")
+        return "".join(f"<p>{b}</p>" for b in blocks), figs, datasets
+
+    @staticmethod
+    def _anova_design_html(res: dict, pf, conditions: List[str]) -> str:
+        """Who is actually in the model and how many events back each
+        cell - stated before any F, because a repeated-measures fit on a
+        silently shrunk grid is the easiest way to mislead here."""
+        parts = [f"<b>Design realised:</b> N = {res['n_participants']} participant(s) with a "
+                 f"complete grid, {res['n_cells']} cells "
+                 f"({res['cells_per_participant']} per participant)."]
+        if res["dropped"]:
+            parts.append("Dropped for incomplete cells (listwise, never imputed): "
+                         + "; ".join(f"{p} ({why})" for p, why in sorted(res["dropped"].items()))
+                         + ".")
+        cells = pf[pf["condition"].isin(conditions)]
+        if len(cells):
+            for col, name in (("n_judged", "judged events"), ("n_rt_complete", "correct-complete events")):
+                if col not in cells.columns:
+                    continue
+                counts = cells[col].to_numpy(dtype=float)
+                parts.append(f"Per-cell {name}: min {int(np.nanmin(counts))}, "
+                             f"median {np.nanmedian(counts):.0f}, max {int(np.nanmax(counts))}.")
+        if res["exploratory"] and not res["reason"]:
+            parts.append("<i>Exploratory at this sample size — read the effect sizes and "
+                         "intervals for direction and future power planning, not as "
+                         "generalisable inference.</i>")
+        return " ".join(parts)
+
+    @staticmethod
+    def _anova_effect_table(res: dict):
+        """The rendered effect table as a tidy DataFrame (export)."""
+        rows = []
+        for e in res["effects"]:
+            m = e["mauchly"]
+            rows.append({
+                "metric": res["metric"], "effect": e["source"], "label": e["label"],
+                "df1": e["df1"], "df2": e["df2"], "SS": e["ss"], "MS": e["ms"],
+                "F": e["F"], "p_uncorrected": e["p_unc"], "partial_eta_sq": e["np2"],
+                "mauchly_applicable": m["applicable"], "mauchly_W": m["W"],
+                "mauchly_p": m["p"], "gg_epsilon": e["eps"],
+                "gg_df1": e["df1_gg"], "gg_df2": e["df2_gg"], "p_gg": e["p_gg"],
+                "correction_applied": e["correction"], "p_reported": e["p_reported"],
+                "n_participants": res["n_participants"],
+            })
+        return pd.DataFrame(rows)
+
+    def _anova_table_html(self, res: dict) -> str:
+        if res["reason"]:
+            return f"<i>Not fitted: {res['reason']}.</i>"
+        head = ("<table border='0' cellspacing='0' cellpadding='4'>"
+                "<tr><th align='left'>Effect</th><th>F</th><th>df</th><th>p</th>"
+                "<th>partial η²</th><th>Mauchly W (p)</th><th>ε<sub>GG</sub></th>"
+                "<th>p<sub>GG</sub></th></tr>")
+        rows = []
+        for e in res["effects"]:
+            m = e["mauchly"]
+            if not m["applicable"]:
+                mauchly_cell = "n/a — 2 levels"
+            elif np.isnan(m["W"]):
+                mauchly_cell = m["note"] or "n/a"
+            else:
+                mauchly_cell = f"{m['W']:.3f} (p {_fmt_p(m['p'])})"
+            eps_cell = _fmt(e["eps"], 3) if e["gg_applicable"] else "1.000 (fixed)"
+            if not e["gg_applicable"]:
+                gg_cell = "n/a"
+            else:
+                gg_cell = _fmt_p(e["p_gg"]).lstrip("= ")
+                if e["sphericity_violated"]:
+                    gg_cell = (f"<b>{gg_cell}</b> "
+                               f"[df {e['df1_gg']:.2f}, {e['df2_gg']:.2f}]")
+            p_cell = _fmt_p(e["p_unc"]).lstrip("= ")
+            if e["sphericity_violated"]:
+                p_cell += " <span style='color:#888'>(liberal)</span>"
+            rows.append(
+                f"<tr><td>{e['label']}</td>"
+                f"<td align='center'>{_fmt(e['F'], 3)}</td>"
+                f"<td align='center'>{e['df1']:.0f}, {e['df2']:.0f}</td>"
+                f"<td align='center'>{p_cell}</td>"
+                f"<td align='center'>{_fmt(e['np2'], 3)}</td>"
+                f"<td align='center'>{mauchly_cell}</td>"
+                f"<td align='center'>{eps_cell}</td>"
+                f"<td align='center'>{gg_cell}</td></tr>")
+        violated = [e["label"] for e in res["effects"] if e["sphericity_violated"]]
+        note = ("Sphericity was not rejected for any effect where it is an assumption, so the "
+                "uncorrected p values stand; ε is shown anyway."
+                if not violated else
+                "Mauchly rejects sphericity for: " + ", ".join(violated)
+                + " — the bold Greenhouse–Geisser p (with ε-rescaled df) is the one to report "
+                  "there; the uncorrected p is liberal.")
+        note += (" Condition has only two levels, i.e. a single contrast, so it has no sphericity "
+                 "assumption to violate (ε = 1 by construction) and is never GG-corrected.")
+        return head + "".join(rows) + "</table><i>" + note + "</i>"
+
+    @staticmethod
+    def _fa_descriptive_html(fa_desc, ceiling: dict, conditions: List[str]) -> str:
+        if fa_desc.empty:
+            return ("<b>Finger accuracy — descriptive only.</b> No complete-case cell grid "
+                    "available for the finger-accuracy table.")
+        idx = fa_desc.set_index(["condition", "finger_id"])
+        table = ["<table border='0' cellspacing='0' cellpadding='4'>"
+                 "<tr><th align='left'>Main FA — mean ± SD [95% CI], % of judged events</th>"
+                 + "".join(f"<th>{fid} {ga.FINGER_ID_NAMES[fid]}</th>" for fid in ga.FINGER_IDS)
+                 + "</tr>"]
+        for c in conditions:
+            cells = []
+            for fid in ga.FINGER_IDS:
+                if (c, fid) not in idx.index:
+                    cells.append("<td align='center'>n/a</td>")
+                    continue
+                r = idx.loc[(c, fid)]
+                txt = f"{r['mean'] * 100:.1f} ± {_fmt(r['sd'] * 100, 1)}"
+                if not np.isnan(r["ci95_lo"]):
+                    txt += f"<br>[{r['ci95_lo'] * 100:.1f}, {r['ci95_hi'] * 100:.1f}]"
+                cells.append(f"<td align='center'>{txt}<br><span style='color:#888'>"
+                             f"n={int(r['n'])}</span></td>")
+            table.append(f"<tr><td><b>{c}</b></td>{''.join(cells)}</tr>")
+        table.append("</table>")
+        pct = (ceiling["prop_at_ceiling"] * 100 if not np.isnan(ceiling["prop_at_ceiling"]) else np.nan)
+        return (
+            "<b>Finger accuracy — descriptive only, no ANOVA.</b> "
+            + "".join(table)
+            + "<i>Main FA is a bounded proportion (key AND finger correct over judged events) and "
+              f"in this sample the {ceiling['n_cells']} cells run "
+              f"{_fmt(ceiling['min'] * 100, 1, '%')}–{_fmt(ceiling['max'] * 100, 1, '%')}, with "
+              f"{ceiling['n_at_ceiling']} of them ({_fmt(pct, 0, '%')}) exactly at 100%. Against "
+              "the ceiling the cell variance is compressed and tied to the mean, so the normality "
+              "and homogeneity assumptions behind an F ratio — and above all the Condition × Finger "
+              "interaction test — are not credible. FA is therefore reported here as means, SDs and "
+              "95% t-CIs over the same complete-case participants as the reaction-time model, and "
+              "no F test is computed on it. Reaction time carries the inferential result.</i>")
+
+    def _anova_rt_figure(self, res: dict, metric_label: str) -> Figure:
+        """Cell means per condition across finger IDs, plus the paired
+        C − B difference per finger (the interaction term, drawn)."""
+        metric = res["metric"]
+        frame = res["frame"]
+        conditions = res["conditions"]
+        fig = Figure(figsize=(10.5, 4.0))
+        ax, ax_d = fig.subplots(1, 2)
+        x = np.arange(len(ga.FINGER_IDS))
+
+        for c in conditions:
+            sub = frame[frame["condition"] == c]
+            for _, prow in sub.groupby("participant"):
+                ys = prow.set_index("finger_id")[metric].reindex(ga.FINGER_IDS) * 1000
+                ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
+                        linewidth=0.8, alpha=0.3, zorder=1)
+            center = (ga.group_center(sub, metric, ["finger_id"])
+                      .set_index("finger_id").reindex(ga.FINGER_IDS))
+            means = center["mean"].to_numpy(dtype=float) * 1000
+            lo = center["ci95_lo"].to_numpy(dtype=float) * 1000
+            hi = center["ci95_hi"].to_numpy(dtype=float) * 1000
+            ax.errorbar(x, means, yerr=[means - lo, hi - means], fmt="o-",
+                        color=CONDITION_COLORS[c], linewidth=2.0, capsize=4,
+                        label=self._cond_titles[c], zorder=3)
+        ax.set_xticks(x, [f"{fid}\n{ga.FINGER_ID_NAMES[fid]}" for fid in ga.FINGER_IDS], fontsize=8)
+        ax.set_xlabel("homologous finger ID")
+        ax.set_ylabel("RT (ms)")
+        ax.set_title(f"{metric_label} — condition × finger cell means", fontsize=10)
+        ax.legend(fontsize=7)
+
+        # Paired difference: only defined for exactly two conditions.
+        ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")
+        if len(conditions) == 2:
+            lo_c, hi_c = conditions[0], conditions[1]
+            pivot = frame.pivot_table(index=["participant", "finger_id"],
+                                      columns="condition", values=metric)
+            diffs = (pivot[hi_c] - pivot[lo_c]).rename("diff").reset_index()
+            for xi, fid in enumerate(ga.FINGER_IDS):
+                vals = diffs[diffs["finger_id"] == fid]["diff"].to_numpy(dtype=float) * 1000
+                jitter = (np.arange(len(vals)) - (len(vals) - 1) / 2) * (0.3 / max(len(vals), 1))
+                ax_d.scatter(xi + jitter, vals, s=26, color="#3a76c4", alpha=0.75, zorder=2)
+            center = ga.group_center(diffs, "diff", ["finger_id"]).set_index("finger_id").reindex(
+                ga.FINGER_IDS)
+            means = center["mean"].to_numpy(dtype=float) * 1000
+            lo = center["ci95_lo"].to_numpy(dtype=float) * 1000
+            hi = center["ci95_hi"].to_numpy(dtype=float) * 1000
+            ax_d.errorbar(x, means, yerr=[means - lo, hi - means], fmt="D", markersize=9,
+                          color="#d9663d", markeredgecolor="black", capsize=4,
+                          linewidth=1.3, linestyle="none", zorder=4)
+            ax_d.set_title(f"Paired {hi_c} − {lo_c} per finger (interaction term)", fontsize=10)
+            ax_d.set_ylabel(f"{hi_c} − {lo_c} RT (ms)")
+        else:
+            ax_d.set_title("Paired difference needs exactly two conditions", fontsize=10)
+        ax_d.set_xticks(x, [str(fid) for fid in ga.FINGER_IDS])
+        ax_d.set_xlabel("homologous finger ID")
+        fig.tight_layout()
+        return fig
+
+    def _anova_fa_figure(self, pf, fa_desc, conditions: List[str]) -> Figure:
+        """Descriptive finger-accuracy cells with the 100% ceiling drawn,
+        so the reason for keeping FA out of the ANOVA is visible rather
+        than only asserted."""
+        frame, _ = ga.anova_cell_frame(pf, "fa", conditions)
+        fig = Figure(figsize=(10.5, 3.8))
+        ax = fig.subplots(1, 1)
+        x = np.arange(len(ga.FINGER_IDS))
+        offset_step = 0.16
+        ax.axhline(100, color="#c23b22", linewidth=1.2, linestyle="--", zorder=1,
+                   label="100% ceiling")
+        idx = fa_desc.set_index(["condition", "finger_id"])
+        floor = 100.0
+        # Markers + CI rather than bars: the point of this panel is how
+        # far the cells sit from 100%, which needs a zoomed axis, and a
+        # zoomed axis under bars would misrepresent the proportions.
+        for i, c in enumerate(conditions):
+            offset = (i - (len(conditions) - 1) / 2) * offset_step
+            means, lo, hi = [], [], []
+            for fid in ga.FINGER_IDS:
+                r = idx.loc[(c, fid)] if (c, fid) in idx.index else None
+                means.append(float(r["mean"]) * 100 if r is not None else np.nan)
+                lo.append(float(r["ci95_lo"]) * 100 if r is not None else np.nan)
+                hi.append(float(r["ci95_hi"]) * 100 if r is not None else np.nan)
+            means, lo, hi = np.array(means), np.array(lo), np.array(hi)
+            err_lo = np.where(np.isnan(lo), 0, means - lo)
+            err_hi = np.where(np.isnan(hi), 0, hi - means)
+            ax.errorbar(x + offset, means, yerr=[err_lo, err_hi], fmt="D", markersize=8,
+                        color=CONDITION_COLORS[c], markeredgecolor="black", capsize=4,
+                        linewidth=1.3, linestyle="none", zorder=4,
+                        label=self._cond_titles[c])
+            sub = frame[frame["condition"] == c]
+            for xi, fid in enumerate(ga.FINGER_IDS):
+                vals = sub[sub["finger_id"] == fid]["fa"].to_numpy(dtype=float) * 100
+                jitter = (np.arange(len(vals)) - (len(vals) - 1) / 2) * (0.10 / max(len(vals), 1))
+                ax.scatter(xi + offset + jitter, vals, s=16, color=CONDITION_COLORS[c],
+                           alpha=0.55, edgecolor="none", zorder=3)
+                if len(vals):
+                    floor = min(floor, float(np.nanmin(vals)))
+            finite = np.concatenate([lo[np.isfinite(lo)], means[np.isfinite(means)]])
+            if finite.size:
+                floor = min(floor, float(finite.min()))
+        ax.set_xticks(x, [f"{fid} {ga.FINGER_ID_NAMES[fid]}" for fid in ga.FINGER_IDS], fontsize=8)
+        ax.set_ylim(max(0.0, floor - 3.0), 102.5)
+        ax.set_xlim(-0.5, len(ga.FINGER_IDS) - 0.5)
+        ax.set_ylabel("Main FA (%)")
+        ax.set_title("Finger accuracy per cell — descriptive only, no ANOVA "
+                     "(bounded proportion against the 100% ceiling)", fontsize=10)
+        ax.legend(fontsize=7, loc="lower right")
+        fig.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # Finger Benefit (compensation / equalisation / weakest finger)
+    #
+    # Rendered by .finger_benefit_tab, computed by app.finger_benefit,
+    # app.finger_equalisation and app.finger_weakest - kept out of this
+    # file so each of the three questions stays independently readable.
+
+    def _build_finger_benefit(self):
+        metric = ga.ANOVA_METRICS[0][0]  # the same RT the RM-ANOVA leads with
+        caption, figures, datasets = finger_benefit_tab.build(
+            self._data.event_rows, metric=metric)
+        return caption, figures, datasets
 
     # ------------------------------------------------------------------
     # Quality
@@ -1010,4 +1508,11 @@ class GroupAnalysisWindow(QMainWindow):
             "presses are unmatched raw MIDI presses (QC only). Unresolved/ambiguous rates and "
             "borderline counts describe finger-detection confidence on the video-analyzed trials.</p>"
             "<p>" + "".join(table) + "</p>" + theta_html)
-        return caption, [fig]
+        datasets = {
+            "quality_participant_audit": q,
+            "quality_threshold_sensitivity": theta,
+            "quality_threshold_group_summary": (
+                ga.group_center(theta, "fa", ["condition", "theta"]) if not theta.empty
+                else pd.DataFrame()),
+        }
+        return caption, {"group_quality_audit": fig}, datasets

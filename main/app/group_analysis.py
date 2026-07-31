@@ -23,9 +23,67 @@ n = number of participants. Confirmed invalid_carryover events are
 excluded from all outcome statistics (valid_events) and surface only in
 the quality audit; unmatched extra presses stay QC-only, exactly as in
 the single-participant analysis.
+
+Condition x Finger repeated-measures ANOVA
+------------------------------------------
+The pre-registered finger-specific model (Method, "Outcome Measures and
+Pilot Analysis Plan") is a two-way within-participant ANOVA with
+Condition (visual B, haptic C) and homologous Finger ID (1..5) as
+repeated factors, fitted on the per-finger cell means produced by
+per_finger_metrics(). For participant i, condition j (a = 2 levels) and
+finger k (b = 5 levels) the cell mean Y_ijk is modelled as
+
+    Y_ijk = mu + pi_i + alpha_j + beta_k + (alpha*beta)_jk + e_ijk,
+
+with pi_i the participant (block) effect. Because every participant
+supplies every cell, each effect is tested against its own
+participant-by-effect interaction as the error term:
+
+    F_A  = MS_A  / MS_AxS   with df = (a-1),        (a-1)(n-1)
+    F_B  = MS_B  / MS_BxS   with df = (b-1),        (b-1)(n-1)
+    F_AB = MS_AB / MS_ABxS  with df = (a-1)(b-1),   (a-1)(b-1)(n-1)
+
+so at n = 7 the degrees of freedom are (1, 6) for Condition and (4, 24)
+for both Finger and the interaction. Effect size is partial eta squared,
+
+    eta_p^2 = SS_effect / (SS_effect + SS_error(effect)),
+
+reported for every effect because with a pilot-sized sample the effect
+magnitude carries the information, not the binary p verdict.
+
+Sphericity. Mauchly's W tests whether the covariance matrix of the
+orthonormalised contrasts of a repeated factor is spherical; when it is
+violated the uncorrected F is liberal. Condition has only a = 2 levels,
+hence a single contrast and no sphericity assumption to violate
+(epsilon = 1 by construction), so Mauchly and Greenhouse-Geisser apply
+only to the Finger main effect and to the Condition x Finger
+interaction. Where they apply, the Greenhouse-Geisser epsilon rescales
+both degrees of freedom (eps*df1, eps*df2) and the corrected p is the
+one reported when Mauchly is significant.
+
+Why reaction time carries the ANOVA and finger accuracy does not: the
+per-finger FA cells are bounded proportions sitting against the ceiling
+(in the collected sample the 2 x 5 cells run 0.837-1.000 with about a
+third exactly at 1.000). At the ceiling the cell variance is compressed
+towards zero and is a deterministic function of the mean, so the
+normality and homogeneity assumptions behind an F ratio - and above all
+the interaction test, which asks whether a condition difference differs
+across fingers - are not credible. FA is therefore reported as a
+descriptive mean / SD / 95% CI table over the identical cell grid, with
+the ceiling diagnostics stated alongside it, and no F test is computed
+on it. ceiling_diagnostics() recomputes that justification from
+whatever data is actually loaded rather than trusting the numbers above.
+
+The ANOVA needs a complete (participant x condition x finger) grid;
+participants missing any cell are dropped from the model as a whole and
+listed by name, never imputed. Pingouin supplies the fit (one call
+returns the table, partial eta squared, Mauchly and Greenhouse-Geisser);
+it is imported lazily so that a missing optional dependency degrades
+this one tab instead of taking the whole Group Analysis window down.
 """
 
 import csv
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -456,7 +514,14 @@ def per_finger_metrics(event_rows: List[dict]) -> pd.DataFrame:
 
     Definitions mirror the single-participant Fingers tab: fa is
     key-correct AND finger-correct over the events with a finger verdict
-    (n_judged); rt_s averages responded events with an RT."""
+    (n_judged); rt_s averages responded events with an RT.
+
+    rt_complete_s is the same average restricted to key-AND-finger
+    correct events (n_rt_complete of them) - the "correct complete
+    action" reaction time the Method's finger-specific ANOVA is defined
+    on. It is a separate column rather than a replacement, so the
+    Fingers tab keeps its existing all-responded definition and the two
+    can be compared as a sensitivity check."""
     rows = []
     events = [e for e in valid_events(event_rows)
               if not e["timed_out"] and e.get("target_finger") in FINGER_ORDER]
@@ -468,6 +533,8 @@ def per_finger_metrics(event_rows: List[dict]) -> pd.DataFrame:
             fe = [e for e in evs if int(e["target_finger"][1]) == fid]
             judged = [e for e in fe if e["finger_correct"] is not None]
             rts = [e["rt_s"] for e in fe if e["rt_s"] is not None]
+            complete_rts = [e["rt_s"] for e in fe if e["rt_s"] is not None
+                            and e["key_correct"] and e["finger_correct"]]
             rows.append({
                 "participant": participant, "condition": condition, "finger_id": fid,
                 "n": len(fe),
@@ -477,9 +544,266 @@ def per_finger_metrics(event_rows: List[dict]) -> pd.DataFrame:
                 "fa": (sum(1 for e in judged if e["key_correct"] and e["finger_correct"])
                        / len(judged)) if judged else np.nan,
                 "rt_s": float(np.mean(rts)) if rts else np.nan,
+                "n_rt_complete": len(complete_rts),
+                "rt_complete_s": float(np.mean(complete_rts)) if complete_rts else np.nan,
             })
     return pd.DataFrame(rows, columns=["participant", "condition", "finger_id", "n",
-                                       "n_left", "n_right", "n_judged", "fa", "rt_s"])
+                                       "n_left", "n_right", "n_judged", "fa", "rt_s",
+                                       "n_rt_complete", "rt_complete_s"])
+
+
+# ---------------------------------------------------------------------------
+# Condition x Finger repeated-measures ANOVA (model and rationale: module
+# docstring). Fitted on the per_finger_metrics() cells; the participant is
+# the block, so n is always the participant count.
+
+# Only the two guidance conditions enter the model: A is key-only and
+# carries no finger cue, so "does the finger cue help this digit more"
+# is undefined there. A is still visible in the descriptive Fingers tab.
+ANOVA_CONDITIONS: List[str] = ["B", "C"]
+
+# Reaction-time metrics the ANOVA can be fitted on, primary first.
+ANOVA_METRICS: List[Tuple[str, str]] = [
+    ("rt_complete_s", "RT — key-and-finger-correct events"),
+    ("rt_s", "RT — all responded events"),
+]
+
+# Displayed names for pingouin's Source values, in reporting order.
+ANOVA_EFFECT_LABELS: Dict[str, str] = {
+    "condition": "Condition (B vs C)",
+    "finger_id": "Finger ID (1–5)",
+    "condition * finger_id": "Condition × Finger ID",
+}
+
+# A cell proportion is "at ceiling" when every judged event in it was
+# correct; compared with a tolerance because fa is a computed ratio.
+CEILING_TOL = 1e-9
+
+_pingouin = None  # lazily imported module, or the import error string
+
+
+def load_pingouin():
+    """Import pingouin on first use and cache it. Returns (module, error):
+    exactly one is None. Deferred rather than imported at module level
+    because pingouin pulls in statsmodels/seaborn (seconds of start-up)
+    and because a missing optional dependency must degrade the ANOVA tab
+    only, never the whole Group Analysis window."""
+    global _pingouin
+    if _pingouin is None:
+        try:
+            import pingouin  # noqa: PLC0415 - deliberate lazy import
+            _pingouin = pingouin
+        except Exception as e:
+            # Name the interpreter: the usual cause is pip having
+            # installed into a different Python than the one running the
+            # GUI, and "not installed" alone sends people to reinstall it
+            # into the same wrong environment again.
+            _pingouin = (f"pingouin is not importable in this interpreter "
+                         f"({type(e).__name__}: {e}); running: {sys.executable}")
+    return (None, _pingouin) if isinstance(_pingouin, str) else (_pingouin, None)
+
+
+def anova_cell_frame(pf_df: pd.DataFrame, metric: str,
+                     conditions: Optional[List[str]] = None):
+    """(frame, dropped) for the balanced (participant x condition x
+    finger) design the ANOVA needs.
+
+    A participant enters only with a non-NaN value in ALL
+    len(conditions) x 5 cells; anyone short of that is excluded whole
+    (listwise, as a repeated-measures model requires) and appears in
+    dropped as {participant: "missing B/F3, C/F5"}. Nothing is imputed
+    and no cell is zero-filled."""
+    conditions = list(conditions or ANOVA_CONDITIONS)
+    cols = ["participant", "condition", "finger_id", metric]
+    empty = pd.DataFrame(columns=cols)
+    if pf_df.empty or metric not in pf_df.columns:
+        return empty, {}
+    sub = pf_df[pf_df["condition"].isin(conditions)
+                & pf_df["finger_id"].isin(FINGER_IDS)][cols]
+    kept, dropped = [], {}
+    for participant, prow in sub.groupby("participant", sort=True):
+        present = prow.dropna(subset=[metric])
+        have = set(zip(present["condition"], present["finger_id"]))
+        missing = [(c, f) for c in conditions for f in FINGER_IDS if (c, f) not in have]
+        if missing:
+            dropped[str(participant)] = "missing " + ", ".join(f"{c}/F{f}" for c, f in missing)
+        else:
+            kept.append(present)
+    if not kept:
+        return empty, dropped
+    # Ordered by the requested condition order (not alphabetically) so the
+    # frame reads in the same order as everything else in the window; the
+    # column itself stays a plain string for pingouin and group_center.
+    order = {c: i for i, c in enumerate(conditions)}
+    frame = pd.concat(kept, ignore_index=True)
+    frame = (frame.assign(_ord=frame["condition"].map(order))
+                  .sort_values(["participant", "_ord", "finger_id"], ignore_index=True)
+                  .drop(columns="_ord"))
+    return frame, dropped
+
+
+def _aov_column(row, *names):
+    """Read one pingouin ANOVA column across naming schemes (>=0.6 uses
+    p_unc / p_GG_corr, earlier releases p-unc / p-GG-corr); NaN when the
+    release emits none of them (e.g. no correction column at all)."""
+    for name in names:
+        if name in row.index and pd.notna(row[name]):
+            return float(row[name])
+    return np.nan
+
+
+def _mauchly(pg, frame: pd.DataFrame, metric: str, within: List[str]) -> dict:
+    """Mauchly's test of sphericity for one repeated factor (or, with two
+    entries in within, for their interaction contrasts). A factor with
+    two levels has a single contrast and therefore no sphericity
+    assumption - flagged applicable=False instead of being tested."""
+    out = {"applicable": True, "W": np.nan, "chi2": np.nan, "dof": np.nan,
+           "p": np.nan, "spherical": None, "note": None}
+    n_levels = [frame[f].nunique() for f in within]
+    if max(n_levels) <= 2 and len(within) == 1:
+        out.update(applicable=False, spherical=True,
+                   note="2 levels — sphericity holds by definition (ε = 1)")
+        return out
+    try:
+        res = pg.sphericity(data=frame, dv=metric, subject="participant", within=within)
+    except Exception as e:
+        out["note"] = f"not computable ({type(e).__name__}: {e})"
+        return out
+    spher, w, chi2, dof, pval = tuple(res)[:5]
+    out.update(W=float(w) if w is not None else np.nan,
+               chi2=float(chi2) if chi2 is not None else np.nan,
+               dof=float(dof) if dof is not None else np.nan,
+               p=float(pval) if pval is not None else np.nan,
+               spherical=bool(spher))
+    return out
+
+
+def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
+                    conditions: Optional[List[str]] = None) -> dict:
+    """Two-way within-participant ANOVA, Condition x Finger ID, on one
+    per-finger metric. See the module docstring for the model, the error
+    terms, the effect size and why only reaction time is fitted.
+
+    Returns a dict that is always complete enough to render: when the
+    model cannot run, "reason" says why and "effects" is empty. Never
+    raises for a data reason - a Group Analysis tab must not be able to
+    take the window down."""
+    conditions = list(conditions or ANOVA_CONDITIONS)
+    frame, dropped = anova_cell_frame(pf_df, metric, conditions)
+    n = int(frame["participant"].nunique()) if len(frame) else 0
+    result = {
+        "metric": metric,
+        "conditions": conditions,
+        "n_participants": n,
+        "n_dropped": len(dropped),
+        "dropped": dropped,
+        "n_cells": len(frame),
+        "cells_per_participant": len(conditions) * len(FINGER_IDS),
+        "exploratory": n < EXPLORATORY_N,
+        "effects": [],
+        "frame": frame,
+        "reason": None,
+    }
+    if n < MIN_TEST_N:
+        result["reason"] = (
+            f"requires N ≥ {MIN_TEST_N} participants with a complete "
+            f"{len(conditions)} × {len(FINGER_IDS)} cell grid on {metric} (have {n})"
+            + (f"; dropped for incomplete cells: {', '.join(sorted(dropped))}" if dropped else "")
+        )
+        return result
+    pg, error = load_pingouin()
+    if error:
+        # Deliberately NOT "-r requirements.txt": that file pins the whole
+        # stack, and replaying it into an existing working environment can
+        # move numpy/pandas out from under mediapipe/PySide6. pingouin is
+        # the only thing missing here.
+        result["reason"] = (error + " — run `python -m pip install pingouin` with THAT "
+                            "interpreter to fit the ANOVA; the cell means and the "
+                            "descriptive tables below need no extra dependency")
+        return result
+
+    try:
+        aov = pg.rm_anova(data=frame, dv=metric, within=["condition", "finger_id"],
+                          subject="participant", detailed=True, effsize="np2")
+    except Exception as e:  # degenerate data (zero variance, singular error term)
+        result["reason"] = f"ANOVA could not be fitted ({type(e).__name__}: {e})"
+        return result
+
+    sphericity_within = {
+        "condition": ["condition"],
+        "finger_id": ["finger_id"],
+        "condition * finger_id": ["condition", "finger_id"],
+    }
+    aov = aov.set_index("Source")
+    for source, label in ANOVA_EFFECT_LABELS.items():
+        if source not in aov.index:
+            continue
+        row = aov.loc[source]
+        df1 = float(row["ddof1"])
+        df2 = float(row["ddof2"])
+        p_unc = _aov_column(row, "p_unc", "p-unc")
+        eps = _aov_column(row, "eps")
+        p_gg = _aov_column(row, "p_GG_corr", "p-GG-corr")
+        mauchly = _mauchly(pg, frame, metric, sphericity_within[source])
+        # Decision rule: Greenhouse-Geisser only where sphericity is an
+        # assumption at all (df1 > 1), and only headlined when Mauchly
+        # rejects it. Epsilon is shown either way so the reader can see
+        # how far from spherical the data sit.
+        gg_applicable = mauchly["applicable"] and df1 > 1 and not np.isnan(p_gg)
+        violated = bool(gg_applicable and mauchly["p"] < 0.05)
+        result["effects"].append({
+            "source": source,
+            "label": label,
+            "df1": df1, "df2": df2,
+            "ss": float(row["SS"]), "ms": float(row["MS"]),
+            "F": float(row["F"]),
+            "p_unc": p_unc,
+            "np2": float(row["np2"]) if "np2" in row.index else np.nan,
+            "eps": eps,
+            "p_gg": p_gg if gg_applicable else np.nan,
+            "df1_gg": df1 * eps if gg_applicable and not np.isnan(eps) else np.nan,
+            "df2_gg": df2 * eps if gg_applicable and not np.isnan(eps) else np.nan,
+            "mauchly": mauchly,
+            "gg_applicable": gg_applicable,
+            "sphericity_violated": violated,
+            "p_reported": p_gg if violated else p_unc,
+            "correction": "Greenhouse–Geisser" if violated else "none",
+        })
+    return result
+
+
+def ceiling_diagnostics(pf_df: pd.DataFrame, metric: str = "fa",
+                        conditions: Optional[List[str]] = None) -> dict:
+    """How hard a bounded per-finger proportion sits against its ceiling,
+    over the same complete-case grid the ANOVA would use. This is the
+    stated, recomputed reason FA is reported descriptively instead of
+    being pushed through an F test (module docstring)."""
+    frame, dropped = anova_cell_frame(pf_df, metric, conditions)
+    vals = frame[metric].to_numpy(dtype=float) if len(frame) else np.array([])
+    at_ceiling = int((vals >= 1.0 - CEILING_TOL).sum()) if vals.size else 0
+    return {
+        "metric": metric,
+        "n_participants": int(frame["participant"].nunique()) if len(frame) else 0,
+        "n_cells": int(vals.size),
+        "n_at_ceiling": at_ceiling,
+        "prop_at_ceiling": at_ceiling / vals.size if vals.size else np.nan,
+        "min": float(np.min(vals)) if vals.size else np.nan,
+        "max": float(np.max(vals)) if vals.size else np.nan,
+        "dropped": dropped,
+    }
+
+
+def finger_cell_descriptives(pf_df: pd.DataFrame, metric: str = "fa",
+                             conditions: Optional[List[str]] = None) -> pd.DataFrame:
+    """Group mean / SD / 95% t-CI per (condition, finger_id) over the
+    same complete-case participants the ANOVA uses, so the descriptive
+    table and the model describe one identical grid. n counts
+    PARTICIPANTS, as everywhere else in this module."""
+    frame, _ = anova_cell_frame(pf_df, metric, conditions)
+    if frame.empty:
+        return pd.DataFrame(columns=["condition", "finger_id", "n", "mean", "sd",
+                                     "sem", "ci95_lo", "ci95_hi"])
+    return group_center(frame, metric, ["condition", "finger_id"])
 
 
 # ---------------------------------------------------------------------------
