@@ -1,5 +1,5 @@
 file,kind,rows,columns
-(export),provenance,N = 7,"participants: P01, P02, P03, P04, P05, P06, P07; 189 trials, 5670 events (5669 valid); exported 2026-07-31T13:47:53"
+(export),provenance,N = 7,"participants: P01, P02, P03, P04, P05, P06, P07; 189 trials, 5670 events (5669 valid); exported 2026-07-31T13:58:19"
 group_condition_difficulty.png / group_condition_difficulty.svg,figure,,
 group_contrasts.png / group_contrasts.svg,figure,,
 group_errors_composition.png / group_errors_composition.svg,figure,,
@@ -57,5 +57,6 @@ quality_participant_audit.csv,table,7,"participant, n_trials, n_analyzed, n_even
 quality_threshold_group_summary.csv,table,15,"condition, theta, n, mean, sd, sem, ci95_lo, ci95_hi"
 quality_threshold_sensitivity.csv,table,105,"participant, condition, theta, fa"
 rm_anova_cells.csv,table,70,"participant, condition, finger_id, rt_complete_s"
+rm_anova_effects.csv,table,6,"metric, effect, label, df1, df2, SS, MS, F, p_uncorrected, partial_eta_sq, mauchly_applicable, mauchly_W, mauchly_p, gg_epsilon, gg_df1, gg_df2, p_gg, correction_applied, p_reported, n_participants"
 rm_anova_fa_ceiling.csv,table,1,"metric, n_participants, n_cells, n_at_ceiling, prop_at_ceiling, min, max"
 rm_anova_fa_descriptives.csv,table,10,"condition, finger_id, n, mean, sd, sem, ci95_lo, ci95_hi"
