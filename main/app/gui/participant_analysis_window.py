@@ -62,6 +62,7 @@ from ..participant_analysis import (
 from ..participant_export import collect_participant_data
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..pilot_study import list_participants
+from ..sequence_generator import LEVEL_DISPLAY, LEVEL_TICK_LABEL
 
 CATEGORY_COLORS = {
     CAT_CK_CF: "#4a9d5b",
@@ -85,7 +86,6 @@ class ScrollFriendlyCanvas(FigureCanvas):
 CONDITIONS = ["A", "B", "C"]
 CONDITION_COLORS = {"A": "#8a8a8a", "B": "#3a76c4", "C": "#d9663d"}
 LEVELS = ["alpha", "beta", "gamma"]
-LEVEL_SYMBOLS = {"alpha": "α", "beta": "β", "gamma": "γ"}
 FINGER_ORDER = ["L5", "L4", "L3", "L2", "L1", "R1", "R2", "R3", "R4", "R5"]
 
 
@@ -248,7 +248,8 @@ class ParticipantAnalysisWindow(QMainWindow):
         lines = [f"<h3>{participant} — session overview</h3>"]
         lines.append(
             f"{len(trials)} trials, {sum(t['note_count'] for t in trials)} target events. "
-            "Per-condition means (each over up to 9 trials: 3 difficulty levels × 3 unique sequences):"
+            "Per-condition means (each over up to 9 trials: 3 difficulty levels — α (alpha), "
+            "β (beta), γ (gamma) — × 3 unique sequences):"
         )
         rows_html = ["<table border='0' cellspacing='0' cellpadding='4'>"
                      "<tr><th align='left'>Condition</th><th>Key Acc</th><th>FA main</th><th>FA|key</th>"
@@ -433,21 +434,23 @@ class ParticipantAnalysisWindow(QMainWindow):
             if any(v is not None for v in rt_vals):
                 ax2.plot(range(3), [None if v is None else v * 1000 for v in rt_vals],
                          "o-", color=CONDITION_COLORS[c], label=cond_titles[c])
-            parts = [f"{LEVEL_SYMBOLS[lv]} {_fmt_pct(fa)}" for lv, fa in zip(LEVELS, fa_vals)]
+            parts = [f"{LEVEL_DISPLAY[lv]} {_fmt_pct(fa)}"
+                     for lv, fa in zip(LEVELS, fa_vals)]
             summary_lines.append(f"{cond_titles[c]}: FA " + " / ".join(parts))
         for ax, ylabel, title in ((ax1, "FA main (%)", "Finger accuracy by difficulty"),
                                   (ax2, "RT (ms)", "Reaction time by difficulty")):
-            ax.set_xticks(range(3), [LEVEL_SYMBOLS[lv] for lv in LEVELS])
+            ax.set_xticks(range(3), [LEVEL_TICK_LABEL[lv] for lv in LEVELS])
             ax.set_xlabel("difficulty level")
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=8, title="Feedback condition", title_fontsize=8)
         fig.tight_layout()
         caption = (
             "<h3>Difficulty effect</h3>"
             "<p>Each point averages one condition-level cell (3 unique sequences). The three levels were "
             "generated as matched families with validated increasing motor/sequence/bimanual cost "
-            "(α &lt; β &lt; γ), so a falling FA line or rising RT line means difficulty is biting; where the "
+            "(α (alpha) &lt; β (beta) &lt; γ (gamma)), so a falling FA line or rising RT line means "
+            "difficulty is biting; where the "
             "conditions separate is where guidance modality matters most for this participant.</p>"
             "<p>" + "<br>".join(summary_lines) + "</p>"
         )

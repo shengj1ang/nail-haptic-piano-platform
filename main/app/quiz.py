@@ -189,10 +189,11 @@ class QuizMeta:
 # Every finger label a quiz target/detection can carry, table order.
 FINGER_LABELS = ["L1", "L2", "L3", "L4", "L5", "R1", "R2", "R3", "R4", "R5"]
 
-# Alternative finger-probability thresholds for the report's sensitivity
-# analysis (method.tex "Finger-Matching Validation and Sensitivity
-# Analysis") - the primary theta = 0.40 lives in app.finger_matching.
-SENSITIVITY_THRESHOLDS = [0.30, 0.35, 0.45, 0.50]
+# Finger-probability thresholds for the report's automatic sensitivity
+# curve. The primary theta = 0.40 is included explicitly so it is exported
+# from the same raw probability calculation as every neighbouring point;
+# the final reviewed FA remains a separate outcome.
+SENSITIVITY_THRESHOLDS = [0.30, 0.35, 0.40, 0.45, 0.50]
 
 # An event whose target-finger probability lands within this margin of the
 # decision threshold is "borderline" - the finger verdict could flip under

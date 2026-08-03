@@ -83,7 +83,17 @@ SEQUENCE_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "sequence"
 
 LEVELS = ("alpha", "beta", "gamma")
 LEVEL_SYMBOL = {"alpha": "α", "beta": "β", "gamma": "γ"}
-LEVEL_LABEL = {level: f"Level {LEVEL_SYMBOL[level]}" for level in LEVELS}
+# One canonical user-facing vocabulary for experimental difficulty.  A/B/C
+# are reserved for feedback conditions; difficulty is always shown as both
+# its Greek symbol and name so the two factors cannot be mistaken for one
+# another in tables, plots, or experimenter-facing status text.
+LEVEL_DISPLAY = {
+    level: f"{LEVEL_SYMBOL[level]} ({level})" for level in LEVELS
+}
+LEVEL_TICK_LABEL = {
+    level: f"{LEVEL_SYMBOL[level]}\n({level})" for level in LEVELS
+}
+LEVEL_LABEL = {level: f"Level {LEVEL_DISPLAY[level]}" for level in LEVELS}
 LEVEL_DIFFICULTY = {"alpha": 1, "beta": 2, "gamma": 3}
 
 # method.tex, "Sequence Design and Difficulty Levels": every formal

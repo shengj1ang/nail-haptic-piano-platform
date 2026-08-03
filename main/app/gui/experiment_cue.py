@@ -37,7 +37,7 @@ class ExperimentCue(CueOutput):
         self.window.setWindowTitle("Pilot Study - Participant Cue Screen")
         self.window.show()
         self.condition: Optional[str] = None  # None = no trial running
-        self.trial_status = ""  # e.g. "Trial 5/27 - Level β - Condition C"
+        self.trial_status = ""  # e.g. "Trial 5/27 - Difficulty β (beta) - Condition C"
         self._haptic: Optional[HapticCueOutput] = None
         self._closed = False
 

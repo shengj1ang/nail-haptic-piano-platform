@@ -79,6 +79,7 @@ from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..profiles import list_profiles_with_midi_mapping
 from ..sequence_generator import (
     DEFAULT_FAMILY_COUNT,
+    LEVEL_DISPLAY,
     LEVEL_LABEL,
     LEVEL_SYMBOL,
     LEVELS,
@@ -111,7 +112,7 @@ DISPLAY_STATS = (
     ("H_hand (diag)", "h_hand"),
 )
 
-COLUMNS = ["Name", "Level", "Fingers", "Notes"] + [header for header, _ in DISPLAY_STATS] + [""]
+COLUMNS = ["Name", "Difficulty", "Fingers", "Notes"] + [header for header, _ in DISPLAY_STATS] + [""]
 
 
 class SequenceGeneratorWindow(QMainWindow):
@@ -187,7 +188,8 @@ class SequenceGeneratorWindow(QMainWindow):
         self.range_hint_label = QLabel("")
         self.range_hint_label.setWordWrap(True)
 
-        self.generate_btn = QPushButton("Generate All Levels (α / β / γ)")
+        self.generate_btn = QPushButton(
+            "Generate All Difficulty Levels — α (alpha), β (beta), γ (gamma)")
         self.generate_btn.clicked.connect(self._generate_all_levels)
 
         setup_box = QGroupBox("Stimulus setup")
@@ -346,7 +348,8 @@ class SequenceGeneratorWindow(QMainWindow):
             self.seed_edit.setText(str(seed))
 
         self.status_label.setText(
-            "Generating matched families for all three levels - Level α needs the most attempts, this can take "
+            "Generating matched families for all three difficulty levels - α (alpha) needs the most "
+            "attempts, this can take "
             "tens of seconds..."
         )
         self.generate_btn.setEnabled(False)
@@ -419,7 +422,7 @@ class SequenceGeneratorWindow(QMainWindow):
                 name_edit = QLineEdit(default_name)
                 self.table.setCellWidget(row, 0, name_edit)
 
-                level_item = QTableWidgetItem(LEVEL_SYMBOL[level])
+                level_item = QTableWidgetItem(LEVEL_DISPLAY[level])
                 level_item.setFlags(level_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, 1, level_item)
 

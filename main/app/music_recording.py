@@ -261,7 +261,9 @@ class SongMeta:
     # port. Whatever uses this song (student_quiz.py, music_playback.py)
     # reads the *current* Config for that instead.
     title: str
-    difficulty: int  # 1, 2, or 3 - a label only, not otherwise interpreted here
+    # Stored as 1/2/3 for backward-compatible metadata; experiment-facing
+    # interfaces display the corresponding alpha/beta/gamma names.
+    difficulty: int
     created_at: float  # absolute wall-clock time.time() timestamp
     duration_s: float
     note_count: int

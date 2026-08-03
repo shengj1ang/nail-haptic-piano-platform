@@ -29,6 +29,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
@@ -180,11 +181,59 @@ class TestExportCoverage(unittest.TestCase):
                      "contrasts_participant_differences",
                      "contrasts_tests",
                      "learning_session_position",
+                     "learning_difficulty_progression_trials",
+                     "learning_difficulty_progression_group_summary",
                      "errors_participant_proportions",
                      "fingers_participant_cells",
                      "quality_participant_audit",
                      "finger_benefit_cells"):
             self.assertIn(slug, self.window._datasets)
+
+    def test_inferential_performance_exports_exclude_condition_a(self):
+        for slug in ("condition_difficulty_participant_cells",
+                     "fingers_participant_cells"):
+            self.assertEqual(set(self.window._datasets[slug]["condition"]), {"B", "C"}, slug)
+        self.assertEqual(
+            set(self.window._datasets["contrasts_participant_differences"]["contrast"]),
+            {"C−B"},
+        )
+
+    def test_overview_retains_descriptive_a_b_c_participant_lines(self):
+        """A is context, not inference, but the requested descriptive
+        within-participant A-B-C trace must stay visible."""
+        for slug in ("group_overview_accuracy", "group_overview_rt"):
+            for ax in self.window._figures[slug].axes:
+                traces = [
+                    line for line in ax.lines
+                    if len(line.get_xdata()) == 3
+                    and np.allclose(line.get_xdata(), [0, 1, 2])
+                ]
+                self.assertGreaterEqual(
+                    len(traces), self.window._data.n,
+                    f"{slug} lost one or more A-B-C participant traces",
+                )
+
+    def test_difficulty_axes_use_alpha_beta_gamma_labels(self):
+        expected = [ga.LEVEL_TICK_LABELS[level] for level in ga.LEVELS]
+        figure = self.window._figures["group_condition_difficulty"]
+        for ax in figure.axes:
+            self.assertEqual([tick.get_text() for tick in ax.get_xticklabels()],
+                             expected)
+            self.assertEqual(ax.get_legend().get_title().get_text(),
+                             "Feedback condition")
+
+    def test_descriptive_tradeoff_keeps_condition_a(self):
+        for slug in ("group_tradeoff_trial_points",
+                     "group_tradeoff_participant_centroids",
+                     "group_tradeoff_group_centroids"):
+            self.assertEqual(set(self.window._datasets[slug]["condition"]),
+                             {"A", "B", "C"}, slug)
+
+    def test_threshold_curve_is_automatic_bc_and_contains_raw_040(self):
+        theta = self.window._datasets["quality_threshold_sensitivity"]
+        self.assertEqual(set(theta["condition"]), {"B", "C"})
+        self.assertEqual(set(theta["theta"]), {0.30, 0.35, 0.40, 0.45, 0.50})
+        self.assertEqual(set(theta["source"]), {"automatic_target_probability"})
 
 
 class TestExportWritesFiles(unittest.TestCase):

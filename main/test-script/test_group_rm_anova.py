@@ -321,15 +321,13 @@ class TestAnovaModel(unittest.TestCase):
             self.assertAlmostEqual(e["df2_gg"], e["df2"] * e["eps"], places=9)
             self.assertGreaterEqual(e["p_gg"], e["p_unc"] - 1e-12, source)
 
-    def test_reported_p_follows_the_sphericity_verdict(self):
-        """Whatever the data, the reported p and the correction label
-        must agree with the Mauchly verdict - the rule the caption and
-        the exported table both rely on."""
+    def test_reported_p_uses_gg_for_every_multi_contrast_effect(self):
+        """At pilot N, Mauchly is diagnostic only: every effect with
+        more than one contrast must headline GG-rescaled df and p."""
         for e in self.res["effects"]:
-            if e["sphericity_violated"]:
+            if e["gg_applicable"]:
                 self.assertEqual(e["correction"], "Greenhouse–Geisser", e["label"])
                 self.assertEqual(e["p_reported"], e["p_gg"], e["label"])
-                self.assertLess(e["mauchly"]["p"], 0.05, e["label"])
             else:
                 self.assertEqual(e["correction"], "none", e["label"])
                 self.assertEqual(e["p_reported"], e["p_unc"], e["label"])

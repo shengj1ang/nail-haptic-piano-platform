@@ -57,9 +57,9 @@ violated the uncorrected F is liberal. Condition has only a = 2 levels,
 hence a single contrast and no sphericity assumption to violate
 (epsilon = 1 by construction), so Mauchly and Greenhouse-Geisser apply
 only to the Finger main effect and to the Condition x Finger
-interaction. Where they apply, the Greenhouse-Geisser epsilon rescales
-both degrees of freedom (eps*df1, eps*df2) and the corrected p is the
-one reported when Mauchly is significant.
+interaction. At this pilot N, Mauchly has little power, so every effect
+with more than one contrast reports Greenhouse-Geisser-rescaled degrees
+of freedom and p as the primary value; Mauchly remains diagnostic only.
 
 Why reaction time carries the ANOVA and finger accuracy does not: the
 per-finger FA cells are bounded proportions sitting against the ceiling
@@ -101,19 +101,33 @@ from .participant_export import export_paths
 from .pilot_study import CONDITIONS as _CONDITIONS
 from .pilot_study import DATA_DIR as STUDY_DATA_DIR
 from .pilot_study import list_participants
-from .sequence_generator import LEVEL_SYMBOL, LEVELS as _LEVELS
+from .sequence_generator import (
+    LEVEL_DISPLAY,
+    LEVEL_SYMBOL,
+    LEVEL_TICK_LABEL,
+    LEVELS as _LEVELS,
+)
 
 CONDITIONS: List[str] = list(_CONDITIONS)
 LEVELS: List[str] = list(_LEVELS)
 LEVEL_SYMBOLS: Dict[str, str] = dict(LEVEL_SYMBOL)
+LEVEL_DISPLAY_LABELS: Dict[str, str] = dict(LEVEL_DISPLAY)
+LEVEL_TICK_LABELS: Dict[str, str] = dict(LEVEL_TICK_LABEL)
 
-# Within-participant paired contrasts, (minuend, subtrahend):
-# B-A visual finger cue vs key-only, C-A haptic vs key-only, C-B haptic vs visual.
-CONTRASTS: List[Tuple[str, str]] = [("B", "A"), ("C", "A"), ("C", "B")]
+# B and C provide the same target-finger information through different
+# modalities and are therefore the only performance-comparable guidance
+# conditions. A provides no target-finger cue: its hidden-target agreement
+# and lower-choice-complexity RT remain descriptive task-reference measures,
+# never a modality baseline or inferential contrast.
+GUIDANCE_CONDITIONS: List[str] = ["B", "C"]
+
+# Within-participant performance contrast, (minuend, subtrahend).
+CONTRASTS: List[Tuple[str, str]] = [("C", "B")]
 
 # Homologous finger IDs (1 thumb ... 5 little), left/right merged by ID.
 FINGER_IDS = [1, 2, 3, 4, 5]
 FINGER_ID_NAMES = {1: "thumb", 2: "index", 3: "middle", 4: "ring", 5: "little"}
+THRESHOLD_SENSITIVITY_VALUES = (0.30, 0.35, 0.40, 0.45, 0.50)
 
 # Inferential gating: below MIN_TEST_N complete cases no test is run at
 # all (a paired Wilcoxon cannot even reach p < .05 two-sided before
@@ -152,7 +166,7 @@ REQUIRED_TRIAL_COLS = [
 REQUIRED_EVENT_COLS = [
     "participant", "trial_index", "condition", "level", "event_index",
     "target_finger", "timed_out", "actual_note", "key_correct",
-    "actual_finger", "finger_correct", "rt_s", "validity",
+    "actual_finger", "finger_correct", "target_finger_probability", "rt_s", "validity",
     "manually_corrected",
 ]
 
@@ -405,8 +419,8 @@ def condition_pivot(pc_df: pd.DataFrame, metric: str) -> pd.DataFrame:
 
 def paired_differences(pc_df: pd.DataFrame, metric: str) -> pd.DataFrame:
     """Within-participant contrast values, one row per (participant,
-    contrast): B-A, C-A, C-B. Participants missing either side of a
-    contrast contribute no row (pairing is never broken or imputed)."""
+    contrast): the planned C-B guidance comparison. Participants missing
+    either side contribute no row (pairing is never broken or imputed)."""
     pivot = condition_pivot(pc_df, metric)
     rows = []
     for a, b in CONTRASTS:  # a - b
@@ -449,7 +463,11 @@ def participant_repetition_metrics(trial_rows: List[dict]) -> pd.DataFrame:
     """Repetition curves aggregated to the participant level: per
     (participant, condition, repetition), the mean over that
     participant's levels. Feed to group_center for the group curve."""
-    rep = within_cell_repetition(trial_rows)
+    # A supplies no target-finger cue, so its hidden-target agreement and
+    # lower-choice-complexity RT are not placed on a performance trajectory
+    # with the two guidance modalities.
+    rep = within_cell_repetition(
+        [t for t in trial_rows if t.get("condition") in GUIDANCE_CONDITIONS])
     if rep.empty:
         return pd.DataFrame(columns=["participant", "condition", "repetition",
                                      "fa_main", "rt_correct_key_s"])
@@ -459,21 +477,69 @@ def participant_repetition_metrics(trial_rows: List[dict]) -> pd.DataFrame:
 
 
 def session_position_metrics(trial_rows: List[dict]) -> pd.DataFrame:
-    """Whole-session progression by ACTUAL presentation position
-    (trial_index 1..27). Condition and level at a given position differ
-    across participants, so this is session progression / fatigue only -
-    never a condition comparison."""
+    """Condition/difficulty-adjusted B/C progression by actual position.
+
+    A raw cross-participant mean at one session position mixes whichever
+    conditions and levels happened to be scheduled there. It is therefore
+    not a learning/fatigue trajectory. This function instead keeps only the
+    performance-comparable guidance conditions B/C and, within each
+    participant, removes that participant's condition x level cell mean from
+    each trial before adding back the participant's B/C grand mean:
+
+        adjusted = raw - mean(participant, condition, level)
+                       + mean(participant, B/C trials).
+
+    The resulting curve retains the participant's scale and within-cell
+    temporal departures while neutralising the changing mix of modality and
+    difficulty over positions. Raw and adjusted columns are both exported so
+    the transformation is auditable; only adjusted columns should be plotted
+    as session progression.
+    """
+    cols = [
+        "participant", "position", "condition", "level",
+        "fa_main_raw", "fa_main_adjusted",
+        "rt_correct_key_s_raw", "rt_correct_key_s_adjusted",
+    ]
+    eligible = [t for t in trial_rows if t.get("condition") in GUIDANCE_CONDITIONS]
+    if not eligible:
+        return pd.DataFrame(columns=cols)
+
     rows = []
-    for t in sorted(trial_rows, key=lambda t: (t["participant"], t["trial_index"])):
-        rows.append({
-            "participant": t["participant"],
-            "position": t["trial_index"],
-            "condition": t["condition"],
-            "fa_main": t["fa_main"] if t.get("analyzed") else np.nan,
-            "rt_correct_key_s": t["rt_correct_key_s"] if t["rt_correct_key_s"] is not None else np.nan,
-        })
-    return pd.DataFrame(rows, columns=["participant", "position", "condition",
-                                       "fa_main", "rt_correct_key_s"])
+    for participant in sorted({str(t["participant"]) for t in eligible}):
+        trials = sorted(
+            (t for t in eligible if str(t["participant"]) == participant),
+            key=lambda t: t["trial_index"],
+        )
+        records = []
+        for t in trials:
+            records.append({
+                "participant": participant,
+                "position": t["trial_index"],
+                "condition": t["condition"],
+                "level": t["level"],
+                "fa_main_raw": (t.get("fa_main") if t.get("analyzed") else np.nan),
+                "rt_correct_key_s_raw": (
+                    t.get("rt_correct_key_s")
+                    if t.get("rt_correct_key_s") is not None else np.nan),
+            })
+
+        for raw_col, adjusted_col in (
+                ("fa_main_raw", "fa_main_adjusted"),
+                ("rt_correct_key_s_raw", "rt_correct_key_s_adjusted")):
+            valid = [r for r in records if pd.notna(r[raw_col])]
+            grand = float(np.mean([r[raw_col] for r in valid])) if valid else np.nan
+            cell_means = {}
+            for key in {(r["condition"], r["level"]) for r in valid}:
+                values = [r[raw_col] for r in valid
+                          if (r["condition"], r["level"]) == key]
+                cell_means[key] = float(np.mean(values))
+            for r in records:
+                key = (r["condition"], r["level"])
+                r[adjusted_col] = (
+                    float(r[raw_col]) - cell_means[key] + grand
+                    if pd.notna(r[raw_col]) and key in cell_means else np.nan)
+        rows.extend(records)
+    return pd.DataFrame(rows, columns=cols)
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +626,7 @@ def per_finger_metrics(event_rows: List[dict]) -> pd.DataFrame:
 # Only the two guidance conditions enter the model: A is key-only and
 # carries no finger cue, so "does the finger cue help this digit more"
 # is undefined there. A is still visible in the descriptive Fingers tab.
-ANOVA_CONDITIONS: List[str] = ["B", "C"]
+ANOVA_CONDITIONS: List[str] = list(GUIDANCE_CONDITIONS)
 
 # Reaction-time metrics the ANOVA can be fitted on, primary first.
 ANOVA_METRICS: List[Tuple[str, str]] = [
@@ -745,10 +811,11 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
         eps = _aov_column(row, "eps")
         p_gg = _aov_column(row, "p_GG_corr", "p-GG-corr")
         mauchly = _mauchly(pg, frame, metric, sphericity_within[source])
-        # Decision rule: Greenhouse-Geisser only where sphericity is an
-        # assumption at all (df1 > 1), and only headlined when Mauchly
-        # rejects it. Epsilon is shown either way so the reader can see
-        # how far from spherical the data sit.
+        # Pilot-N rule: whenever an effect has more than one contrast,
+        # headline Greenhouse-Geisser-rescaled df and p regardless of the
+        # low-powered Mauchly verdict. Mauchly remains visible as a
+        # diagnostic. The two-level Condition effect has one contrast and
+        # is never corrected.
         gg_applicable = mauchly["applicable"] and df1 > 1 and not np.isnan(p_gg)
         violated = bool(gg_applicable and mauchly["p"] < 0.05)
         result["effects"].append({
@@ -766,8 +833,8 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
             "mauchly": mauchly,
             "gg_applicable": gg_applicable,
             "sphericity_violated": violated,
-            "p_reported": p_gg if violated else p_unc,
-            "correction": "Greenhouse–Geisser" if violated else "none",
+            "p_reported": p_gg if gg_applicable else p_unc,
+            "correction": "Greenhouse–Geisser" if gg_applicable else "none",
         })
     return result
 
@@ -838,28 +905,67 @@ def quality_summary(trial_rows: List[dict], event_rows: List[dict]) -> pd.DataFr
         "qc_extra_presses", "sync_methods"])
 
 
-def threshold_sensitivity(trial_rows: List[dict]) -> pd.DataFrame:
-    """Per (participant, condition, theta): mean FA over analyzed trials
-    under each exported alternative detection threshold (fa_theta_*
-    columns), with fa_main slotted in as the θ=0.40 main analysis.
-    Empty when the export carries no fa_theta_ columns."""
-    cols = ["participant", "condition", "theta", "fa"]
-    if not trial_rows:
+def threshold_sensitivity(trial_rows: List[dict],
+                          event_rows: Optional[List[dict]] = None) -> pd.DataFrame:
+    """Automatic probability-threshold sensitivity for guidance B/C.
+
+    Every theta, including 0.40, is recomputed from the same unedited
+    event-level target_finger_probability values. The final reviewed
+    ``fa_main`` verdict is deliberately not inserted into this curve: it is
+    a different measurement stream and belongs in a separate reference
+    table. Per-trial proportions are averaged within participant/condition,
+    matching the main cross-trial aggregation hierarchy.
+    """
+    cols = ["participant", "condition", "theta", "fa", "n_trials", "n_events",
+            "source"]
+    if not trial_rows or not event_rows:
         return pd.DataFrame(columns=cols)
-    theta_cols = sorted(k for k in trial_rows[0] if k.startswith("fa_theta_"))
-    if not theta_cols:
+
+    analyzed_trials = {
+        (str(t["participant"]), int(t["trial_index"]))
+        for t in trial_rows
+        if t.get("analyzed") and t.get("condition") in GUIDANCE_CONDITIONS
+    }
+    eligible = [
+        e for e in valid_events(event_rows)
+        if (str(e["participant"]), int(e["trial_index"])) in analyzed_trials
+        and e.get("condition") in GUIDANCE_CONDITIONS
+    ]
+    if not eligible:
         return pd.DataFrame(columns=cols)
+
     rows = []
-    keys = sorted({(t["participant"], t["condition"]) for t in trial_rows})
+    keys = sorted({(str(e["participant"]), e["condition"]) for e in eligible})
     for participant, condition in keys:
-        analyzed = [t for t in trial_rows if t["participant"] == participant
-                    and t["condition"] == condition and t.get("analyzed")]
-        values = {col.replace("fa_theta_", ""): _mean([t.get(col) for t in analyzed])
-                  for col in theta_cols}
-        values["0.40"] = _mean([t["fa_main"] for t in analyzed])
-        for theta in sorted(values):
-            rows.append({"participant": participant, "condition": condition,
-                         "theta": theta, "fa": values[theta]})
+        condition_events = [
+            e for e in eligible
+            if str(e["participant"]) == participant and e["condition"] == condition
+        ]
+        trial_ids = sorted({int(e["trial_index"]) for e in condition_events})
+        for theta in THRESHOLD_SENSITIVITY_VALUES:
+            trial_values = []
+            n_events = 0
+            for trial_id in trial_ids:
+                events = [e for e in condition_events if int(e["trial_index"]) == trial_id]
+                if not events:
+                    continue
+                correct = sum(
+                    1 for e in events
+                    if bool(e.get("key_correct"))
+                    and e.get("target_finger_probability") is not None
+                    and float(e["target_finger_probability"]) >= theta
+                )
+                trial_values.append(correct / len(events))
+                n_events += len(events)
+            rows.append({
+                "participant": participant,
+                "condition": condition,
+                "theta": theta,
+                "fa": float(np.mean(trial_values)) if trial_values else np.nan,
+                "n_trials": len(trial_values),
+                "n_events": n_events,
+                "source": "automatic_target_probability",
+            })
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -909,16 +1015,17 @@ def _rank_biserial(diffs: np.ndarray) -> float:
 
 
 def condition_inference(pc_df: pd.DataFrame, metric: str) -> dict:
-    """Repeated-measures comparison of the three conditions on one
-    participant-level metric.
+    """Participant-level B/C paired inference for one performance metric.
 
-    Overall: Friedman test over complete cases (all three conditions
-    present). Pairwise: paired Wilcoxon signed-rank per contrast with
-    Holm correction across the three contrasts. No test runs below
-    MIN_TEST_N complete cases - the returned dict then carries only the
-    reason string. Independent-samples tests are never used here."""
+    A is intentionally absent: without target-finger information its
+    hidden-target agreement and response-selection complexity are not
+    commensurate performance baselines. The primary summary is the paired
+    C-B mean difference, t interval/test and Cohen's dz; a paired Wilcoxon
+    signed-rank result is retained as a small-sample sensitivity check. No
+    independent-samples test is used and no test runs below MIN_TEST_N.
+    """
     pivot = condition_pivot(pc_df, metric)
-    complete = pivot.dropna()
+    complete = pivot[GUIDANCE_CONDITIONS].dropna()
     n_total = len(pivot)
     n = len(complete)
     result = {
@@ -928,61 +1035,63 @@ def condition_inference(pc_df: pd.DataFrame, metric: str) -> dict:
         "n_missing_pairs": n_total - n,
         "exploratory": n < EXPLORATORY_N,
         "friedman": None,
+        "paired_t": None,
         "pairwise": [],
         "reason": None,
     }
     if n < MIN_TEST_N:
         result["reason"] = (
-            f"requires N ≥ {MIN_TEST_N} participants with all three conditions "
+            f"requires N ≥ {MIN_TEST_N} participants with both B and C "
             f"(have {n}) — descriptive results only"
         )
         return result
 
-    a, b, c = (complete[cond].to_numpy(dtype=float) for cond in CONDITIONS)
-    try:
-        stat, p = sstats.friedmanchisquare(a, b, c)
-        kendalls_w = float(stat) / (n * (len(CONDITIONS) - 1))
-        result["friedman"] = {
-            "test": "Friedman test (repeated measures)",
-            "n": n, "statistic": float(stat), "p": float(p),
-            "effect_size": kendalls_w, "effect_name": "Kendall's W",
-        }
-    except ValueError as e:  # e.g. all values identical
-        result["friedman"] = {"test": "Friedman test (repeated measures)",
-                              "n": n, "statistic": np.nan, "p": np.nan,
-                              "effect_size": np.nan, "effect_name": "Kendall's W",
-                              "note": str(e)}
-
-    raw_ps, tests = [], []
-    for hi, lo in CONTRASTS:
-        pair = pivot[[hi, lo]].dropna()
-        diffs = (pair[hi] - pair[lo]).to_numpy(dtype=float)
-        entry = {
-            "contrast": f"{hi}−{lo}",
-            "test": "paired Wilcoxon signed-rank",
-            "n_pairs": len(diffs),
-            "mean_diff": float(np.mean(diffs)) if len(diffs) else np.nan,
-            "statistic": np.nan, "p": np.nan, "p_holm": np.nan,
-            "effect_size": np.nan, "effect_name": "rank-biserial r",
-            "note": None,
-        }
-        if len(diffs) < MIN_TEST_N:
-            entry["note"] = f"requires N ≥ {MIN_TEST_N} pairs (have {len(diffs)})"
-        elif np.all(diffs == 0):
-            entry["note"] = "all paired differences are zero"
+    diffs = (complete["C"] - complete["B"]).to_numpy(dtype=float)
+    mean_diff = float(np.mean(diffs))
+    sd_diff = float(np.std(diffs, ddof=1))
+    sem = sd_diff / np.sqrt(n)
+    half = float(sstats.t.ppf(0.975, n - 1)) * sem
+    # A paired t-test is a one-sample t-test of the paired differences.
+    # Compute it directly so a synthetic or ceiling-limited sample with
+    # exactly constant differences has an explicit result rather than a
+    # SciPy catastrophic-cancellation warning.
+    if sd_diff == 0.0:
+        if mean_diff == 0.0:
+            t_stat, t_p = np.nan, np.nan
         else:
-            stat, p = sstats.wilcoxon(diffs)
-            entry["statistic"] = float(stat)
-            entry["p"] = float(p)
-            entry["effect_size"] = _rank_biserial(diffs)
-            raw_ps.append(float(p))
-        tests.append(entry)
-    if raw_ps:
-        adjusted = _holm(raw_ps)
-        i = 0
-        for entry in tests:
-            if not np.isnan(entry["p"]):
-                entry["p_holm"] = adjusted[i]
-                i += 1
-    result["pairwise"] = tests
+            t_stat, t_p = float(np.copysign(np.inf, mean_diff)), 0.0
+    else:
+        t_stat = mean_diff / sem
+        t_p = float(2 * sstats.t.sf(abs(t_stat), df=n - 1))
+    result["paired_t"] = {
+        "test": "paired t-test (C−B)",
+        "contrast": "C−B",
+        "n": n,
+        "mean_diff": mean_diff,
+        "ci95_lo": mean_diff - half,
+        "ci95_hi": mean_diff + half,
+        "statistic": float(t_stat),
+        "p": float(t_p),
+        "effect_size": mean_diff / sd_diff if sd_diff > 0 else np.nan,
+        "effect_name": "Cohen's dz",
+    }
+
+    entry = {
+        "contrast": "C−B",
+        "test": "paired Wilcoxon signed-rank",
+        "n_pairs": n,
+        "mean_diff": mean_diff,
+        "statistic": np.nan, "p": np.nan, "p_holm": np.nan,
+        "effect_size": np.nan, "effect_name": "rank-biserial r",
+        "note": None,
+    }
+    if np.all(diffs == 0):
+        entry["note"] = "all paired differences are zero"
+    else:
+        stat, p = sstats.wilcoxon(diffs)
+        entry["statistic"] = float(stat)
+        entry["p"] = float(p)
+        entry["p_holm"] = float(p)  # one planned contrast; no multiplicity adjustment
+        entry["effect_size"] = _rank_biserial(diffs)
+    result["pairwise"] = [entry]
     return result

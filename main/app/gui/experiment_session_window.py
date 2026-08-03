@@ -59,11 +59,12 @@ from ..pilot_study import (
     mark_trial_started,
     save_trial_structure,
 )
+from ..sequence_generator import LEVEL_DISPLAY
 from .cue_window import CUE_STYLES, DEFAULT_CUE_STYLE
 from .experiment_cue import ExperimentCue
 from .experiment_runner_window import ExperimentRunnerWindow
 
-COLUMNS = ["Run", "Trial", "Condition", "Level", "Sequence", "Rest after", "Status", "Action"]
+COLUMNS = ["Run", "Trial", "Condition", "Difficulty", "Sequence", "Rest after", "Status", "Action"]
 CHECK_COL = 0
 STATUS_COL = 6
 ACTION_COL = 7
@@ -276,7 +277,7 @@ class ExperimentSessionWindow(QMainWindow):
             cells = [
                 str(trial["index"]),
                 f"{trial['condition']} - {CONDITION_LABEL[trial['condition']]}",
-                trial["level_symbol"],
+                LEVEL_DISPLAY[trial["level"]],
                 trial["sequence"],
                 f"{doc.get('rest_duration_s', 120) // 60} min rest" if trial["rest_after"] else "",
             ]
@@ -473,7 +474,8 @@ class ExperimentSessionWindow(QMainWindow):
             parts.append("Rest finished.")
         parts.append(
             f"Next: trial {next_trial['index']} - Condition {next_trial['condition']} "
-            f"({CONDITION_LABEL[next_trial['condition']]}), Level {next_trial['level_symbol']}, "
+            f"({CONDITION_LABEL[next_trial['condition']]}), "
+            f"Difficulty {LEVEL_DISPLAY[next_trial['level']]}, "
             f"sequence '{next_trial['sequence']}'."
         )
         parts.append("Press Continue when the participant is ready.")

@@ -4,10 +4,11 @@ Trade-off tab (app/gui/group_analysis_window.py).
 Metric definitions are IDENTICAL to the single-participant Trade-off tab:
 every trial point is app.participant_analysis.compute_trial_speed_accuracy
 output (x = mean RT of the trial's correct-key events in ms under the
-existing timeout/carry-over/correct-key filtering, y = the trial's Main
-Finger Accuracy in %), so the two windows can never disagree. Trials
-without a valid RT or without an analyzed FA are excluded and reported,
-never plotted as 0.
+existing timeout/carry-over/correct-key filtering; y = Main Finger Accuracy
+for B/C and hidden-target finger agreement for A), so the two windows can
+never disagree. Trials without a valid RT or without an analysed finger
+outcome are excluded and reported, never plotted as 0. Condition A remains
+descriptive context and never enters the planned B/C inference.
 
 Aggregation hierarchy (participants are the only independent unit):
 
@@ -35,7 +36,12 @@ import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .group_analysis import CONDITIONS, LEVELS, LEVEL_SYMBOLS, group_center
+from .group_analysis import (
+    CONDITIONS,
+    LEVELS,
+    LEVEL_DISPLAY_LABELS,
+    group_center,
+)
 from .participant_analysis import compute_trial_speed_accuracy
 
 # Base condition hues - the same values as the GUI palette
@@ -166,6 +172,7 @@ class TradeoffData:
     """Everything the tab and the export need, computed once per Analyse."""
 
     participants: List[str] = field(default_factory=list)
+    conditions: List[str] = field(default_factory=list)
     points: pd.DataFrame = None
     pcent: pd.DataFrame = None          # participant x condition
     pcent_level: pd.DataFrame = None    # participant x condition x level
@@ -182,6 +189,8 @@ def compute(trial_rows: List[dict], participants: List[str]) -> TradeoffData:
     pcent_level = participant_centroids(points, by_level=True)
     return TradeoffData(
         participants=list(participants),
+        conditions=[c for c in CONDITIONS
+                    if len(points) and (points["condition"] == c).any()],
         points=points,
         pcent=pcent,
         pcent_level=pcent_level,
@@ -214,11 +223,11 @@ def group_summary(gcent: pd.DataFrame) -> dict:
 
 def missing_cells(data: TradeoffData) -> List[str]:
     """participant x condition x level cells contributing no included
-    trial, formatted for the caption (e.g. "P02 B/β")."""
+    trial, formatted for the caption (e.g. "P02 B/β (beta)")."""
     inc = data.points[data.points["included"]] if len(data.points) else data.points
     have = {(r.participant, r.condition, r.level) for r in inc.itertuples()}
-    return [f"{p} {c}/{LEVEL_SYMBOLS[lv]}"
-            for p in data.participants for c in CONDITIONS for lv in LEVELS
+    return [f"{p} {c}/{LEVEL_DISPLAY_LABELS[lv]}"
+            for p in data.participants for c in data.conditions for lv in LEVELS
             if (p, c, lv) not in have]
 
 
@@ -226,7 +235,13 @@ def missing_cells(data: TradeoffData) -> List[str]:
 # Export datasets (the three tidy CSVs)
 
 def _difficulty(levels) -> pd.Series:
-    return pd.Series([LEVEL_SYMBOLS.get(lv, lv) for lv in levels], dtype=object)
+    """Machine-readable difficulty names for CSV export.
+
+    Keep alpha/beta/gamma as the data values; A/B/C belong exclusively to
+    the separate condition column.  Figures add the Greek symbols through
+    LEVEL_DISPLAY_LABELS.
+    """
+    return pd.Series([str(level) for level in levels], dtype=object)
 
 
 def export_datasets(data: TradeoffData) -> Dict[str, pd.DataFrame]:
@@ -336,7 +351,8 @@ def shared_rt_limits(points: pd.DataFrame) -> tuple:
 
 
 _X_LABEL = "Mean RT of correct-key events (ms)"
-_Y_LABEL = "Main Finger Accuracy (%)"
+_Y_LABEL_2D = "Finger outcome (%)\n(B/C: Main FA; A: hidden-target agreement)"
+_Y_LABEL_3D = "Finger outcome (%)"
 
 
 def _cond_label(cond_titles: Optional[Dict[str, str]], c: str) -> str:
@@ -359,7 +375,7 @@ def build_group_tradeoff_2d(data: TradeoffData,
 
     fig = Figure(figsize=(10.5, 5.4))
     ax = fig.subplots(1, 1)
-    for c in CONDITIONS:
+    for c in data.conditions:
         if options.show_trial_points:
             pts = data.points[(data.points["condition"] == c) & data.points["included"]]
             ax.scatter(pts["rt_ms"], pts["fa_pct"], s=16, alpha=0.35,
@@ -385,11 +401,11 @@ def build_group_tradeoff_2d(data: TradeoffData,
     ax.set_xlim(xlim)
     ax.set_ylim(FA_LIMITS)
     ax.set_xlabel(_X_LABEL)
-    ax.set_ylabel(_Y_LABEL)
+    ax.set_ylabel(_Y_LABEL_2D)
     ax.set_title("Group speed–accuracy trade-off", fontsize=11)
     handles = [Line2D([0], [0], marker="o", linestyle="none", markersize=6,
                       color=colors[c], label=_cond_label(cond_titles, c))
-               for c in CONDITIONS]
+               for c in data.conditions]
     handles += [
         Line2D([0], [0], marker="o", linestyle="none", markersize=8,
                markerfacecolor="none", markeredgecolor="#555555",
@@ -424,7 +440,7 @@ def _style_3d_axes(ax, xlim: tuple, z_label: str) -> None:
     ax.set_xlim(xlim)
     ax.set_ylim(FA_LIMITS)
     ax.set_xlabel(_X_LABEL, fontsize=8, labelpad=8)
-    ax.set_ylabel(_Y_LABEL, fontsize=8, labelpad=8)
+    ax.set_ylabel(_Y_LABEL_3D, fontsize=8, labelpad=8)
     ax.set_zlabel(z_label, fontsize=8, labelpad=14)
     ax.tick_params(labelsize=7)
     # Fixed viewpoint chosen so the discrete z planes stay separated and
@@ -450,7 +466,7 @@ def build_group_tradeoff_by_difficulty_3d(
 
     fig = Figure(figsize=(6.2, 5.8))
     ax = fig.add_subplot(projection="3d")
-    for c in CONDITIONS:
+    for c in data.conditions:
         for lv in LEVELS:
             z = LEVEL_Z[lv]
             col = level_color(c, lv, colors)
@@ -480,16 +496,18 @@ def build_group_tradeoff_by_difficulty_3d(
                                s=130, color=col, edgecolor="black",
                                linewidths=1.2, depthshade=False)
     ax.set_zticks([LEVEL_Z[lv] for lv in LEVELS])
-    ax.set_zticklabels([LEVEL_SYMBOLS[lv] for lv in LEVELS])
+    ax.set_zticklabels([LEVEL_DISPLAY_LABELS[lv] for lv in LEVELS])
     ax.set_zlim(-0.4, 2.4)
     _style_3d_axes(ax, xlim, "difficulty level")
     ax.set_title("Speed–accuracy trade-off by difficulty", fontsize=10)
     handles = [Line2D([0], [0], marker="s", linestyle="none", markersize=7,
                       color=level_color(c, "beta", colors),
-                      label=_cond_label(cond_titles, c)) for c in CONDITIONS]
+                      label=f"Feedback condition {_cond_label(cond_titles, c)}")
+               for c in data.conditions]
     handles += [Line2D([0], [0], marker=LEVEL_MARKERS[lv], linestyle="none",
                        markersize=6, color=shade("#8a8a8a", LEVEL_LIGHTNESS[lv]),
-                       label=f"{LEVEL_SYMBOLS[lv]} ({'light' if lv == 'alpha' else 'mid' if lv == 'beta' else 'dark'} shade)")
+                       label=(f"Difficulty {LEVEL_DISPLAY_LABELS[lv]} "
+                              f"({'light' if lv == 'alpha' else 'mid' if lv == 'beta' else 'dark'} shade)"))
                 for lv in LEVELS]
     fig.legend(handles=handles, fontsize=6.5, loc="upper left", ncols=2)
     fig.subplots_adjust(left=0.0, right=0.98, bottom=0.04, top=0.86)
@@ -520,7 +538,7 @@ def build_group_tradeoff_by_participant_3d(
     fig = Figure(figsize=(6.2, 5.8))
     ax = fig.add_subplot(projection="3d")
     pcent_by = data.pcent.set_index(["participant", "condition"]) if len(data.pcent) else None
-    for c in CONDITIONS:
+    for c in data.conditions:
         marker = CONDITION_MARKERS[c]
         for p in participants:
             z = z_of[p]
@@ -552,7 +570,7 @@ def build_group_tradeoff_by_participant_3d(
     if options.show_group_centroids and len(data.gcent):
         # Group-mean centroids on a separate, clearly labelled z slot.
         z_group = n
-        for c in CONDITIONS:
+        for c in data.conditions:
             row = data.gcent[data.gcent["condition"] == c]
             if len(row) and not np.isnan(float(row["rt_ms"].iloc[0])):
                 r = row.iloc[0]
@@ -568,7 +586,7 @@ def build_group_tradeoff_by_participant_3d(
     ax.set_title("Speed–accuracy trade-off by participant", fontsize=10)
     handles = [Line2D([0], [0], marker=CONDITION_MARKERS[c], linestyle="none",
                       markersize=6, color=colors[c],
-                      label=_cond_label(cond_titles, c)) for c in CONDITIONS]
+                      label=_cond_label(cond_titles, c)) for c in data.conditions]
     if options.connect_b_to_c:
         handles.append(Line2D([0], [0], color="#444444", alpha=0.5,
                               linewidth=1.0, label="B → C shift"))

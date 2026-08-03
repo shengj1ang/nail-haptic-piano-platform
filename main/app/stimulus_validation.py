@@ -39,7 +39,7 @@ import numpy as np
 from .sequence_generator import (
     COMPONENTS,
     LEVEL_CONSTRAINTS,
-    LEVEL_SYMBOL,
+    LEVEL_DISPLAY,
     STRICT_LOWER,
     Sequence,
     SequenceStats,
@@ -47,7 +47,6 @@ from .sequence_generator import (
 )
 
 LEVELS = ("alpha", "beta", "gamma")
-LEVEL_DISPLAY = {level: f"{LEVEL_SYMBOL[level]} ({level})" for level in LEVELS}
 
 # Where the validation dialog's "Export" button saves a report: one folder
 # per validated batch, data/sequence_validation/<batch id>/, holding the

@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .music_recording import list_songs, sanitize_song_name
-from .sequence_generator import LEVEL_SYMBOL, LEVELS, SEQUENCE_DATA_DIR
+from .sequence_generator import LEVEL_DISPLAY, LEVEL_SYMBOL, LEVELS, SEQUENCE_DATA_DIR
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "MainUserStudy"
 TRIAL_STRUCTURE_FILENAME = "TrialStructure.json"
@@ -136,7 +136,7 @@ def build_schedule(pools: Dict[str, List[str]], seed: int) -> List[dict]:
         pool = list(pools.get(level, []))
         if len(pool) < TRIALS_PER_CELL:
             raise PilotStudyError(
-                f"Level {LEVEL_SYMBOL[level]} has only {len(pool)} sequence(s) in this batch - "
+                f"Difficulty {LEVEL_DISPLAY[level]} has only {len(pool)} sequence(s) in this batch - "
                 f"need at least {TRIALS_PER_CELL} per level."
             )
         if len(pool) >= need_per_level:

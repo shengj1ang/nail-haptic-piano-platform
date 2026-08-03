@@ -29,6 +29,7 @@ from student_quiz import QuizWindow
 
 from ..config import Config
 from ..quiz import quiz_dir, sanitize_quiz_name
+from ..sequence_generator import LEVEL_DISPLAY
 from ..song_library import SEQUENCE_LABEL_PREFIX
 from .experiment_cue import ExperimentCue
 
@@ -98,7 +99,7 @@ class ExperimentRunnerWindow(QuizWindow):
 
         status = (
             f"Trial {trial['index']}/{len(doc['trials'])}  -  "
-            f"Level {trial['level_symbol']}  -  Condition {trial['condition']}"
+            f"Difficulty {LEVEL_DISPLAY[trial['level']]}  -  Condition {trial['condition']}"
         )
         try:
             self._shared_cue.set_condition(trial["condition"], status)

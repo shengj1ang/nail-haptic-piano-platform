@@ -13,16 +13,18 @@ The Finger Benefit tab is rendered by .finger_benefit_tab and computed
 by app.finger_benefit, app.finger_equalisation and app.finger_weakest -
 one module per question, none of them importing the others.
 
-All computation lives in app.group_analysis, which reads the
-reviewed-and-exported <participant>_{trials,events}.csv files (the
-Participant Export schema) - the same final verdicts and validity rules
-as the single-participant window, so the two can never disagree.
+Core aggregation lives in app.group_analysis; the difficulty-aligned
+progression calculation and figures live in the clearly separated
+app.session_progression and app.session_progression_figures modules. All read
+the reviewed-and-exported <participant>_{trials,events}.csv files (the
+Participant Export schema), using the same final verdicts and validity rules as
+the single-participant window.
 
 Design rules enforced here:
   - the independent unit of every mean, interval and test is the
     PARTICIPANT (thin lines/dots per participant, group centre on top);
-  - conditions are compared within-subject (paired contrasts; Friedman /
-    paired Wilcoxon over conditions, and the two-way repeated-measures
+  - the comparable guidance conditions B/C are compared within-subject
+    (paired t/Wilcoxon contrasts and the two-way repeated-measures
     ANOVA over Condition x Finger, all gated by complete-case N and
     labelled exploratory at small N - at N=1 no inferential test runs
     at all);
@@ -67,6 +69,8 @@ from PySide6.QtWidgets import (
 
 from .. import group_analysis as ga
 from .. import group_tradeoff as gt
+from .. import session_progression as sp
+from .. import session_progression_figures as sp_figures
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..participant_analysis import (
     CAT_CK_WF,
@@ -85,7 +89,8 @@ from .stats_format import fmt, fmt_p
 
 CONDITIONS = ga.CONDITIONS
 LEVELS = ga.LEVELS
-LEVEL_SYMBOLS = ga.LEVEL_SYMBOLS
+LEVEL_DISPLAY_LABELS = ga.LEVEL_DISPLAY_LABELS
+LEVEL_TICK_LABELS = ga.LEVEL_TICK_LABELS
 PARTICIPANT_LINE = "#9a9a9a"
 
 
@@ -311,14 +316,22 @@ class GroupAnalysisWindow(QMainWindow):
     # Shared plotting: participant lines/dots + group centre per condition
 
     def _condition_axis(self, ax, metric: str, scale: float, ylabel: str, title: str) -> None:
-        """One participant = one thin line across A/B/C (pairing kept
-        visible); diamonds = group mean, error bars = 95% t-CI over
-        participants (absent when N < 2)."""
+        """Descriptive A-B-C trace plus condition points per participant.
+
+        The line deliberately retains A-B and B-C to make each participant's
+        three observed condition summaries visible. It is descriptive context,
+        not an inferential contrast: formal performance comparisons remain B/C
+        only. Diamonds are group means and bars are 95% t-CIs.
+        """
         pivot = ga.condition_pivot(self._pc, metric) * scale
         x = np.arange(len(CONDITIONS))
         for _, row in pivot.iterrows():
             ys = [row.get(c, np.nan) for c in CONDITIONS]
-            ax.plot(x, ys, "-", color=PARTICIPANT_LINE, linewidth=0.9, alpha=0.7, zorder=1)
+            # Keep the complete descriptive trace. Do not remove A-B simply
+            # because A is excluded from inference; the caption states the
+            # difference between visual context and a statistical baseline.
+            ax.plot(x, ys, "-", color=PARTICIPANT_LINE,
+                    linewidth=0.9, alpha=0.7, zorder=1)
             for xi, (c, y) in enumerate(zip(CONDITIONS, ys)):
                 if not np.isnan(y):
                     ax.scatter([xi], [y], s=22, color=CONDITION_COLORS[c], alpha=0.85, zorder=2)
@@ -336,7 +349,7 @@ class GroupAnalysisWindow(QMainWindow):
                             color="black", capsize=4, linewidth=1.3, zorder=3)
             ax.scatter([xi], [mean], s=150, marker="D", color=CONDITION_COLORS[c],
                        edgecolor="black", zorder=4)
-        ax.set_xticks(x, CONDITIONS)
+        ax.set_xticks(x, ["A\nreference", "B", "C"])
         ax.set_ylabel(ylabel)
         ax.set_title(title, fontsize=10)
 
@@ -372,7 +385,8 @@ class GroupAnalysisWindow(QMainWindow):
 
         avail_html = ["<table border='0' cellspacing='0' cellpadding='4'>"
                       "<tr><th align='left'>Participants per cell</th>"
-                      + "".join(f"<th>{LEVEL_SYMBOLS[lv]}</th>" for lv in LEVELS) + "</tr>"]
+                      + "".join(f"<th>{LEVEL_DISPLAY_LABELS[lv]}</th>" for lv in LEVELS)
+                      + "</tr>"]
         av = avail.set_index(["condition", "level"])
         for c in CONDITIONS:
             row = "".join(
@@ -385,8 +399,8 @@ class GroupAnalysisWindow(QMainWindow):
 
         metric_specs = [
             ("key_accuracy", 100, "%", "Key Accuracy"),
-            ("fa_main", 100, "%", "Main Finger Accuracy (key + finger correct)"),
-            ("fa_given_key", 100, "%", "Finger Accuracy | correct key (auxiliary)"),
+            ("fa_main", 100, "%", "Main Finger Accuracy (B/C); A hidden-target agreement"),
+            ("fa_given_key", 100, "%", "Finger Accuracy | correct key (B/C); A agreement"),
             ("rt_correct_key_s", 1000, " ms", "RT, correct-key events"),
             ("rt_complete_s", 1000, " ms", "RT, key-and-finger-correct events"),
         ]
@@ -401,13 +415,18 @@ class GroupAnalysisWindow(QMainWindow):
             "Each participant enters every mean once (their own across-trial mean under the "
             "single-participant definitions: FA over video-analyzed trials, RT over trials with a "
             "valid RT, carry-over events already excluded). Error bars in the figures are 95% t-CIs "
-            "across participants and require N ≥ 2. Descriptive only.")
+            "across participants and require N ≥ 2. Descriptive only. <b>Condition A is a task "
+            "reference, not a modality-performance baseline:</b> it supplies no target-finger cue, "
+            "so its finger score is hidden-target agreement and its RT has lower response-selection "
+            "complexity. The thin A–B–C trace is retained only to show each participant's three "
+            "observed condition summaries; it is not an A-based inferential contrast. Inferential "
+            "and performance-comparison tabs therefore use B versus C only.")
 
         fig1 = Figure(figsize=(10.5, 3.6))
         axes = fig1.subplots(1, 3)
         for ax, (metric, title) in zip(axes, [("key_accuracy", "Key Accuracy"),
-                                              ("fa_main", "Main Finger Accuracy"),
-                                              ("fa_given_key", "Finger Acc | correct key")]):
+                                              ("fa_main", "FA (B/C); A hidden-target agreement"),
+                                              ("fa_given_key", "FA | key (B/C); A agreement")]):
             self._condition_axis(ax, metric, 100, "%", title)
             ax.set_ylim(0, 105)
         fig1.tight_layout()
@@ -457,7 +476,7 @@ class GroupAnalysisWindow(QMainWindow):
     # Condition x Difficulty
 
     def _build_condition_difficulty(self):
-        cells = self._cells
+        cells = self._cells[self._cells["condition"].isin(ga.GUIDANCE_CONDITIONS)]
         specs = [
             ("fa_main", 100, "%", "Main Finger Accuracy"),
             ("key_accuracy", 100, "%", "Key Accuracy"),
@@ -468,7 +487,7 @@ class GroupAnalysisWindow(QMainWindow):
         axes = fig.subplots(2, 2).ravel()
         x = np.arange(len(LEVELS))
         for ax, (metric, scale, unit, title) in zip(axes, specs):
-            for c in CONDITIONS:
+            for c in ga.GUIDANCE_CONDITIONS:
                 sub = cells[cells["condition"] == c]
                 # Thin per-participant lines
                 for p, prow in sub.groupby("participant"):
@@ -483,38 +502,43 @@ class GroupAnalysisWindow(QMainWindow):
                     lo = center["ci95_lo"].to_numpy(dtype=float) * scale
                     hi = center["ci95_hi"].to_numpy(dtype=float) * scale
                     ax.fill_between(x, lo, hi, color=CONDITION_COLORS[c], alpha=0.12, zorder=2)
-            ax.set_xticks(x, [LEVEL_SYMBOLS[lv] for lv in LEVELS])
+            ax.set_xticks(x, [LEVEL_TICK_LABELS[lv] for lv in LEVELS])
             ax.set_xlabel("difficulty level")
             ax.set_ylabel(unit)
             ax.set_title(title, fontsize=10)
-            ax.legend(fontsize=7)
+            ax.legend(fontsize=7, title="Feedback condition", title_fontsize=7)
         fig.tight_layout()
 
         # Caption: group means per cell + missing-cell report.
         fa_center = ga.group_center(cells, "fa_main", ["condition", "level"])
         rt_center = ga.group_center(cells, "rt_correct_key_s", ["condition", "level"])
         cap_rows = []
-        for c in CONDITIONS:
+        for c in ga.GUIDANCE_CONDITIONS:
             fa_parts, rt_parts = [], []
             for lv in LEVELS:
                 fa = fa_center[(fa_center["condition"] == c) & (fa_center["level"] == lv)]
                 rt = rt_center[(rt_center["condition"] == c) & (rt_center["level"] == lv)]
-                fa_parts.append(f"{LEVEL_SYMBOLS[lv]} "
+                fa_parts.append(f"{LEVEL_DISPLAY_LABELS[lv]} "
                                 + (_fmt(float(fa['mean'].iloc[0]) * 100, 0, '%') if len(fa) else "n/a"))
-                rt_parts.append(f"{LEVEL_SYMBOLS[lv]} "
+                rt_parts.append(f"{LEVEL_DISPLAY_LABELS[lv]} "
                                 + (_fmt(float(rt['mean'].iloc[0]) * 1000, 0, ' ms') if len(rt) else "n/a"))
             cap_rows.append(f"<b>{self._cond_titles[c]}</b>: FA {' / '.join(fa_parts)}; "
                             f"RT {' / '.join(rt_parts)}")
 
-        expected = {(p, c, lv) for p in self._data.included for c in CONDITIONS for lv in LEVELS}
+        expected = {(p, c, lv) for p in self._data.included
+                    for c in ga.GUIDANCE_CONDITIONS for lv in LEVELS}
         have = {(r.participant, r.condition, r.level) for r in cells.itertuples()}
         missing = sorted(expected - have)
         missing_note = ("All included participants have data in every condition × level cell."
                         if not missing else
                         "Missing cells (left out of the means, never filled with zeros): "
-                        + ", ".join(f"{p} {c}/{LEVEL_SYMBOLS[lv]}" for p, c, lv in missing))
+                        + ", ".join(
+                            f"{p} {c}/{LEVEL_DISPLAY_LABELS[lv]}"
+                            for p, c, lv in missing))
         caption = (
             "<h3>Condition × Difficulty</h3>"
+            "<p>Performance-comparable guidance conditions only: B visual versus C haptic. "
+            "Condition A is excluded because it provides no target-finger information.</p>"
             "<p>Faint lines: one per participant per condition (their mean over that cell's trials). "
             "Bold lines: group mean across participants; shaded band = 95% t-CI (needs N ≥ 2). "
             "Cell means per group:</p>"
@@ -545,9 +569,9 @@ class GroupAnalysisWindow(QMainWindow):
         all_diffs, inference_rows = [], []
         fig = Figure(figsize=(10.5, 7.4))
         axes = fig.subplots(2, 2).ravel()
-        cap_blocks = ["<h3>Paired condition contrasts (within-participant)</h3>",
-                      "B−A: adding the visual finger cue over key-only; C−A: adding the haptic "
-                      "finger cue over key-only; C−B: haptic vs visual finger cue. One dot per "
+        cap_blocks = ["<h3>Paired B–C guidance contrast (within-participant)</h3>",
+                      "C−B compares haptic with visual target-finger guidance. Condition A is not "
+                      "an inferential baseline because it provides no target-finger information. One dot per "
                       "participant (their paired difference), diamond = group mean, bar = 95% t-CI "
                       "(needs N ≥ 2). Accuracy differences are in percentage points; the underlying "
                       "proportions (previous tabs) stay the computation basis."]
@@ -593,26 +617,25 @@ class GroupAnalysisWindow(QMainWindow):
                 {"group_contrasts": fig}, datasets)
 
     def _inference_rows(self, metric: str) -> List[dict]:
-        """The Friedman + pairwise Wilcoxon results of one metric as tidy
-        rows, so the exported CSV carries exactly the numbers rendered in
-        the caption (including the Holm-adjusted p and the gating reason
-        when no test ran)."""
+        """The paired B/C t and Wilcoxon results as tidy export rows."""
         res = ga.condition_inference(self._pc, metric)
         base = {"metric": metric, "n_participants": res["n_participants"],
                 "n_complete": res["n_complete"], "exploratory": res["exploratory"],
                 "reason": res["reason"]}
         if res["reason"]:
             return [dict(base, test="not run")]
-        f = res["friedman"]
-        rows = [dict(base, test=f["test"], contrast="overall (A/B/C)", n=f["n"],
-                     statistic=f["statistic"], p=f["p"], p_holm=np.nan,
-                     effect_name=f["effect_name"], effect_size=f["effect_size"],
-                     mean_diff=np.nan, note=f.get("note"))]
+        t = res["paired_t"]
+        rows = [dict(base, test=t["test"], contrast=t["contrast"], n=t["n"],
+                     statistic=t["statistic"], p=t["p"], p_holm=np.nan,
+                     effect_name=t["effect_name"], effect_size=t["effect_size"],
+                     mean_diff=t["mean_diff"], ci95_lo=t["ci95_lo"],
+                     ci95_hi=t["ci95_hi"], note=None)]
         for e in res["pairwise"]:
             rows.append(dict(base, test=e["test"], contrast=e["contrast"], n=e["n_pairs"],
                              statistic=e["statistic"], p=e["p"], p_holm=e["p_holm"],
                              effect_name=e["effect_name"], effect_size=e["effect_size"],
-                             mean_diff=e["mean_diff"], note=e["note"]))
+                             mean_diff=e["mean_diff"], ci95_lo=np.nan, ci95_hi=np.nan,
+                             note=e["note"]))
         return rows
 
     def _inference_html(self, metric: str, scale: float, unit: str) -> str:
@@ -621,26 +644,22 @@ class GroupAnalysisWindow(QMainWindow):
             return f"<i>Inferential tests not run: {res['reason']}.</i>"
         parts = []
         tag = " <i>(exploratory — small N)</i>" if res["exploratory"] else ""
-        fried = res["friedman"]
+        paired = res["paired_t"]
         parts.append(
-            f"{fried['test']}: N = {fried['n']} complete cases "
+            f"{paired['test']}: N = {paired['n']} complete pairs "
             f"({res['n_missing_pairs']} participant(s) incomplete), "
-            f"χ² = {_fmt(fried['statistic'], 2)}, p {_fmt_p(fried['p'])}, "
-            f"{fried['effect_name']} = {_fmt(fried['effect_size'], 2)}{tag}")
-        if not np.isnan(fried["p"]) and fried["p"] < 0.10:
-            for e in res["pairwise"]:
-                if e["note"]:
-                    parts.append(f"{e['contrast']}: {e['test']} — {e['note']}")
-                    continue
-                parts.append(
-                    f"{e['contrast']}: {e['test']}, n = {e['n_pairs']} pairs, "
-                    f"mean diff {e['mean_diff'] * scale:+.1f} {unit}, "
-                    f"W = {_fmt(e['statistic'], 1)}, p {_fmt_p(e['p'])}, "
-                    f"Holm-corrected p {_fmt_p(e['p_holm'])}, "
-                    f"{e['effect_name']} = {_fmt(e['effect_size'], 2)}")
-        else:
-            parts.append("Pairwise Wilcoxon contrasts omitted "
-                         f"(Friedman p {_fmt_p(fried['p'])} gives no reason to pursue them).")
+            f"mean diff {paired['mean_diff'] * scale:+.1f} {unit}, 95% CI "
+            f"[{paired['ci95_lo'] * scale:+.1f}, {paired['ci95_hi'] * scale:+.1f}], "
+            f"t = {_fmt(paired['statistic'], 2)}, p {_fmt_p(paired['p'])}, "
+            f"{paired['effect_name']} = {_fmt(paired['effect_size'], 2)}{tag}")
+        for e in res["pairwise"]:
+            if e["note"]:
+                parts.append(f"{e['contrast']}: {e['test']} — {e['note']}")
+                continue
+            parts.append(
+                f"Sensitivity: {e['test']}, n = {e['n_pairs']} pairs, "
+                f"W = {_fmt(e['statistic'], 1)}, p {_fmt_p(e['p'])}, "
+                f"{e['effect_name']} = {_fmt(e['effect_size'], 2)}")
         return "<i>" + "<br>".join(parts) + "</i>"
 
     # ------------------------------------------------------------------
@@ -651,6 +670,9 @@ class GroupAnalysisWindow(QMainWindow):
         figure, two exploratory 3D supplements below it, with display
         toggles for busy plots. Registers the figures and tidy CSVs for
         Export figures + data."""
+        # Keep A here as descriptive context: its lower-choice-complexity RT
+        # and hidden-target agreement are visually informative, even though A
+        # is never a performance baseline or an inferential contrast.
         self._tradeoff = gt.compute(self._data.trial_rows, self._data.included)
         self._register_datasets(gt.export_datasets(self._tradeoff))
 
@@ -748,12 +770,18 @@ class GroupAnalysisWindow(QMainWindow):
         lines = [
             f"<h3>Group speed–accuracy trade-off — N = {len(data.participants)} "
             f"({', '.join(data.participants)})</h3>",
+            "All three conditions are retained on this descriptive view because A provides useful "
+            "context for lower response-selection complexity and self-selected finger behaviour. "
+            "For B/C, y is Main Finger Accuracy; for A, y is agreement with the unshown balanced "
+            "target-finger label. The A points are therefore a task reference, not an ordinary "
+            "accuracy/RT baseline, and do not enter the B/C contrasts or RM-ANOVA.",
             f"{len(points)} trials loaded, {n_included} plotted; each small point is one "
             "participant × condition × trial (up to 9 per participant and condition): "
-            "x = mean RT of that trial's correct-key events (ms), y = the trial's Main Finger "
-            "Accuracy (%), both under the single-participant definitions (existing timeout, "
+            "x = mean RT of that trial's correct-key events (ms), y = the condition-appropriate "
+            "finger outcome described above (%), both under the single-participant definitions (existing timeout, "
             "carry-over and correct-key rules; confirmed carry-over events are excluded). "
-            "In the 3D supplements z is the difficulty level (α/β/γ) or the participant.",
+            "In the 3D supplements z is the difficulty level (α (alpha), β (beta), or "
+            "γ (gamma)) or the participant.",
             "Hollow rings = participant × condition centroids (mean over that participant's "
             "included trials); large diamonds = group centroids computed FROM the participant "
             "centroids (every participant weighs equally — trials and events are never pooled "
@@ -763,19 +791,22 @@ class GroupAnalysisWindow(QMainWindow):
             "Trials without a valid correct-key RT or without an analyzed FA are excluded and "
             "counted below, never plotted as 0.",
             "<b>Colour coding:</b> condition sets the hue (A grey, B blue, C orange). In the "
-            "difficulty 3D figure, lightness and marker shape code the level (α light/circle, "
-            "β mid/triangle, γ dark/square) within the condition hue; in the participant 3D "
+            "difficulty 3D figure, lightness and marker shape code the level (α (alpha) "
+            "light/circle, β (beta) mid/triangle, γ (gamma) dark/square) within the condition "
+            "hue; in the participant 3D "
             "figure, the marker codes the condition (A circle, B square, C diamond) and "
             "lightness codes the participant (same rank in A/B/C), with the z position and ID "
             "label as the primary grouping cue.",
         ]
 
         cond_lines = []
-        for c in CONDITIONS:
+        for c in data.conditions:
             if c in summary["conditions"]:
                 s = summary["conditions"][c]
+                finger_label = "hidden-target agreement" if c == "A" else "Main FA"
                 cond_lines.append(f"{self._cond_titles[c]}: mean RT {s['rt_ms']:.0f} ms, "
-                                  f"mean FA {s['fa_pct']:.0f}% (n = {s['n']} participants)")
+                                  f"mean {finger_label} {s['fa_pct']:.0f}% "
+                                  f"(n = {s['n']} participants)")
             else:
                 cond_lines.append(f"{self._cond_titles[c]}: no participant with plottable trials")
         if summary["delta_c_minus_b"]:
@@ -800,7 +831,7 @@ class GroupAnalysisWindow(QMainWindow):
             notes.append("Below the inferential-N threshold everything on this page is "
                          "descriptive only.")
         notes.append("The 2D figure is the main view; the 3D figures are exploratory "
-                     "supplements. Inferential statistics (Friedman / paired Wilcoxon) stay on "
+                     "supplements. Paired B/C inferential statistics stay on "
                      "the <b>Contrasts</b> tab — this page makes no significance claims.")
         lines.append(" ".join(notes))
         return "".join(f"<p>{line}</p>" for line in lines)
@@ -868,7 +899,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax_fa, ax_rt = fig1.subplots(1, 2)
         for ax, metric, scale, ylabel in ((ax_fa, "fa_main", 100, "Main FA (%)"),
                                           (ax_rt, "rt_correct_key_s", 1000, "RT (ms)")):
-            for c in CONDITIONS:
+            for c in ga.GUIDANCE_CONDITIONS:
                 sub = rep[rep["condition"] == c]
                 for _, prow in sub.groupby("participant"):
                     by_rep = prow.set_index("repetition")[metric].reindex([1, 2, 3]) * scale
@@ -889,8 +920,9 @@ class GroupAnalysisWindow(QMainWindow):
         pos = ga.session_position_metrics(self._data.trial_rows)
         fig2 = Figure(figsize=(10.5, 3.8))
         bx_fa, bx_rt = fig2.subplots(1, 2)
-        for ax, metric, scale, ylabel in ((bx_fa, "fa_main", 100, "Main FA (%)"),
-                                          (bx_rt, "rt_correct_key_s", 1000, "RT (ms)")):
+        for ax, metric, scale, ylabel in (
+                (bx_fa, "fa_main_adjusted", 100, "Adjusted Main FA (%)"),
+                (bx_rt, "rt_correct_key_s_adjusted", 1000, "Adjusted RT (ms)")):
             positions = sorted(pos["position"].unique())
             for _, prow in pos.groupby("participant"):
                 by_pos = prow.set_index("position")[metric].reindex(positions) * scale
@@ -902,9 +934,16 @@ class GroupAnalysisWindow(QMainWindow):
                     color="black", linewidth=2.0, label="group mean", zorder=3)
             ax.set_xlabel("actual trial position in session (1–27)")
             ax.set_ylabel(ylabel)
-            ax.set_title(f"Session progression — {ylabel}", fontsize=10)
+            ax.set_title(f"Adjusted session progression — {ylabel}", fontsize=10)
             ax.legend(fontsize=7)
         fig2.tight_layout()
+
+        difficulty_progression = sp.difficulty_progression_metrics(
+            self._data.trial_rows)
+        difficulty_progression_summary = sp.difficulty_progression_summary(
+            difficulty_progression)
+        difficulty_figures = sp_figures.build_difficulty_progression_figures(
+            difficulty_progression, difficulty_progression_summary)
 
         caption = (
             "<h3>Learning / order</h3>"
@@ -913,23 +952,43 @@ class GroupAnalysisWindow(QMainWindow):
             "three levels; bold line = group mean across participants. Each repetition is a "
             "different unique sequence, so this is a short-term trial-order trend under the "
             "condition, not sequence memorisation or long-term learning.</p>"
-            "<p><b>Bottom — session progression:</b> every trial at its actual presentation "
-            "position (1–27). The condition and difficulty at a given position differ across "
-            "participants' randomised schedules, so this curve mixes them by design and reads as "
-            "session-level progression/fatigue only — never as a condition comparison. Grey lines: "
-            "individual participants; black: group mean over the participants contributing at each "
-            "position.</p>")
+            "<p><b>Bottom — adjusted session progression:</b> B/C guidance trials at their actual "
+            "presentation positions (1–27). Within each participant and metric, each raw trial is "
+            "centred on that participant's Condition × Difficulty cell mean and returned to their "
+            "B/C grand mean before aggregation. This prevents the changing randomised mix of B/C "
+            "and α (alpha), β (beta), or γ (gamma) at a position from masquerading as "
+            "learning or fatigue. Grey lines: "
+            "individual adjusted trajectories; black: group mean among participants contributing "
+            "at each position. Condition A is excluded from this B/C performance progression.</p>"
+            "<p><b>Difficulty-aligned progression:</b> a complementary view using all trials. Within "
+            "each participant and difficulty, the actual session order is relabelled occurrence "
+            "1–9, so all individual trajectories can be overlaid with a bold participant-weighted "
+            "group mean. α (alpha), β (beta), and γ (gamma) are shown together using different "
+            "colours and markers. The left "
+            "panel contains the observed trials; the right panel subtracts that participant's "
+            "Condition×Difficulty mean and restores their mean for that difficulty, retaining every trial while "
+            "removing changing condition composition as a source of apparent progression. RT is the "
+            "primary view; key accuracy is a companion because its definition is directly comparable "
+            "across the full data set. Adjusted key-accuracy values are centred display scores and can therefore "
+            "fall slightly outside 0–100%; the observed panel contains the actual percentages. This "
+            "remains descriptive and does not make a condition-effect claim.</p>")
         datasets = {
-            "learning_within_cell_repetition": ga.within_cell_repetition(self._data.trial_rows),
+            "learning_within_cell_repetition": ga.within_cell_repetition(
+                [t for t in self._data.trial_rows
+                 if t.get("condition") in ga.GUIDANCE_CONDITIONS]),
             "learning_participant_repetition": rep,
             "learning_repetition_group_summary": self._metric_centers(
                 rep, ["fa_main", "rt_correct_key_s"], ["condition", "repetition"]),
             "learning_session_position": pos,
             "learning_session_position_group_summary": self._metric_centers(
-                pos, ["fa_main", "rt_correct_key_s"], ["position"]),
+                pos, ["fa_main_adjusted", "rt_correct_key_s_adjusted"], ["position"]),
+            "learning_difficulty_progression_trials": difficulty_progression,
+            "learning_difficulty_progression_group_summary": difficulty_progression_summary,
         }
-        return caption, {"group_learning_repetition": fig1,
-                         "group_learning_session_position": fig2}, datasets
+        figures = {"group_learning_repetition": fig1,
+                   "group_learning_session_position": fig2}
+        figures.update(difficulty_figures)
+        return caption, figures, datasets
 
     # ------------------------------------------------------------------
     # Errors
@@ -1021,7 +1080,8 @@ class GroupAnalysisWindow(QMainWindow):
             "unresolved finger verdicts are their own class, counted incorrect under the main FA "
             "definition). Denominator: each participant's valid events in the condition — confirmed "
             "carry-over events are excluded, unmatched extra presses are QC-only and never appear "
-            "here. The stacked bars average participant-level proportions (each participant weighs "
+            "here. In A, finger-related categories denote agreement with the hidden target label, "
+            "not failure to follow a supplied finger cue. The stacked bars average participant-level proportions (each participant weighs "
             "equally); the pooled counts below are supplementary and weigh events instead.</p>"
             + (f"<p>{b_c_note}</p>" if b_c_note else "")
             + "<p>" + "".join(pooled_tab) + "</p>"
@@ -1045,27 +1105,30 @@ class GroupAnalysisWindow(QMainWindow):
 
     def _build_fingers(self):
         pf = ga.per_finger_metrics(self._data.event_rows)
+        pf = pf[pf["condition"].isin(ga.GUIDANCE_CONDITIONS)]
         fig = Figure(figsize=(10.5, 7.2))
         ax_fa, ax_rt = fig.subplots(2, 1)
         x = np.arange(len(ga.FINGER_IDS))
-        width = 0.25
+        width = 0.32
         cap_lines = []
-        for i, c in enumerate(CONDITIONS):
+        offset_mid = (len(ga.GUIDANCE_CONDITIONS) - 1) / 2
+        for i, c in enumerate(ga.GUIDANCE_CONDITIONS):
             sub = pf[pf["condition"] == c]
             fa_center = (ga.group_center(sub, "fa", ["finger_id"])
                          .set_index("finger_id").reindex(ga.FINGER_IDS))
             rt_center = (ga.group_center(sub, "rt_s", ["finger_id"])
                          .set_index("finger_id").reindex(ga.FINGER_IDS))
-            ax_fa.bar(x + (i - 1) * width, fa_center["mean"].to_numpy(dtype=float) * 100,
+            offset = (i - offset_mid) * width
+            ax_fa.bar(x + offset, fa_center["mean"].to_numpy(dtype=float) * 100,
                       width, color=CONDITION_COLORS[c], label=self._cond_titles[c])
-            ax_rt.bar(x + (i - 1) * width, rt_center["mean"].to_numpy(dtype=float) * 1000,
+            ax_rt.bar(x + offset, rt_center["mean"].to_numpy(dtype=float) * 1000,
                       width, color=CONDITION_COLORS[c], label=self._cond_titles[c])
             for xi, fid in enumerate(ga.FINGER_IDS):
                 fsub = sub[sub["finger_id"] == fid]
-                ax_fa.scatter(np.full(len(fsub), xi + (i - 1) * width),
+                ax_fa.scatter(np.full(len(fsub), xi + offset),
                               fsub["fa"].to_numpy(dtype=float) * 100,
                               s=14, color="black", alpha=0.55, zorder=3)
-                ax_rt.scatter(np.full(len(fsub), xi + (i - 1) * width),
+                ax_rt.scatter(np.full(len(fsub), xi + offset),
                               fsub["rt_s"].to_numpy(dtype=float) * 1000,
                               s=14, color="black", alpha=0.55, zorder=3)
             weakest = fa_center["mean"].idxmin() if fa_center["mean"].notna().any() else None
@@ -1090,6 +1153,8 @@ class GroupAnalysisWindow(QMainWindow):
 
         caption = (
             "<h3>Per-finger analysis (homologous L/R merge)</h3>"
+            "<p>B/C guidance conditions only; Condition A has no target-finger cue and is not a "
+            "per-finger performance baseline.</p>"
             "<p>Left- and right-hand observations are pooled by homologous finger ID (1 = thumb … "
             "5 = little); the L/R observation counts under each tick show exactly what was merged. "
             "Bars = group mean of participant-level values (each participant's own per-finger rate "
@@ -1143,7 +1208,7 @@ class GroupAnalysisWindow(QMainWindow):
             "MS<sub>C×F</sub>/MS<sub>C×F×S</sub>. Effect size is partial η² = "
             "SS<sub>effect</sub> / (SS<sub>effect</sub> + SS<sub>error</sub>). "
             "Condition A is excluded by design — it carries no finger cue, so a per-digit cue "
-            "effect is undefined there; A stays visible in the descriptive Fingers tab.",
+            "effect is undefined there.",
             self._anova_design_html(primary, pf, conditions),
         ]
 
@@ -1249,12 +1314,12 @@ class GroupAnalysisWindow(QMainWindow):
                 gg_cell = "n/a"
             else:
                 gg_cell = _fmt_p(e["p_gg"]).lstrip("= ")
-                if e["sphericity_violated"]:
-                    gg_cell = (f"<b>{gg_cell}</b> "
-                               f"[df {e['df1_gg']:.2f}, {e['df2_gg']:.2f}]")
+                gg_cell = (f"<b>{gg_cell}</b> "
+                           f"[df {e['df1_gg']:.2f}, {e['df2_gg']:.2f}]")
             p_cell = _fmt_p(e["p_unc"]).lstrip("= ")
-            if e["sphericity_violated"]:
-                p_cell += " <span style='color:#888'>(liberal)</span>"
+            if e["gg_applicable"]:
+                qualifier = "liberal" if e["sphericity_violated"] else "uncorrected"
+                p_cell += f" <span style='color:#888'>({qualifier})</span>"
             rows.append(
                 f"<tr><td>{e['label']}</td>"
                 f"<td align='center'>{_fmt(e['F'], 3)}</td>"
@@ -1264,14 +1329,9 @@ class GroupAnalysisWindow(QMainWindow):
                 f"<td align='center'>{mauchly_cell}</td>"
                 f"<td align='center'>{eps_cell}</td>"
                 f"<td align='center'>{gg_cell}</td></tr>")
-        violated = [e["label"] for e in res["effects"] if e["sphericity_violated"]]
-        note = ("Sphericity was not rejected for any effect where it is an assumption, so the "
-                "uncorrected p values stand; ε is shown anyway."
-                if not violated else
-                "Mauchly rejects sphericity for: " + ", ".join(violated)
-                + " — the bold Greenhouse–Geisser p (with ε-rescaled df) is the one to report "
-                  "there; the uncorrected p is liberal.")
-        note += (" Condition has only two levels, i.e. a single contrast, so it has no sphericity "
+        note = ("For every multi-contrast effect, the bold Greenhouse–Geisser p with rescaled df "
+                "is the primary reported value regardless of the low-powered Mauchly verdict; "
+                "Mauchly W and p are diagnostic. Condition has only two levels, i.e. a single contrast, so it has no sphericity "
                  "assumption to violate (ε = 1 by construction) and is never GG-corrected.")
         return head + "".join(rows) + "</table><i>" + note + "</i>"
 
@@ -1480,14 +1540,16 @@ class GroupAnalysisWindow(QMainWindow):
         ax.legend(fontsize=7)
         fig.tight_layout()
 
-        theta = ga.threshold_sensitivity(self._data.trial_rows)
+        theta = ga.threshold_sensitivity(self._data.trial_rows, self._data.event_rows)
         theta_html = ""
+        final_fa = self._pc[self._pc["condition"].isin(ga.GUIDANCE_CONDITIONS)][
+            ["participant", "condition", "fa_main"]]
         if not theta.empty:
             thetas = sorted(theta["theta"].unique())
             t_tab = ["<table border='0' cellspacing='0' cellpadding='3'>"
                      "<tr><th align='left'>Mean FA by detection threshold θ</th>"
-                     + "".join(f"<th>{th}</th>" for th in thetas) + "</tr>"]
-            for c in CONDITIONS:
+                     + "".join(f"<th>{th:.2f}</th>" for th in thetas) + "</tr>"]
+            for c in ga.GUIDANCE_CONDITIONS:
                 sub = theta[theta["condition"] == c]
                 cells = []
                 for th in thetas:
@@ -1496,9 +1558,21 @@ class GroupAnalysisWindow(QMainWindow):
                     cells.append(f"<td align='center'>{_fmt(v, 0, '%')}</td>")
                 t_tab.append(f"<tr><td><b>{c}</b></td>{''.join(cells)}</tr>")
             t_tab.append("</table>")
-            theta_html = ("<p><b>Threshold sensitivity</b> (group mean of participant-level FA "
-                          "under alternative detection thresholds; θ=0.40 is the main analysis): "
-                          + "".join(t_tab) + "</p>")
+            final_tab = ["<table border='0' cellspacing='0' cellpadding='3'>"
+                         "<tr><th align='left'>Final reviewed Main FA (separate reference)</th>"
+                         "<th>Mean</th></tr>"]
+            for c in ga.GUIDANCE_CONDITIONS:
+                center = ga.group_center(final_fa[final_fa["condition"] == c],
+                                         "fa_main", ["condition"])
+                value = float(center["mean"].iloc[0]) * 100 if len(center) else np.nan
+                final_tab.append(f"<tr><td><b>{c}</b></td>"
+                                 f"<td align='center'>{_fmt(value, 1, '%')}</td></tr>")
+            final_tab.append("</table>")
+            theta_html = (
+                "<p><b>Threshold sensitivity</b> (B/C only): every θ, including 0.40, is "
+                "recomputed from the same automatic event-level target-finger probability. "
+                "The final reviewed Main FA is shown separately and is not inserted into the "
+                "threshold curve. " + "".join(t_tab) + "<br>" + "".join(final_tab) + "</p>")
 
         caption = (
             "<h3>Data quality & audit</h3>"
@@ -1511,6 +1585,7 @@ class GroupAnalysisWindow(QMainWindow):
         datasets = {
             "quality_participant_audit": q,
             "quality_threshold_sensitivity": theta,
+            "quality_threshold_final_fa_reference": final_fa,
             "quality_threshold_group_summary": (
                 ga.group_center(theta, "fa", ["condition", "theta"]) if not theta.empty
                 else pd.DataFrame()),

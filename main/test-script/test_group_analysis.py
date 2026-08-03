@@ -88,6 +88,7 @@ def event(participant="P01", condition="A", **kw) -> dict:
         "key_correct": True,
         "actual_finger": "R2",
         "finger_correct": True,
+        "target_finger_probability": 0.8,
         "rt_s": 0.5,
         "validity": "valid",
         "manually_corrected": False,
@@ -251,16 +252,14 @@ class TestParticipantAggregation(unittest.TestCase):
 
 class TestPairedContrasts(unittest.TestCase):
     def test_pairing_and_missing_pairs(self):
-        # P01 complete; P02 has no C data -> only B-A pair for P02.
+        # P01 complete; P02 has no C data and cannot enter the sole C-B contrast.
         trials = full_schedule("P01", fa_by_condition={"A": 0.2, "B": 0.4, "C": 0.9})
         trials += [t for t in full_schedule("P02", fa_by_condition={"A": 0.5, "B": 0.5})
                    if t["condition"] != "C"]
         pc = participant_condition_metrics(trials)
         diffs = paired_differences(pc, "fa_main")
-        by = diffs.groupby("contrast")["diff"]
-        self.assertEqual(by.count()["B−A"], 2)
-        self.assertEqual(by.count()["C−A"], 1)  # P02 dropped, not imputed
-        self.assertEqual(by.count()["C−B"], 1)
+        self.assertEqual(set(diffs["contrast"]), {"C−B"})
+        self.assertEqual(len(diffs), 1)  # P02 dropped, not imputed
         p1 = diffs[(diffs["participant"] == "P01") & (diffs["contrast"] == "C−B")]
         self.assertAlmostEqual(float(p1["diff"].iloc[0]), 0.5)
 
@@ -291,10 +290,28 @@ class TestLearningAlignment(unittest.TestCase):
         agg = participant_repetition_metrics(trials)
         self.assertEqual(set(agg["repetition"]), {1, 2, 3})
 
-    def test_session_position_keeps_actual_order(self):
+    def test_session_position_keeps_bc_actual_order_and_excludes_a(self):
         trials = full_schedule("P01")
         pos = session_position_metrics(trials)
-        self.assertEqual(list(pos["position"]), list(range(1, 28)))
+        self.assertEqual(list(pos["position"]), list(range(10, 28)))
+        self.assertEqual(set(pos["condition"]), {"B", "C"})
+
+    def test_session_position_removes_condition_level_cell_composition(self):
+        trials = [
+            trial("P01", 1, condition="B", level="alpha", rt_correct_key_s=1.0),
+            trial("P01", 2, condition="B", level="alpha", rt_correct_key_s=3.0),
+            trial("P01", 3, condition="C", level="gamma", rt_correct_key_s=10.0),
+            trial("P01", 4, condition="C", level="gamma", rt_correct_key_s=12.0),
+            trial("P01", 5, condition="A", level="alpha", rt_correct_key_s=0.1),
+        ]
+        pos = session_position_metrics(trials).set_index("position")
+        self.assertNotIn(5, pos.index)
+        # Raw B/C cell means differ by 9 s, but the same within-cell
+        # deviations map to identical adjusted values.
+        self.assertAlmostEqual(float(pos.loc[1, "rt_correct_key_s_adjusted"]), 5.5)
+        self.assertAlmostEqual(float(pos.loc[3, "rt_correct_key_s_adjusted"]), 5.5)
+        self.assertAlmostEqual(float(pos.loc[2, "rt_correct_key_s_adjusted"]), 7.5)
+        self.assertAlmostEqual(float(pos.loc[4, "rt_correct_key_s_adjusted"]), 7.5)
 
 
 class TestOutcomeProportions(unittest.TestCase):
@@ -364,16 +381,21 @@ class TestQuality(unittest.TestCase):
 
 
 class TestThresholdSensitivity(unittest.TestCase):
-    def test_theta_table_includes_main_040(self):
+    def test_all_thetas_use_the_same_automatic_event_probability_stream(self):
         from app.group_analysis import threshold_sensitivity
-        trials = [trial(fa_main=0.5, **{"fa_theta_0.30": 0.6, "fa_theta_0.50": 0.4})]
-        theta = threshold_sensitivity(trials)
+        trials = [trial(condition="B", fa_main=0.99)]  # reviewed FA must NOT enter the curve
+        events = [event(condition="B", event_index=i, target_finger_probability=p)
+                  for i, p in enumerate((0.32, 0.38, 0.42, 0.48))]
+        theta = threshold_sensitivity(trials, events)
         by = theta.set_index("theta")["fa"]
-        self.assertAlmostEqual(float(by["0.30"]), 0.6)
-        self.assertAlmostEqual(float(by["0.40"]), 0.5)  # fa_main is the θ=0.40 analysis
-        self.assertAlmostEqual(float(by["0.50"]), 0.4)
-        # No fa_theta columns -> empty, not a crash.
-        self.assertTrue(threshold_sensitivity([trial()]).empty)
+        self.assertAlmostEqual(float(by[0.30]), 1.0)
+        self.assertAlmostEqual(float(by[0.35]), 0.75)
+        self.assertAlmostEqual(float(by[0.40]), 0.50)
+        self.assertAlmostEqual(float(by[0.45]), 0.25)
+        self.assertAlmostEqual(float(by[0.50]), 0.0)
+        self.assertEqual(set(theta["source"]), {"automatic_target_probability"})
+        # No event probability stream -> empty, not a substituted final FA.
+        self.assertTrue(threshold_sensitivity([trial()], []).empty)
         self.assertTrue(threshold_sensitivity([]).empty)
 
 
@@ -381,15 +403,17 @@ class TestInference(unittest.TestCase):
     def _pc(self, n_participants, fa_by_condition):
         trials = []
         for i in range(n_participants):
-            jitter = i * 0.01  # break ties so Wilcoxon has nonzero diffs
+            jitter = i * 0.005  # varying C-B differences keep dz finite
             trials += full_schedule(
                 f"P{i + 1:02d}",
-                fa_by_condition={c: v + jitter for c, v in fa_by_condition.items()})
+                fa_by_condition={c: v + jitter * (1 if c == "C" else 0)
+                                 for c, v in fa_by_condition.items()})
         return participant_condition_metrics(trials)
 
     def test_no_inference_at_n1(self):
         res = condition_inference(self._pc(1, {"A": 0.2, "B": 0.5, "C": 0.8}), "fa_main")
         self.assertIsNone(res["friedman"])
+        self.assertIsNone(res["paired_t"])
         self.assertEqual(res["pairwise"], [])
         self.assertIn(f"N ≥ {MIN_TEST_N}", res["reason"])
         self.assertEqual(res["n_complete"], 1)
@@ -399,18 +423,18 @@ class TestInference(unittest.TestCase):
         self.assertIsNone(res["reason"])
         self.assertEqual(res["n_complete"], 6)
         self.assertTrue(res["exploratory"])  # small N stays flagged
-        fried = res["friedman"]
-        self.assertEqual(fried["n"], 6)
-        self.assertLess(fried["p"], 0.05)
-        self.assertGreater(fried["effect_size"], 0.9)  # perfectly ordered
-        for entry in res["pairwise"]:
-            self.assertEqual(entry["n_pairs"], 6)
-            self.assertFalse(np.isnan(entry["p"]))
-            self.assertGreaterEqual(entry["p_holm"], entry["p"])
-            self.assertEqual(abs(entry["effect_size"]), 1.0)
-        by = {e["contrast"]: e for e in res["pairwise"]}
-        self.assertAlmostEqual(by["C−A"]["mean_diff"], 0.6, places=6)
-        self.assertGreater(by["B−A"]["effect_size"], 0)  # direction preserved
+        paired = res["paired_t"]
+        self.assertEqual(paired["n"], 6)
+        self.assertEqual(paired["contrast"], "C−B")
+        self.assertLess(paired["p"], 0.05)
+        self.assertGreater(paired["mean_diff"], 0)
+        self.assertGreater(paired["effect_size"], 0)
+        self.assertEqual(len(res["pairwise"]), 1)
+        wilcox = res["pairwise"][0]
+        self.assertEqual(wilcox["contrast"], "C−B")
+        self.assertEqual(wilcox["n_pairs"], 6)
+        self.assertFalse(np.isnan(wilcox["p"]))
+        self.assertEqual(wilcox["p_holm"], wilcox["p"])  # one planned contrast
 
     def test_missing_pairs_counted_and_events_never_inflate_n(self):
         pc = self._pc(6, {"A": 0.2, "B": 0.5, "C": 0.8})
@@ -418,9 +442,8 @@ class TestInference(unittest.TestCase):
         res = condition_inference(pc, "fa_main")
         self.assertEqual(res["n_complete"], 5)
         self.assertEqual(res["n_missing_pairs"], 1)
-        by = {e["contrast"]: e for e in res["pairwise"]}
-        self.assertEqual(by["B−A"]["n_pairs"], 6)  # both sides exist for P06
-        self.assertEqual(by["C−A"]["n_pairs"], 5)
+        self.assertEqual(res["paired_t"]["n"], 5)
+        self.assertEqual(res["pairwise"][0]["n_pairs"], 5)
 
     def test_holm_correction_values(self):
         from app.group_analysis import _holm

@@ -75,8 +75,8 @@ from ..music_recording import MUSIC_DATA_DIR, META_FILENAME, SongMeta, song_dir
 from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..sequence_generator import (
     COMPONENTS,
+    LEVEL_DISPLAY,
     LEVEL_DIFFICULTY,
-    LEVEL_SYMBOL,
     SEQUENCE_DATA_DIR,
     Sequence,
     SequenceStats,
@@ -88,7 +88,7 @@ from ..song_library import SongEntry, list_song_entries
 from ..stimulus_validation import validate_level_pools
 from .stimulus_validation_dialog import StimulusValidationDialog
 
-COLUMNS = ["Entry", "Level", "Resolved", "Fingers", "Notes"] + [spec.label for spec in COMPONENTS]
+COLUMNS = ["Entry", "Difficulty", "Resolved", "Fingers", "Notes"] + [spec.label for spec in COMPONENTS]
 
 METRICS_EXPLANATION = (
     "Difficulty is the multidimensional representation D = (C_m, C_s, C_c); no scalar score is computed.  "
@@ -178,7 +178,8 @@ class SequenceMetricsWindow(QMainWindow):
         self.table.setColumnWidth(4, 640)  # Notes
         self.table.verticalHeader().setVisible(False)
 
-        self.validate_btn = QPushButton("Validate Stimulus Set (α / β / γ, currently visible rows)")
+        self.validate_btn = QPushButton(
+            "Validate Stimulus Set — α (alpha), β (beta), γ (gamma), visible rows")
         self.validate_btn.clicked.connect(self._validate_stimulus_set)
 
         self.export_csv_btn = QPushButton("Export CSV (currently visible rows)")
@@ -243,7 +244,7 @@ class SequenceMetricsWindow(QMainWindow):
             level = _DIFFICULTY_TO_LEVEL.get(difficulty)
             fingers, notes = format_sequence_for_display(actions)
             cells = [
-                LEVEL_SYMBOL[level] if level is not None else ("?" if difficulty is None else str(difficulty)),
+                LEVEL_DISPLAY[level] if level is not None else ("?" if difficulty is None else str(difficulty)),
                 f"{len(actions)}/{total_notes}",
                 fingers,
                 notes,

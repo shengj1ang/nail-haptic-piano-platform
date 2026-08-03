@@ -112,13 +112,18 @@ class TestDifficultyMapping(unittest.TestCase):
         fig = gt.build_group_tradeoff_by_difficulty_3d(data)
         ax = fig.axes[0]
         self.assertEqual([t.get_text() for t in ax.get_zticklabels()],
-                         ["α", "β", "γ"])  # symbols, never 0/1/2
+                         ["α (alpha)", "β (beta)", "γ (gamma)"])
+        legend_labels = [text.get_text() for text in fig.legends[0].get_texts()]
+        self.assertTrue(all(label.startswith("Feedback condition ")
+                            for label in legend_labels[:3]))
+        self.assertTrue(all(label.startswith("Difficulty ")
+                            for label in legend_labels[3:]))
 
-    def test_export_uses_symbols(self):
+    def test_export_uses_unambiguous_difficulty_names(self):
         data = gt.compute(schedules(1), ["P01"])
         ds = gt.export_datasets(data)
         self.assertEqual(set(ds["group_tradeoff_trial_points"]["difficulty"]),
-                         {"α", "β", "γ"})
+                         {"alpha", "beta", "gamma"})
 
 
 class TestParticipantOrder(unittest.TestCase):
@@ -150,7 +155,7 @@ class TestMissingCells(unittest.TestCase):
         c_row = data.gcent[data.gcent["condition"] == "C"].iloc[0]
         self.assertEqual(int(c_row["n_participants"]), 1)  # P02 skipped, not 0-filled
         missing = gt.missing_cells(data)
-        self.assertIn("P02 C/α", missing)
+        self.assertIn("P02 C/α (alpha)", missing)
         self.assertEqual(len(missing), 3)  # the three C levels only
 
     def test_summary_handles_condition_with_no_data(self):
@@ -244,7 +249,8 @@ class TestExportDatasets(unittest.TestCase):
         self.assertEqual(set(tp["centroid_level"]), {"trial"})
         self.assertEqual(set(pc["centroid_level"]), {"participant"})
         self.assertEqual(set(gc["centroid_level"]), {"group"})
-        self.assertEqual(set(pc["difficulty"]), {"all", "α", "β", "γ"})
+        self.assertEqual(set(pc["difficulty"]),
+                         {"all", "alpha", "beta", "gamma"})
 
     def test_empty_selection_yields_empty_frames_not_crash(self):
         ds = gt.export_datasets(gt.compute([], []))
@@ -332,7 +338,10 @@ class TestExportedFilesReadable(unittest.TestCase):
                 ax = fig.axes[0]
                 self.assertEqual(ax.get_title(), titles[slug])
                 self.assertIn("Mean RT of correct-key events (ms)", ax.get_xlabel())
-                self.assertIn("Main Finger Accuracy (%)", ax.get_ylabel())
+                self.assertIn("Finger outcome (%)", ax.get_ylabel())
+                if slug == "group_tradeoff_2d":
+                    self.assertIn("B/C: Main FA", ax.get_ylabel())
+                    self.assertIn("A: hidden-target agreement", ax.get_ylabel())
                 self.assertTrue(fig.legends or ax.get_legend())
                 # The export path: tight bbox includes every
                 # artist (titles, labels, outside legends) by definition;

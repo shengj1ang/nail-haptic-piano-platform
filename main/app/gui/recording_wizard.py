@@ -1,7 +1,7 @@
 """PySide6 wizard for step 3: teacher records a song.
 
 Three pages:
-  0. Song info - title, difficulty (1/2/3, a label only), keyboard
+  0. Song info - title, difficulty (alpha/beta/gamma, a label only), keyboard
      profile, MIDI port.
   1. Record - starting it opens the LED controller + MIDI port and begins
      writing video, then (once both are rolling) flashes the first white
@@ -42,6 +42,7 @@ from ..config import Config
 from ..midi import list_input_ports, save_midi_log
 from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..profiles import list_profiles, snapshot_profile
+from ..sequence_generator import LEVEL_DIFFICULTY, LEVEL_DISPLAY, LEVELS
 from .analyze_worker import AnalyzeWorker
 from ..music_recording import (
     FINGERING_FILENAME,
@@ -92,7 +93,12 @@ class InfoPage(QWizardPage):
         self.title_edit.textChanged.connect(self.completeChanged)
 
         self.difficulty_combo = QComboBox()
-        self.difficulty_combo.addItems(["1", "2", "3"])
+        for level in LEVELS:
+            # SongMeta keeps its historical integer storage for compatibility,
+            # but every user-facing difficulty name follows the experiment's
+            # alpha/beta/gamma vocabulary.
+            self.difficulty_combo.addItem(
+                LEVEL_DISPLAY[level], LEVEL_DIFFICULTY[level])
 
         # No profile picker here - this always uses config.json's
         # active_keyboard_profile (set by the Keyboard Calibration Wizard),
@@ -111,7 +117,7 @@ class InfoPage(QWizardPage):
         title_row.addWidget(self.title_edit, 1)
 
         difficulty_row = QHBoxLayout()
-        difficulty_row.addWidget(QLabel("Difficulty (1-3, label only):"))
+        difficulty_row.addWidget(QLabel("Difficulty (label only):"))
         difficulty_row.addWidget(self.difficulty_combo)
         difficulty_row.addStretch(1)
 
@@ -155,7 +161,10 @@ class InfoPage(QWizardPage):
         return self.title_edit.text().strip()
 
     def difficulty(self) -> int:
-        return int(self.difficulty_combo.currentText())
+        return int(self.difficulty_combo.currentData())
+
+    def difficulty_display(self) -> str:
+        return self.difficulty_combo.currentText()
 
     def keyboard_profile_name(self) -> str:
         return self._wizard.cfg.active_keyboard_profile
@@ -444,7 +453,8 @@ class ReviewPage(QWizardPage):
         record = self._wizard.record_page
         note_count = sum(1 for e in record.raw_events if e.type == "note_on")
         self.summary_label.setText(
-            f"Song: {info.song_name()!r}   Difficulty: {info.difficulty()}   Profile: {info.keyboard_profile_name()}\n"
+            f"Song: {info.song_name()!r}   Difficulty: {info.difficulty_display()}   "
+            f"Profile: {info.keyboard_profile_name()}\n"
             f"Duration: {record.duration_s:.1f}s   Notes captured: {note_count}"
         )
         self._saved = False

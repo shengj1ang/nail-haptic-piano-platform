@@ -57,8 +57,8 @@ _LEVEL_COLOR = {
 }
 
 _DIRECTION_NOTE = {
-    "increase": "expected to rise α → γ",
-    "decrease": "expected to fall α → γ",
+    "increase": "expected to rise α (alpha) → γ (gamma)",
+    "decrease": "expected to fall α (alpha) → γ (gamma)",
     "matching": "matching constraint - no ordering required",
     "diagnostic": "descriptive diagnostic - reported only",
     "cross": "cross-region metric - validated against level limits",

@@ -58,9 +58,9 @@ from ..pilot_study import (
     save_trial_structure,
     trial_structure_path,
 )
-from ..sequence_generator import LEVEL_SYMBOL, LEVELS
+from ..sequence_generator import LEVEL_DISPLAY, LEVELS
 
-COLUMNS = ["Trial", "Condition", "Level", "Sequence", "Rest after", "Status"]
+COLUMNS = ["Trial", "Condition", "Difficulty", "Sequence", "Rest after", "Status"]
 
 
 class PilotScheduleWindow(QMainWindow):
@@ -206,7 +206,8 @@ class PilotScheduleWindow(QMainWindow):
         self.batch_combo.clear()
         for batch in sorted(self._batches):
             pools = self._batches[batch]
-            counts = " ".join(f"{LEVEL_SYMBOL[lvl]}:{len(pools[lvl])}" for lvl in LEVELS)
+            counts = "  ".join(
+                f"{LEVEL_DISPLAY[lvl]}: {len(pools[lvl])}" for lvl in LEVELS)
             self.batch_combo.addItem(f"{batch}  ({counts})", batch)
         if current is not None:
             idx = self.batch_combo.findData(current)
@@ -227,7 +228,9 @@ class PilotScheduleWindow(QMainWindow):
         pools = self._batches[batch]
         short = [lvl for lvl in LEVELS if len(pools[lvl]) < 3]
         if short:
-            missing = ", ".join(f"Level {LEVEL_SYMBOL[lvl]} has {len(pools[lvl])}" for lvl in short)
+            missing = ", ".join(
+                f"Difficulty {LEVEL_DISPLAY[lvl]} has {len(pools[lvl])}"
+                for lvl in short)
             self.batch_hint_label.setText(f"Batch unusable: every level needs >= 3 sequences ({missing}).")
             self.generate_btn.setEnabled(False)
         else:
@@ -237,7 +240,9 @@ class PilotScheduleWindow(QMainWindow):
                 else "fewer than 9 per level: sequences stay unique within a cell but repeat across conditions"
             )
             self.batch_hint_label.setText(
-                f"3 conditions x 3 levels x 3 unique sequences per cell = {TOTAL_TRIALS} trials; {reuse_note}. "
+                "3 feedback conditions × 3 difficulty levels "
+                f"({', '.join(LEVEL_DISPLAY[level] for level in LEVELS)}) × "
+                f"3 unique sequences per cell = {TOTAL_TRIALS} trials; {reuse_note}. "
                 "2-min rests are scheduled after trials 9 and 18."
             )
             self.generate_btn.setEnabled(True)
@@ -318,7 +323,7 @@ class PilotScheduleWindow(QMainWindow):
             cells = [
                 str(trial["index"]),
                 f"{trial['condition']} - {CONDITION_LABEL[trial['condition']]}",
-                trial["level_symbol"],
+                LEVEL_DISPLAY[trial["level"]],
                 trial["sequence"],
                 f"{doc.get('rest_duration_s', 120) // 60} min rest" if trial["rest_after"] else "",
                 status_text,
