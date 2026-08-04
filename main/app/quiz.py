@@ -485,14 +485,18 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
 
 def finger_manually_corrected(r: QuizResult) -> bool:
     """Was this event's actual_finger hand-corrected (in the per-event
-    review window)? The automatic pipeline always sets actual_finger to
-    the softmax argmax, and manual correction deliberately leaves the
-    stored probabilities untouched - so a mismatch between the two is the
-    audit trail. An originally-unresolved event (no distribution) that now
-    carries a finger is likewise a manual edit."""
+    review window)? Manual correction deliberately leaves the stored
+    probabilities untouched, so a *strictly less probable* actual_finger
+    is the audit trail. Ties don't count: the probabilities are distance-
+    only, while app.finger_matching picks the reported finger with an
+    inside-the-key preference on top (and the chord path claims fingers
+    greedily), so two fingertips sharing the top probability can legally
+    disagree with the argmax without anyone touching the event. An
+    originally-unresolved event (no distribution) that now carries a
+    finger is likewise a manual edit."""
     if r.finger_probabilities:
-        detected = max(r.finger_probabilities, key=r.finger_probabilities.get)
-        return r.actual_finger != detected
+        top = max(r.finger_probabilities.values())
+        return r.finger_probabilities.get(r.actual_finger, -1.0) < top
     return r.actual_finger is not None
 
 
