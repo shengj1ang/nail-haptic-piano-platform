@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "created_at": 1785772091.4863548,
+  "participant": {
+    "name": "P09",
+    "sex": "male",
+    "age": 24,
+    "handedness": "right",
+    "piano_experience_years": 0,
+    "notes": ""
+  },
+  "keyboard_profile": "white-city-lab-20260717",
+  "sequence_batch": "1799551287",
+  "schedule_seed": 1209824052,
+  "conditions": {
+    "A": "Key-only practice",
+    "B": "Visual finger-cue guidance",
+    "C": "Vibrotactile finger guidance"
+  },
+  "rest_after_trials": [
+    9,
+    18
+  ],
+  "rest_duration_s": 120,
+  "trials": [
+    {
+      "index": 1,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-4",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772347.605952,
+      "completed_at": 1785772391.9986181,
+      "quiz_name": "P09-T01-Cα",
+      "quiz_attempts": [
+        "P09-T01-Cα"
+      ]
+    },
+    {
+      "index": 2,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-2",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772492.760205,
+      "completed_at": 1785772550.630416,
+      "quiz_name": "P09-T02-Bα",
+      "quiz_attempts": [
+        "P09-T02-Bα"
+      ]
+    },
+    {
+      "index": 3,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-7",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772553.9057448,
+      "completed_at": 1785772611.6480079,
+      "quiz_name": "P09-T03-Bγ",
+      "quiz_attempts": [
+        "P09-T03-Bγ"
+      ]
+    },
+    {
+      "index": 4,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-3",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772616.220234,
+      "completed_at": 1785772656.614951,
+      "quiz_name": "P09-T04-Cβ",
+      "quiz_attempts": [
+        "P09-T04-Cβ"
+      ]
+    },
+    {
+      "index": 5,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-2",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772658.029479,
+      "completed_at": 1785772691.7464662,
+      "quiz_name": "P09-T05-Aγ",
+      "quiz_attempts": [
+        "P09-T05-Aγ"
+      ]
+    },
+    {
+      "index": 6,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-5",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772693.578615,
+      "completed_at": 1785772731.7064488,
+      "quiz_name": "P09-T06-Cγ",
+      "quiz_attempts": [
+        "P09-T06-Cγ"
+      ]
+    },
+    {
+      "index": 7,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-6",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772733.041389,
+      "completed_at": 1785772772.2718878,
+      "quiz_name": "P09-T07-Cγ",
+      "quiz_attempts": [
+        "P09-T07-Cγ"
+      ]
+    },
+    {
+      "index": 8,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-1",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772773.6402051,
+      "completed_at": 1785772818.7074418,
+      "quiz_name": "P09-T08-Bβ",
+      "quiz_attempts": [
+        "P09-T08-Bβ"
+      ]
+    },
+    {
+      "index": 9,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-9",
+      "rest_after": true,
+      "status": "completed",
+      "started_at": 1785772819.976311,
+      "completed_at": 1785772867.469831,
+      "quiz_name": "P09-T09-Bα",
+      "quiz_attempts": [
+        "P09-T09-Bα"
+      ]
+    },
+    {
+      "index": 10,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-8",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772874.1822238,
+      "completed_at": 1785772908.531011,
+      "quiz_name": "P09-T10-Aγ",
+      "quiz_attempts": [
+        "P09-T10-Aγ"
+      ]
+    },
+    {
+      "index": 11,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-4",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772910.376597,
+      "completed_at": 1785772951.063338,
+      "quiz_name": "P09-T11-Cβ",
+      "quiz_attempts": [
+        "P09-T11-Cβ"
+      ]
+    },
+    {
+      "index": 12,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-4",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772952.297782,
+      "completed_at": 1785772984.5702322,
+      "quiz_name": "P09-T12-Aγ",
+      "quiz_attempts": [
+        "P09-T12-Aγ"
+      ]
+    },
+    {
+      "index": 13,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-5",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785772986.78064,
+      "completed_at": 1785773023.135296,
+      "quiz_name": "P09-T13-Cα",
+      "quiz_attempts": [
+        "P09-T13-Cα"
+      ]
+    },
+    {
+      "index": 14,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-8",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773031.6469781,
+      "completed_at": 1785773062.700352,
+      "quiz_name": "P09-T14-Aβ",
+      "quiz_attempts": [
+        "P09-T14-Aβ"
+      ]
+    },
+    {
+      "index": 15,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-1",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773071.2419531,
+      "completed_at": 1785773118.884356,
+      "quiz_name": "P09-T15-Bγ",
+      "quiz_attempts": [
+        "P09-T15-Bγ"
+      ]
+    },
+    {
+      "index": 16,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-5",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773139.395252,
+      "completed_at": 1785773176.358839,
+      "quiz_name": "P09-T16-Cβ",
+      "quiz_attempts": [
+        "P09-T16-Cβ"
+      ]
+    },
+    {
+      "index": 17,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-7",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773180.3927622,
+      "completed_at": 1785773218.2493382,
+      "quiz_name": "P09-T17-Cα",
+      "quiz_attempts": [
+        "P09-T17-Cα"
+      ]
+    },
+    {
+      "index": 18,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-9",
+      "rest_after": true,
+      "status": "completed",
+      "started_at": 1785773231.6653252,
+      "completed_at": 1785773264.220543,
+      "quiz_name": "P09-T18-Aβ",
+      "quiz_attempts": [
+        "P09-T18-Aβ"
+      ]
+    },
+    {
+      "index": 19,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-3",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773270.661324,
+      "completed_at": 1785773301.2572181,
+      "quiz_name": "P09-T19-Aα",
+      "quiz_attempts": [
+        "P09-T19-Aα"
+      ]
+    },
+    {
+      "index": 20,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-8",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773314.7293398,
+      "completed_at": 1785773358.323575,
+      "quiz_name": "P09-T20-Bα",
+      "quiz_attempts": [
+        "P09-T20-Bα"
+      ]
+    },
+    {
+      "index": 21,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-6",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773363.832043,
+      "completed_at": 1785773394.683928,
+      "quiz_name": "P09-T21-Aβ",
+      "quiz_attempts": [
+        "P09-T21-Aβ"
+      ]
+    },
+    {
+      "index": 22,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-2",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773403.528783,
+      "completed_at": 1785773450.0285969,
+      "quiz_name": "P09-T22-Bβ",
+      "quiz_attempts": [
+        "P09-T22-Bβ"
+      ]
+    },
+    {
+      "index": 23,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-1",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773459.672353,
+      "completed_at": 1785773492.024937,
+      "quiz_name": "P09-T23-Aα",
+      "quiz_attempts": [
+        "P09-T23-Aα"
+      ]
+    },
+    {
+      "index": 24,
+      "condition": "C",
+      "condition_label": "Vibrotactile finger guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-3",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773500.169972,
+      "completed_at": 1785773537.755178,
+      "quiz_name": "P09-T24-Cγ",
+      "quiz_attempts": [
+        "P09-T24-Cγ"
+      ]
+    },
+    {
+      "index": 25,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "gamma",
+      "level_symbol": "γ",
+      "sequence": "1799551287-γ-9",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773542.7004201,
+      "completed_at": 1785773591.034456,
+      "quiz_name": "P09-T25-Bγ",
+      "quiz_attempts": [
+        "P09-T25-Bγ"
+      ]
+    },
+    {
+      "index": 26,
+      "condition": "B",
+      "condition_label": "Visual finger-cue guidance",
+      "level": "beta",
+      "level_symbol": "β",
+      "sequence": "1799551287-β-7",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773596.441927,
+      "completed_at": 1785773639.575079,
+      "quiz_name": "P09-T26-Bβ",
+      "quiz_attempts": [
+        "P09-T26-Bβ"
+      ]
+    },
+    {
+      "index": 27,
+      "condition": "A",
+      "condition_label": "Key-only practice",
+      "level": "alpha",
+      "level_symbol": "α",
+      "sequence": "1799551287-α-6",
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1785773649.8822021,
+      "completed_at": 1785773680.138659,
+      "quiz_name": "P09-T27-Aα",
+      "quiz_attempts": [
+        "P09-T27-Aα"
+      ]
+    }
+  ],
+  "progress": {
+    "completed": 27,
+    "total": 27,
+    "next_trial_index": null,
+    "finished": true
+  }
+}
