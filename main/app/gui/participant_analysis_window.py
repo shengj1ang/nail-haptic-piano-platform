@@ -2,23 +2,44 @@
 
 Pick a Main User Study participant and get the within-subject picture
 across their 27 trials (3 conditions x 3 levels x 3 unique sequences):
-condition and difficulty comparisons, learning progression (both across
-the whole session and the trial 1 -> 3 order within each
-condition-level cell), per-finger profiles, reaction-time
-distributions, and a data-quality audit. Every figure carries a caption
-with the computed numbers, so the tab is readable without the chart.
+condition and difficulty comparisons, learning progression (across the
+whole session, the trial 1 -> 3 order within each condition-level cell,
+and the two composition-adjusted views that stop a changing
+condition/difficulty mix from reading as practice), per-finger profiles
+both by physical finger and by homologous finger ID, the per-finger
+benefit of the haptic cue, reaction-time distributions, and a
+data-quality audit with the detection-threshold sensitivity curve.
+Every figure carries a caption with the computed numbers, so the tab is
+readable without the chart.
 
 Data comes from app.participant_export.collect_participant_data - the
 exact rows the CSV export writes - so charts, CSVs and the Quiz
-Analysis table can never disagree. Everything here is descriptive and
-within-subject; the cross-participant statistics (paired contrasts,
-repeated-measures ANOVA) belong to the later multi-participant
-analysis, not this window.
+Analysis table can never disagree. Manually confirmed carry-over events
+are removed once, at load (app.participant_analysis.valid_events), so
+every event-level tab uses the same denominator as the trial-level
+statistics that already excluded them; they survive only as counters in
+the Quality tab.
+
+Everything here is descriptive and within-subject. The computations are
+shared with the Group Analysis window through app.participant_analysis,
+which holds every reduction that turns ONE participant's rows into that
+participant's own numbers; what needs several participants - the group
+centre and its interval, the paired B/C contrasts, the repeated-measures
+ANOVA, the finger-benefit group tests - stays in app.group_analysis and
+is deliberately absent here. Where a group figure has an inferential
+counterpart, this window shows the descriptive quantity and says so.
+
+Export ("Export figures + data") covers every tab: each figure as a
+300 dpi PNG and an SVG, every tidy table behind it as CSV, plus a
+_manifest.csv recording which participant and how many trials/events the
+files came from. Registration happens in _add_tab, not in the individual
+_build_ methods, so a new tab cannot ship without its output.
 """
 
 from typing import Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
@@ -38,6 +59,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import finger_benefit as fb
+from .. import finger_common as fc
+from .. import finger_equalisation as fq
+from .. import participant_analysis as pa
+from .. import session_progression as sp
+from .. import session_progression_figures as sp_figures
 from ..participant_analysis import (
     CAT_CK_CF,
     CAT_CK_WF,
@@ -63,6 +90,7 @@ from ..participant_export import collect_participant_data
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..pilot_study import list_participants
 from ..sequence_generator import LEVEL_DISPLAY, LEVEL_TICK_LABEL
+from .stats_format import fmt, fmt_signed
 
 CATEGORY_COLORS = {
     CAT_CK_CF: "#4a9d5b",
@@ -87,6 +115,12 @@ CONDITIONS = ["A", "B", "C"]
 CONDITION_COLORS = {"A": "#8a8a8a", "B": "#3a76c4", "C": "#d9663d"}
 LEVELS = ["alpha", "beta", "gamma"]
 FINGER_ORDER = ["L5", "L4", "L3", "L2", "L1", "R1", "R2", "R3", "R4", "R5"]
+
+# Formatting lives in .stats_format so the "&lt;" rule (a bare "<" in a
+# RichText caption opens a tag and Qt eats the rest of the line) has one
+# home shared with the other analysis windows.
+_fmt = fmt
+_fmt_signed = fmt_signed
 
 
 def _mean(values) -> Optional[float]:
@@ -153,7 +187,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         if not participant:
             return
         try:
-            trials, events, missing = collect_participant_data(participant)
+            trials, all_events, missing = collect_participant_data(participant)
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load participant", f"{participant}: {e}")
             return
@@ -161,16 +195,29 @@ class ParticipantAnalysisWindow(QMainWindow):
             QMessageBox.information(self, "No data", f"{participant} has no completed trials with quiz data.")
             return
 
+        # One filter, once, at the door: manually confirmed carry-over
+        # presses are already out of every per-trial statistic in the
+        # export, so an event-level tab that kept them would quietly
+        # contradict the trial-level numbers printed beside it. The
+        # unfiltered list stays for the Quality tab's counters.
+        events = pa.valid_events(all_events)
+
         analyzed = [t for t in trials if t["analyzed"]]
         note = f"{participant}: {len(trials)} trials loaded, {len(analyzed)} analyzed from video"
         if missing:
             note += f", {len(missing)} missing ({', '.join(missing)})"
+        excluded = len(all_events) - len(events)
+        note += (f"; {len(events)} of {len(all_events)} events valid"
+                 + (f" ({excluded} excluded as confirmed carry-over)" if excluded else ""))
         if len(analyzed) < len(trials):
             note += " — finger-based charts use analyzed trials only; run the video analysis for the rest."
         self.status_label.setText(note)
 
         self.tabs.clear()
         self._participant = participant
+        self._trials = trials
+        self._events = events
+        self._all_events = all_events
         # slug -> Figure; every registered figure is exported.
         self._figures: Dict[str, Figure] = {}
         # slug -> tidy DataFrame written next to the figures on export.
@@ -182,35 +229,82 @@ class ParticipantAnalysisWindow(QMainWindow):
         self._add_tab("Errors", *self._build_errors(trials, events))
         self._add_confusion_tab(trials, events)
         self._add_tab("Fingers", *self._build_fingers(events))
+        self._add_tab("Finger benefit", *self._build_finger_benefit(events))
         self._add_tab("Timing", *self._build_timing(events))
-        self._add_tab("Quality", *self._build_quality(trials))
+        self._add_tab("Quality", *self._build_quality(trials, all_events))
         self.save_figs_btn.setEnabled(True)
 
     def _save_figures(self) -> None:
-        """300 dpi PNG per figure plus the underlying tidy CSVs, all named
-        <participant>_<slug>.* so the report can cite files verbatim."""
+        """Every figure as a 300 dpi PNG and an SVG, every tidy table as
+        a CSV, plus a manifest - all named <participant>_<slug>.* so the
+        report can cite files verbatim.
+
+        Registration happens in _add_tab, so this writes exactly what the
+        window is showing. One unwritable file is reported and skipped
+        rather than aborting the rest."""
         out_dir = STUDY_DATA_DIR / self._participant / "figures"
         out_dir.mkdir(parents=True, exist_ok=True)
-        figs = csvs = 0
-        for slug, fig in self._figures.items():
-            fig.savefig(out_dir / f"{self._participant}_{slug}.png", dpi=300, bbox_inches="tight")
-            figs += 1
-        for slug, df in self._datasets.items():
-            df.to_csv(out_dir / f"{self._participant}_{slug}.csv", index=False)
-            csvs += 1
-        self.status_label.setText(f"Exported {figs} PNGs (300 dpi) + {csvs} CSVs to {out_dir}")
+        prefix = self._participant
+        manifest, figs, csvs, failures = [], 0, 0, []
 
-    def _add_tab(self, title: str, caption_html: str, figspecs: List[tuple]) -> None:
-        """figspecs: list of (slug, Figure) - slug names the export files."""
-        for slug, fig in figspecs:
-            self._figures[slug] = fig
+        for slug, fig in sorted(self._figures.items()):
+            try:
+                fig.savefig(out_dir / f"{prefix}_{slug}.png", dpi=300, bbox_inches="tight")
+                fig.savefig(out_dir / f"{prefix}_{slug}.svg", bbox_inches="tight")
+            except Exception as e:
+                failures.append(f"{prefix}_{slug}.png/.svg ({type(e).__name__}: {e})")
+                continue
+            figs += 1
+            manifest.append({"file": f"{prefix}_{slug}.png / {prefix}_{slug}.svg",
+                             "kind": "figure", "rows": "", "columns": ""})
+        for slug, df in sorted(self._datasets.items()):
+            try:
+                df.to_csv(out_dir / f"{prefix}_{slug}.csv", index=False)
+            except Exception as e:
+                failures.append(f"{prefix}_{slug}.csv ({type(e).__name__}: {e})")
+                continue
+            csvs += 1
+            manifest.append({"file": f"{prefix}_{slug}.csv", "kind": "table",
+                             "rows": len(df), "columns": ", ".join(map(str, df.columns))})
+
+        # A CSV sitting in a report appendix has to be self-identifying:
+        # the manifest records whose data it is and on what denominator.
+        analyzed = sum(1 for t in self._trials if t.get("analyzed"))
+        header = pd.DataFrame([{
+            "file": "(export)", "kind": "provenance",
+            "rows": self._participant,
+            "columns": (f"{len(self._trials)} trials ({analyzed} analyzed), "
+                        f"{len(self._all_events)} events "
+                        f"({len(self._events)} valid); "
+                        f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
+        }])
+        pd.concat([header, pd.DataFrame(manifest)], ignore_index=True).to_csv(
+            out_dir / f"{prefix}__manifest.csv", index=False)
+
+        msg = (f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs "
+               f"+ {prefix}__manifest.csv to {out_dir}")
+        if failures:
+            msg += "  —  FAILED: " + "; ".join(failures)
+        self.status_label.setText(msg)
+
+    def _add_tab(self, title: str, caption_html: str,
+                 figures: Dict[str, Figure],
+                 datasets: Optional[Dict[str, object]] = None) -> None:
+        """Render one tab AND register everything on it for export.
+
+        Registration happens here, not in the individual _build_ methods,
+        so a tab physically cannot be added without its figures and the
+        tidy tables behind them joining the export. Keys are the file
+        stems _save_figures writes after the participant prefix."""
+        self._figures.update(figures)
+        self._register_datasets(datasets)
         content = QWidget()
         layout = QVBoxLayout(content)
         caption = QLabel(caption_html)
         caption.setWordWrap(True)
         caption.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(caption)
-        for _slug, fig in figspecs:
+        for fig in figures.values():
             canvas = ScrollFriendlyCanvas(fig)
             # Fixed height at the figure's designed size: the page then
             # overflows the viewport and scrolls vertically instead of
@@ -224,6 +318,18 @@ class ParticipantAnalysisWindow(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(content)
         self.tabs.addTab(scroll, title)
+
+    def _register_datasets(self, datasets: Optional[Dict[str, object]]) -> None:
+        """Register tidy tables for export, skipping the empty ones.
+
+        A table can be legitimately empty - threshold sensitivity when no
+        trial was video-analyzed, the benefit cells when a condition is
+        missing - and a zero-row CSV in a results folder is noise that
+        reads like a failed export. The captions state those cases in
+        words."""
+        for slug, df in (datasets or {}).items():
+            if df is not None and len(df):
+                self._datasets[slug] = df
 
     # ------------------------------------------------------------------
     # Helpers over trial/event rows
@@ -306,7 +412,14 @@ class ParticipantAnalysisWindow(QMainWindow):
         ax2.set_ylabel("ms")
         ax2.set_title("Mean RT, correct-key events (±SD across trials)")
         fig.tight_layout()
-        return "".join(f"<p>{line}</p>" for line in lines), [("overview", fig)]
+        datasets = {
+            # The same two tables the group window aggregates over, here
+            # for one participant: the condition means are what a group
+            # analysis would consume as this participant's contribution.
+            "overview_condition_metrics": pa.participant_condition_metrics(trials),
+            "overview_cell_metrics": pa.participant_cell_metrics(trials),
+        }
+        return "".join(f"<p>{line}</p>" for line in lines), {"overview": fig}, datasets
 
     # ------------------------------------------------------------------
     # Learning progression
@@ -390,21 +503,88 @@ class ParticipantAnalysisWindow(QMainWindow):
                     + (f" ({(rt3 - rt1) * 1000:+.0f} ms)" if rt1 is not None and rt3 is not None else "")
                 )
 
+        # Composition-adjusted session progression: the honest version of
+        # the raw trend above. Each B/C trial is centred on this
+        # participant's own condition x level cell mean and returned to
+        # their B/C grand mean, so the randomised mix of modality and
+        # difficulty across positions cannot masquerade as learning.
+        pos = pa.session_position_metrics(trials)
+        fig3 = Figure(figsize=(9, 3.8))
+        cx1, cx2 = fig3.subplots(1, 2)
+        for ax, raw_col, adj_col, scale, ylabel in (
+                (cx1, "fa_main_raw", "fa_main_adjusted", 100, "FA main (%)"),
+                (cx2, "rt_correct_key_s_raw", "rt_correct_key_s_adjusted", 1000, "RT (ms)")):
+            if pos.empty:
+                continue
+            ordered_pos = pos.sort_values("position")
+            ax.scatter(ordered_pos["position"], ordered_pos[raw_col] * scale,
+                       s=22, color="#c4c4c4", zorder=1, label="observed")
+            for c in pa.GUIDANCE_CONDITIONS:
+                sub = ordered_pos[ordered_pos["condition"] == c]
+                ax.scatter(sub["position"], sub[adj_col] * scale, s=30,
+                           color=CONDITION_COLORS[c], zorder=2, label=f"adjusted ({c})")
+            adj = ordered_pos[["position", adj_col]].dropna()
+            if len(adj) >= 2:
+                slope, intercept = np.polyfit(adj["position"], adj[adj_col] * scale, 1)
+                xs_adj = adj["position"].to_numpy(dtype=float)
+                ax.plot(xs_adj, slope * xs_adj + intercept, "--", color="black", linewidth=1,
+                        label=f"adjusted trend ({slope:+.2f}/trial)")
+            ax.set_xlabel("actual trial position in session (1–27)")
+            ax.set_ylabel(ylabel)
+            ax.set_title(f"Adjusted session progression — {ylabel}", fontsize=10)
+            ax.legend(fontsize=6.5)
+        fig3.tight_layout()
+
+        # Difficulty-aligned progression: all 27 trials, relabelled
+        # occurrence 1-9 within each difficulty level.
+        difficulty_progression = sp.difficulty_progression_metrics(trials)
+        difficulty_summary = sp.difficulty_progression_summary(difficulty_progression)
+        difficulty_figures = {
+            slug.replace("group_learning_", "learning_"): fig
+            for slug, fig in sp_figures.build_difficulty_progression_figures(
+                difficulty_progression, difficulty_summary).items()
+        }
+
         caption = (
             "<h3>Learning progression</h3>"
-            "<p><b>Left figure pair — whole session:</b> every trial in presentation order, coloured by "
+            "<p><b>Figure 1 — whole session:</b> every trial in presentation order, coloured by "
             "condition, with a least-squares trend line. "
             f"Overall FA trend {session_fa_slope:+.2f} pp/trial, RT trend {session_rt_slope:+.1f} ms/trial "
-            "(negative RT slope = getting faster). Session-level trends mix conditions and difficulty, so read "
-            "them as general familiarisation, not condition learning.</p>"
-            "<p><b>Right figure pair — trial 1 → 3 within each condition-level cell:</b> the three unique "
+            "(negative RT slope = getting faster). This raw trend mixes conditions and difficulty, so read "
+            "it as general familiarisation, not condition learning — the adjusted views below are the ones "
+            "that isolate position.</p>"
+            "<p><b>Figure 2 — trial 1 → 3 within each condition-level cell:</b> the three unique "
             "sequences of a cell are averaged by their occurrence order. Because every sequence is seen only "
             "once, this is short-term exposure to the condition and difficulty, not sequence memorisation "
             "(the report's trial-order trend).</p>"
             "<p><b>1st → 3rd occurrence:</b><br>" + "<br>".join(improvements) + "</p>"
+            "<p><b>Figure 3 — composition-adjusted session progression (B/C):</b> at this participant's own "
+            "27 positions each slot carries exactly one randomly assigned condition × difficulty cell, so a "
+            "raw position curve is a schedule artefact as much as a trend. Each trial is therefore centred "
+            "on its own condition × level cell mean and returned to the participant's B/C grand mean; grey "
+            "dots are the observed values behind the adjustment, and only the adjusted trend should be read "
+            "as progression. Condition A is excluded from this B/C performance view.</p>"
+            "<p><b>Figures 4–5 — difficulty-aligned progression:</b> a complementary view keeping all 27 "
+            "trials. Within each difficulty, the nine trials are sorted by their real session position and "
+            "relabelled occurrence 1–9, so α (alpha), β (beta) and γ (gamma) can be overlaid on one axis. "
+            "The left panel is observed, the right subtracts the Condition × Difficulty mean and restores "
+            "the difficulty mean, removing changing condition composition as a source of apparent "
+            "progression. Adjusted key-accuracy values are centred display scores and can fall slightly "
+            "outside 0–100%; the observed panel carries the actual percentages. At N = 1 the bold "
+            "\"group mean\" line coincides with this participant's own trajectory.</p>"
         )
         fig1.tight_layout()
-        return caption, [("learning_session", fig1), ("learning_withincell", fig2)]
+        figures = {"learning_session": fig1, "learning_withincell": fig2,
+                   "learning_session_position": fig3}
+        figures.update(difficulty_figures)
+        datasets = {
+            "learning_within_cell_repetition": pa.within_cell_repetition(trials),
+            "learning_repetition_by_condition": pa.participant_repetition_metrics(trials),
+            "learning_session_position": pos,
+            "learning_difficulty_progression_trials": difficulty_progression,
+            "learning_difficulty_progression_summary": difficulty_summary,
+        }
+        return caption, figures, datasets
 
     @staticmethod
     def _session_slope(ordered: List[dict], key: str, scale: float) -> float:
@@ -454,7 +634,9 @@ class ParticipantAnalysisWindow(QMainWindow):
             "conditions separate is where guidance modality matters most for this participant.</p>"
             "<p>" + "<br>".join(summary_lines) + "</p>"
         )
-        return caption, [("difficulty", fig)]
+        return caption, {"difficulty": fig}, {
+            "difficulty_cell_metrics": pa.participant_cell_metrics(trials),
+        }
 
     # ------------------------------------------------------------------
     # Speed-accuracy trade-off
@@ -463,8 +645,6 @@ class ParticipantAnalysisWindow(QMainWindow):
         cond_titles = {c: self._condition_title(trials, c) for c in CONDITIONS}
         df = compute_trial_speed_accuracy(trials)
         centroids = speed_accuracy_centroids(df)
-        self._datasets["tradeoff_trials"] = df
-        self._datasets["tradeoff_centroids"] = centroids
         by_c = centroids.set_index("condition")
 
         fig = Figure(figsize=(9, 5.2))
@@ -509,7 +689,10 @@ class ParticipantAnalysisWindow(QMainWindow):
                          f"{len(excluded)} ({per_c}).")
         lines.append("No regression or connecting lines on purpose: 9 trials per condition are too few "
                      "for a trustworthy fit, and the three centroids stand on their own.")
-        return "".join(f"<p>{line}</p>" for line in lines), [("tradeoff", fig)]
+        return "".join(f"<p>{line}</p>" for line in lines), {"tradeoff": fig}, {
+            "tradeoff_trials": df,
+            "tradeoff_centroids": centroids,
+        }
 
     # ------------------------------------------------------------------
     # Event-level error breakdown (+ wrong-key distance)
@@ -517,7 +700,6 @@ class ParticipantAnalysisWindow(QMainWindow):
     def _build_errors(self, trials: List[dict], events: List[dict]):
         cond_titles = {c: self._condition_title(trials, c) for c in CONDITIONS}
         breakdown_df = compute_error_breakdown(events)
-        self._datasets["error_breakdown"] = breakdown_df
         # condition -> {category: count}, for the existing plotting code.
         breakdown = {
             c: dict(zip(sub["category"], sub["count"]))
@@ -570,7 +752,6 @@ class ParticipantAnalysisWindow(QMainWindow):
         # Figure C: wrong-key distance
         distance_df = compute_wrong_key_distance(events)
         stats_df = wrong_key_stats(distance_df)
-        self._datasets["wrongkey_distance"] = distance_df
         stats_by_c = stats_df.set_index("condition") if len(stats_df) else stats_df
         fig_c = Figure(figsize=(9, 3.4))
         axc = fig_c.subplots(1, 1)
@@ -591,7 +772,8 @@ class ParticipantAnalysisWindow(QMainWindow):
         axc.set_xlabel("distance from target key")
         axc.set_ylabel("wrong-key events")
         axc.set_title("Wrong-key distance (calibrated key-order index)", fontsize=10)
-        axc.legend(fontsize=8)
+        if len(stats_df):  # a flawless session draws no bars, hence no legend
+            axc.legend(fontsize=8)
         fig_c.tight_layout()
 
         # Caption with the B-vs-C arithmetic
@@ -624,12 +806,23 @@ class ParticipantAnalysisWindow(QMainWindow):
                              "keypresses.</b>")
         lines.append("Unresolved events are shown as their own category here, never folded into "
                      "\"wrong finger\"; under the primary FA definition they count as incorrect. "
-                     "Timeouts have no keypress and stay outside the key/finger cells. "
+                     "Timeouts have no keypress and stay outside the key/finger cells. Denominator: "
+                     "this participant's valid events — confirmed carry-over presses are already "
+                     "excluded, and unmatched extra presses are QC-only (Quality tab). "
                      "Descriptive only — group-level inference is reported separately.")
         caption = "".join(f"<p>{line}</p>" for line in lines)
-        return caption, [("errors_composition", fig_a),
-                         ("errors_counts", fig_b),
-                         ("errors_wrongkey_distance", fig_c)]
+        datasets = {
+            "error_breakdown": breakdown_df,
+            # Proportions rather than counts: the form the group window
+            # averages, and the one that stays comparable if a condition
+            # ends up with a different number of valid events.
+            "error_proportions": pa.participant_outcome_proportions(events),
+            "wrongkey_distance": distance_df,
+            "wrongkey_distance_summary": stats_df,
+        }
+        return caption, {"errors_composition": fig_a,
+                         "errors_counts": fig_b,
+                         "errors_wrongkey_distance": fig_c}, datasets
 
     # ------------------------------------------------------------------
     # Finger confusion matrices per condition
@@ -637,7 +830,7 @@ class ParticipantAnalysisWindow(QMainWindow):
     def _add_confusion_tab(self, trials: List[dict], events: List[dict]) -> None:
         cond_titles = {c: self._condition_title(trials, c) for c in CONDITIONS}
         confusion_df = compute_finger_confusion(events)
-        self._datasets["confusion_long"] = confusion_df
+        self._register_datasets({"confusion_long": confusion_df})
         data = {c: confusion_matrix(confusion_df, c) for c in CONDITIONS}
 
         def draw_matrix(ax, c: str, normalized: bool, vmax: float, cell_fontsize: float) -> None:
@@ -763,6 +956,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         caption_notes = []
         width = 0.25
         x = np.arange(len(FINGER_ORDER))
+        per_target_rows = []
         for i, c in enumerate(CONDITIONS):
             evs = [e for e in events if e["condition"] == c and not e["timed_out"]]
             fa_vals, rt_vals, ns = [], [], []
@@ -776,6 +970,11 @@ class ParticipantAnalysisWindow(QMainWindow):
                 )
                 rts = [e["rt_s"] for e in fe if e["rt_s"] is not None]
                 rt_vals.append(1000 * np.mean(rts) if rts else np.nan)
+                per_target_rows.append({
+                    "condition": c, "target_finger": f, "n": len(fe), "n_judged": len(judged),
+                    "fa": fa_vals[-1] / 100 if not np.isnan(fa_vals[-1]) else np.nan,
+                    "rt_s": rt_vals[-1] / 1000 if not np.isnan(rt_vals[-1]) else np.nan,
+                })
             ax1.bar(x + (i - 1) * width, fa_vals, width, color=CONDITION_COLORS[c], label=c)
             ax2.bar(x + (i - 1) * width, rt_vals, width, color=CONDITION_COLORS[c], label=c)
             weakest = min(
@@ -827,16 +1026,243 @@ class ParticipantAnalysisWindow(QMainWindow):
         if small_n_notes:
             caption_notes.append("small n (points, not boxes): " + ", ".join(small_n_notes))
 
+        # Homologous L/R merge (finger ID 1 thumb ... 5 little) - the cell
+        # grid the group window's Fingers tab and the Condition x Finger
+        # ANOVA are defined on. Ten cells of ~9 events each are thin; five
+        # merged cells roughly double the events behind every bar, at the
+        # cost of assuming the two hands behave alike for a given digit.
+        pf = pa.per_finger_metrics(events)
+        pf_bc = pf[pf["condition"].isin(pa.GUIDANCE_CONDITIONS)]
+        fig3 = Figure(figsize=(9, 6.6))
+        hx_fa, hx_rt = fig3.subplots(2, 1)
+        hx = np.arange(len(pa.FINGER_IDS))
+        hwidth = 0.32
+        offset_mid = (len(pa.GUIDANCE_CONDITIONS) - 1) / 2
+        homolog_notes = []
+        for i, c in enumerate(pa.GUIDANCE_CONDITIONS):
+            sub = pf_bc[pf_bc["condition"] == c].set_index("finger_id").reindex(pa.FINGER_IDS)
+            offset = (i - offset_mid) * hwidth
+            hx_fa.bar(hx + offset, sub["fa"].to_numpy(dtype=float) * 100, hwidth,
+                      color=CONDITION_COLORS[c], label=self._condition_title(self._trials, c))
+            hx_rt.bar(hx + offset, sub["rt_s"].to_numpy(dtype=float) * 1000, hwidth,
+                      color=CONDITION_COLORS[c], label=f"{c} — all responded")
+            # The ANOVA's "correct complete action" RT, drawn as a marker on
+            # the same bar so the two definitions can be compared at a glance.
+            hx_rt.scatter(hx + offset, sub["rt_complete_s"].to_numpy(dtype=float) * 1000,
+                          s=260, marker="_", color="black", linewidths=1.8, zorder=3,
+                          label="key- and finger-correct only" if i == 0 else None)
+            if sub["fa"].notna().any():
+                weakest_id = int(sub["fa"].idxmin())
+                homolog_notes.append(
+                    f"{c}: weakest homologous finger {fc.finger_label(weakest_id)} "
+                    f"({_fmt(sub.loc[weakest_id, 'fa'] * 100, 0, '%')})")
+        counts = pf_bc.groupby("finger_id")[["n_left", "n_right"]].sum()
+        htick_labels = [
+            f"{fc.finger_label(fid)}\nL {int(counts.loc[fid, 'n_left']) if fid in counts.index else 0}"
+            f" / R {int(counts.loc[fid, 'n_right']) if fid in counts.index else 0}"
+            for fid in pa.FINGER_IDS
+        ]
+        for ax, ylabel, title in (
+                (hx_fa, "Main FA (%)", "Finger accuracy by homologous finger ID (B/C)"),
+                (hx_rt, "RT (ms)", "Reaction time by homologous finger ID (B/C)")):
+            ax.set_xticks(hx, htick_labels, fontsize=8)
+            ax.set_ylabel(ylabel)
+            ax.set_title(title, fontsize=10)
+            ax.legend(fontsize=7)
+        fig3.tight_layout()
+
         caption = (
             "<h3>Per-finger profiles</h3>"
-            "<p>The report's main-figure view, computed within this participant: accuracy and RT stratified "
-            "by target finger, in physical keyboard order (left pinky → right pinky), grouped by condition. "
-            "Passive mechanical and neuromuscular coupling differ across digits, so a modality effect "
-            "concentrated in the ring/little fingers shows up here while staying hidden in the overall mean. "
-            "Bars use responded events only; unresolved finger verdicts count as incorrect.</p>"
+            "<p><b>Figures 1–2 — by physical target finger.</b> The report's main-figure view, computed "
+            "within this participant: accuracy and RT stratified by target finger, in physical keyboard "
+            "order (left pinky → right pinky), grouped by condition. Passive mechanical and neuromuscular "
+            "coupling differ across digits, so a modality effect concentrated in the ring/little fingers "
+            "shows up here while staying hidden in the overall mean. Bars use responded events only; "
+            "unresolved finger verdicts count as incorrect.</p>"
             "<p>" + "; ".join(caption_notes) + "</p>"
+            "<p><b>Figure 3 — by homologous finger ID (1 = thumb … 5 = little), B/C only.</b> The same "
+            "events with the two hands pooled by digit — the cell grid the group analysis and its "
+            "Condition × Finger ANOVA are defined on, shown here for one participant so the individual "
+            "profile and the group figure are directly comparable. The L/R counts under each tick state "
+            "exactly what was merged, and the black dashes mark the stricter "
+            "key-<i>and</i>-finger-correct RT (the ANOVA's \"correct complete action\" definition) beside "
+            "the all-responded bars. Condition A carries no target-finger cue and is not a per-finger "
+            "baseline, so it is omitted here while remaining in Figures 1–2.</p>"
+            "<p>" + "; ".join(homolog_notes) + "</p>"
         )
-        return caption, [("fingers_accuracy", fig), ("fingers_rt_boxplot", fig2)]
+        datasets = {
+            "fingers_by_target_finger": pd.DataFrame(per_target_rows),
+            "fingers_homologous_cells": pf,
+        }
+        return caption, {"fingers_accuracy": fig,
+                         "fingers_rt_boxplot": fig2,
+                         "fingers_homologous": fig3}, datasets
+
+    # ------------------------------------------------------------------
+    # Finger benefit
+    #
+    # The single-participant half of the Group Analysis window's Finger
+    # Benefit tab. The group version answers "does the haptic cue
+    # compensate the slow digits" with across-participant tests that need
+    # N >= 5; the question underneath it, however, is asked over ONE
+    # participant's five finger cells, so the descriptive quantities -
+    # the per-finger benefit, its three de-coupled correlations, and the
+    # across-finger dispersion - are computable here and are what this
+    # tab shows. No test is run and none is implied.
+
+    def _build_finger_benefit(self, events: List[dict]):
+        metric = "rt_complete_s"  # the RT the group RM-ANOVA leads with
+        baseline, cued = fc.BASELINE_CONDITION, fc.CUED_CONDITION
+        pf = pa.per_finger_metrics(events)
+        pairs, dropped = fc.paired_finger_cells(pf, metric, baseline, cued)
+        dropped_note = fc.describe_dropped(dropped)
+
+        if pairs.empty:
+            fig = Figure(figsize=(9, 2.4))
+            ax = fig.subplots(1, 1)
+            ax.axis("off")
+            ax.text(0.5, 0.5, "No complete B/C × 5-finger grid for this participant",
+                    ha="center", va="center", fontsize=11, color="#666666")
+            caption = (
+                "<h3>Per-finger benefit of the haptic cue</h3>"
+                "<p>This participant has no complete visual (B) / haptic (C) × five-finger grid on "
+                "the key- and finger-correct reaction time, so no benefit can be formed. "
+                + (f"{dropped_note}</p>" if dropped_note else
+                   "Cells are missing where a finger produced no key- and finger-correct response "
+                   "in one of the two conditions.</p>"))
+            return caption, {"finger_benefit": fig}, {}
+
+        # Figure 1: the benefit per finger, and the two cells behind it.
+        fig1 = Figure(figsize=(9, 6.2))
+        bx_cells, bx_benefit = fig1.subplots(2, 1)
+        x = np.arange(len(pa.FINGER_IDS))
+        by_finger = pairs.set_index("finger_id").reindex(pa.FINGER_IDS)
+        for i, (col, cond) in enumerate((("baseline", baseline), ("cued", cued))):
+            bx_cells.bar(x + (i - 0.5) * 0.34, by_finger[col].to_numpy(dtype=float) * 1000, 0.34,
+                         color=CONDITION_COLORS[cond],
+                         label=self._condition_title(self._trials, cond))
+        bx_cells.set_xticks(x, [fc.finger_label(f) for f in pa.FINGER_IDS], fontsize=8)
+        bx_cells.set_ylabel("RT (ms)")
+        bx_cells.set_title("Key- and finger-correct RT per homologous finger", fontsize=10)
+        bx_cells.legend(fontsize=7)
+
+        benefits_ms = by_finger["benefit"].to_numpy(dtype=float) * 1000
+        colors = ["#4a9d5b" if b > 0 else "#c94f4f" for b in benefits_ms]
+        bars = bx_benefit.bar(x, benefits_ms, 0.55, color=colors)
+        for bar, v in zip(bars, benefits_ms):
+            if np.isfinite(v):
+                bx_benefit.text(bar.get_x() + bar.get_width() / 2, v,
+                                f"{v:+.0f}", ha="center",
+                                va="bottom" if v >= 0 else "top", fontsize=8)
+        bx_benefit.axhline(0, color="black", linewidth=0.9)
+        mean_benefit = float(np.nanmean(benefits_ms)) if np.isfinite(benefits_ms).any() else np.nan
+        if np.isfinite(mean_benefit):
+            bx_benefit.axhline(mean_benefit, color="#555555", linestyle="--", linewidth=1,
+                               label=f"mean across fingers ({mean_benefit:+.0f} ms)")
+            bx_benefit.legend(fontsize=7)
+        bx_benefit.set_xticks(x, [fc.finger_label(f) for f in pa.FINGER_IDS], fontsize=8)
+        bx_benefit.set_ylabel("benefit (ms, positive = C faster)")
+        bx_benefit.set_title(f"Haptic benefit per finger ({cued} vs {baseline})", fontsize=10)
+        fig1.tight_layout()
+
+        # Figure 2: benefit vs baseline under the three estimators. The
+        # naive panel is the coupled one and is labelled as such.
+        estimators = fb.descriptive_estimators(events, pairs, metric, baseline, cued)
+        fig2 = Figure(figsize=(10.2, 3.7))
+        axes = fig2.subplots(1, len(estimators))
+        est_lines = []
+        for ax, entry in zip(np.atleast_1d(axes), estimators):
+            points = entry["points"]
+            per_p = entry["per_participant"]
+            r = float(per_p["r"].iloc[0]) if len(per_p) else np.nan
+            slope = float(per_p["slope"].iloc[0]) if len(per_p) else np.nan
+            if len(points):
+                xs = points["x"].to_numpy(dtype=float) * 1000
+                ys = points["y"].to_numpy(dtype=float) * 1000
+                ax.scatter(xs, ys, s=40, color=CONDITION_COLORS[cued], zorder=2)
+                for xi, yi, fid in zip(xs, ys, points["finger_id"]):
+                    ax.annotate(str(int(fid)), (xi, yi), fontsize=7,
+                                textcoords="offset points", xytext=(4, 3))
+                if np.isfinite(slope) and xs.size >= 2:
+                    line_x = np.array([xs.min(), xs.max()])
+                    intercept = ys.mean() - slope * xs.mean()
+                    ax.plot(line_x, slope * line_x + intercept, "--", color="black", linewidth=1)
+            ax.axhline(0, color="#999999", linewidth=0.8)
+            ax.set_xlabel(entry["x_label"] + " (ms)", fontsize=8)
+            ax.set_ylabel("benefit (ms)", fontsize=8)
+            ax.set_title(f"{entry['label'].split('—')[0].strip()}\nr = {_fmt(r, 2)}, "
+                         f"slope = {_fmt(slope, 2)}", fontsize=9)
+            est_lines.append(
+                f"<b>{entry['label']}</b>: r = {_fmt(r, 2)}, slope = {_fmt(slope, 2)} "
+                f"({entry['n_points']} finger cells). {entry['caveat']}")
+        fig2.tight_layout()
+
+        # Figure 3: across-finger dispersion, the equalisation question.
+        dispersion = fq.dispersion_table(events, metric, [baseline, cued])
+        fig3 = Figure(figsize=(9, 3.4))
+        dx = fig3.subplots(1, 1)
+        measures = [("sd_raw", "SD"), ("sd_corrected", "SD, noise-corrected"),
+                    ("range", "Range"), ("cv_raw", "CV (×1000, scale-free)")]
+        disp_by_c = dispersion.set_index("condition") if len(dispersion) else dispersion
+        dxs = np.arange(len(measures))
+        disp_lines = []
+        for i, cond in enumerate((baseline, cued)):
+            if not len(dispersion) or cond not in disp_by_c.index:
+                continue
+            row = disp_by_c.loc[cond]
+            vals = [row["sd_raw"] * 1000, row["sd_corrected"] * 1000,
+                    row["range"] * 1000, row["cv_raw"] * 1000]
+            dx.bar(dxs + (i - 0.5) * 0.34, vals, 0.34, color=CONDITION_COLORS[cond],
+                   label=self._condition_title(self._trials, cond))
+            disp_lines.append(
+                f"{cond}: mean {_fmt(row['mean'] * 1000, 0, ' ms')}, SD {_fmt(row['sd_raw'] * 1000, 1)}, "
+                f"noise-corrected SD {_fmt(row['sd_corrected'] * 1000, 1)}, "
+                f"CV {_fmt(row['cv_raw'], 3)}")
+        dx.set_xticks(dxs, [label for _, label in measures], fontsize=8)
+        dx.set_ylabel("ms (CV scaled ×1000)")
+        dx.set_title("Spread of RT across the five fingers — is the cued condition more even?",
+                     fontsize=10)
+        dx.legend(fontsize=7)
+        fig3.tight_layout()
+
+        n_better = int(np.sum(benefits_ms > 0)) if np.isfinite(benefits_ms).any() else 0
+        n_defined = int(np.sum(np.isfinite(benefits_ms)))
+        caption = (
+            "<h3>Per-finger benefit of the haptic cue</h3>"
+            f"<p>Metric: key- <i>and</i> finger-correct reaction time, {cued} vs {baseline}; positive "
+            "benefit means the haptic condition was faster on that digit. "
+            f"{n_better} of {n_defined} fingers benefited, mean "
+            f"{_fmt_signed(mean_benefit, 0, ' ms')} across fingers.</p>"
+            + (f"<p>{dropped_note}</p>" if dropped_note else "")
+            + "<p><b>Does the cue compensate the slow digits, or speed every digit up alike?</b> "
+            "Asked as the correlation between a finger's benefit and its baseline RT — but the "
+            "benefit <i>contains</i> the baseline, so their shared sampling noise manufactures a "
+            "positive correlation even under a perfectly uniform speed-up. The three panels are the "
+            "same question with progressively less of that artefact; the gap between the naive and "
+            "the split-half value is the size of the artefact, and is more informative than either "
+            "number alone. Point labels are finger IDs.</p>"
+            "<p>" + "<br>".join(est_lines) + "</p>"
+            "<p><b>Evenness across fingers.</b> A cue that genuinely equalises the hand should shrink "
+            "the spread across digits by more than a proportional speed-up would. The noise-corrected "
+            "SD removes the part of the spread that is just each cell's own sampling error, and the "
+            "CV is scale-free — a uniform proportional speed-up leaves it unchanged, so only a fall in "
+            "the CV counts as evening-out.</p>"
+            "<p>" + "<br>".join(disp_lines) + "</p>"
+            "<p><b>Descriptive only, and thin.</b> Every number on this tab rests on five finger cells "
+            "from one participant, so a single noisy digit can turn a correlation around. The group "
+            "window runs the same three estimators with participants as the independent unit and is "
+            "the only place a compensation or equalisation claim is tested.</p>"
+        )
+        datasets = {
+            "finger_benefit_cells": pairs,
+            "finger_benefit_estimators": pd.concat(
+                [e["points"].assign(estimator=e["key"]) for e in estimators if len(e["points"])],
+                ignore_index=True) if any(len(e["points"]) for e in estimators) else pd.DataFrame(),
+            "finger_benefit_dispersion": dispersion,
+        }
+        return caption, {"finger_benefit": fig1,
+                         "finger_benefit_estimators": fig2,
+                         "finger_benefit_dispersion": fig3}, datasets
 
     # ------------------------------------------------------------------
     # Timing
@@ -845,6 +1271,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         fig = Figure(figsize=(9, 3.8))
         ax1, ax2 = fig.subplots(1, 2)
         stats_lines = []
+        summary_rows = []
         rt_sets, labels, colors = [], [], []
         for c in CONDITIONS:
             rts = [e["rt_s"] * 1000 for e in events
@@ -859,6 +1286,12 @@ class ParticipantAnalysisWindow(QMainWindow):
                 f"{c}: median {np.median(rts):.0f} ms, mean {np.mean(rts):.0f} ms, "
                 f"SD {np.std(rts):.0f} ms, p95 {np.percentile(rts, 95):.0f} ms (n={len(rts)})"
             )
+            summary_rows.append({
+                "condition": c, "n_events": len(rts),
+                "median_ms": float(np.median(rts)), "mean_ms": float(np.mean(rts)),
+                "sd_ms": float(np.std(rts)), "min_ms": float(np.min(rts)),
+                "p95_ms": float(np.percentile(rts, 95)), "max_ms": float(np.max(rts)),
+            })
         ax1.set_xlabel("RT (ms), correct-key events")
         ax1.set_ylabel("events")
         ax1.set_title("RT distribution by condition", fontsize=10)
@@ -879,15 +1312,18 @@ class ParticipantAnalysisWindow(QMainWindow):
             "yet differ in consistency — SD and p95 carry that.</p>"
             "<p>" + "<br>".join(stats_lines) + "</p>"
         )
-        return caption, [("timing_rt_distributions", fig)]
+        return caption, {"timing_rt_distributions": fig}, {
+            "timing_rt_summary": pd.DataFrame(summary_rows),
+        }
 
     # ------------------------------------------------------------------
     # Quality
 
-    def _build_quality(self, trials: List[dict]):
+    def _build_quality(self, trials: List[dict], all_events: List[dict]):
         fig = Figure(figsize=(9, 3.4))
         ax = fig.subplots(1, 1)
-        cats = ["Timeouts", "Wrong key", "Extra presses (QC)", "Manual corrections"]
+        cats = ["Timeouts", "Wrong key", "Extra presses (QC)", "Manual corrections",
+                "Excluded carry-over", "Suspected carry-over"]
         width = 0.25
         x = np.arange(len(cats))
         lines = []
@@ -898,6 +1334,8 @@ class ParticipantAnalysisWindow(QMainWindow):
                 sum(t["wrong_key"] for t in ts),
                 sum(t["qc_extra_presses"] or 0 for t in ts),
                 sum(t["manual_corrections"] for t in ts),
+                sum(t["excluded_carryover"] or 0 for t in ts),
+                sum(t["suspected_carryover"] or 0 for t in ts),
             ]
             ax.bar(x + (i - 1) * width, vals, width, color=CONDITION_COLORS[c], label=c)
             unresolved = _mean([t["unresolved_rate"] for t in ts if t["analyzed"]])
@@ -908,18 +1346,110 @@ class ParticipantAnalysisWindow(QMainWindow):
                 f"<b>{c}</b>: unresolved {_fmt_pct(unresolved)}, ambiguous {_fmt_pct(ambiguous)}, "
                 f"borderline events {borderline}, sync methods {{{', '.join(sorted(sync_methods))}}}"
             )
-        ax.set_xticks(x, cats)
+        ax.set_xticks(x, cats, fontsize=7.5)
         ax.set_ylabel("count (all trials of the condition)")
         ax.set_title("Error and audit counts by condition", fontsize=10)
         ax.legend(fontsize=8)
         fig.tight_layout()
+
+        # Session-level audit row - the same counters the group window
+        # tabulates per participant, so this participant's line can be
+        # read against the group table without recomputation.
+        audit = pa.quality_summary(trials, all_events)
+        audit_html = ""
+        if len(audit):
+            r = audit.iloc[0]
+            audit_html = (
+                "<table border='0' cellspacing='0' cellpadding='4'>"
+                "<tr><th align='left'>Session totals</th><th>Trials (analyzed)</th>"
+                "<th>Valid / total events</th><th>Excluded carry-over</th>"
+                "<th>Suspected unresolved</th><th>Manual corrections</th>"
+                "<th>Unresolved</th><th>Ambiguous</th><th>Borderline</th>"
+                "<th>Extra presses (QC)</th><th>Sync</th></tr>"
+                f"<tr><td><b>{r['participant']}</b></td>"
+                f"<td align='center'>{int(r['n_trials'])} ({int(r['n_analyzed'])})</td>"
+                f"<td align='center'>{int(r['n_valid_events'])} / {int(r['n_events'])}</td>"
+                f"<td align='center'>{int(r['excluded_carryover'])}</td>"
+                f"<td align='center'>{int(r['suspected_carryover'])}</td>"
+                f"<td align='center'>{int(r['manual_corrections'])}</td>"
+                f"<td align='center'>{_fmt(r['unresolved_rate'] * 100, 1, '%')}</td>"
+                f"<td align='center'>{_fmt(r['ambiguous_rate'] * 100, 1, '%')}</td>"
+                f"<td align='center'>{int(r['borderline_events'])}</td>"
+                f"<td align='center'>{int(r['qc_extra_presses'])}</td>"
+                f"<td align='center'>{r['sync_methods']}</td></tr></table>")
+
+        # Threshold sensitivity: how much of this participant's finger
+        # accuracy is an artefact of where the detection threshold sits.
+        theta = pa.threshold_sensitivity(trials, all_events)
+        theta_html = ""
+        fig_theta = None
+        if not theta.empty:
+            thetas = sorted(theta["theta"].unique())
+            fig_theta = Figure(figsize=(9, 3.2))
+            tx = fig_theta.subplots(1, 1)
+            t_tab = ["<table border='0' cellspacing='0' cellpadding='3'>"
+                     "<tr><th align='left'>FA by detection threshold θ</th>"
+                     + "".join(f"<th>{th:.2f}</th>" for th in thetas) + "</tr>"]
+            for c in pa.GUIDANCE_CONDITIONS:
+                sub = theta[theta["condition"] == c].set_index("theta").reindex(thetas)
+                if sub["fa"].notna().any():
+                    tx.plot(thetas, sub["fa"].to_numpy(dtype=float) * 100, "o-",
+                            color=CONDITION_COLORS[c], label=self._condition_title(trials, c))
+                cells = "".join(f"<td align='center'>{_fmt(v * 100, 0, '%')}</td>"
+                                for v in sub["fa"])
+                t_tab.append(f"<tr><td><b>{c}</b></td>{cells}</tr>")
+            t_tab.append("</table>")
+            tx.axvline(0.40, color="#999999", linestyle="--", linewidth=1)
+            tx.annotate("θ = 0.40 (analysis value)", (0.40, tx.get_ylim()[0]),
+                        fontsize=7, color="#666666", xytext=(4, 4),
+                        textcoords="offset points")
+            tx.set_xlabel("finger-detection probability threshold θ")
+            tx.set_ylabel("FA (%)")
+            tx.set_title("Threshold sensitivity of finger accuracy (B/C, analyzed trials)",
+                         fontsize=10)
+            tx.legend(fontsize=8)
+            fig_theta.tight_layout()
+
+            final_rows = []
+            for c in pa.GUIDANCE_CONDITIONS:
+                ts = [t for t in trials if t["condition"] == c and t["analyzed"]]
+                final_rows.append(
+                    f"<tr><td><b>{c}</b></td><td align='center'>"
+                    f"{_fmt((_mean([t['fa_main'] for t in ts]) or np.nan) * 100, 1, '%')}"
+                    "</td></tr>")
+            theta_html = (
+                "<p><b>Threshold sensitivity.</b> Every θ, including the 0.40 the analysis runs at, is "
+                "recomputed from the same unedited event-level target-finger probabilities, so the curve "
+                "shows how much of this participant's finger accuracy is a threshold choice rather than a "
+                "behavioural difference — a B/C gap that survives across θ is not an artefact of where the "
+                "line was drawn. The final reviewed Main FA is a different measurement stream (it carries "
+                "the hand-verified corrections) and is therefore listed separately, never plotted on the "
+                "curve.</p><p>" + "".join(t_tab) + "<br>"
+                "<table border='0' cellspacing='0' cellpadding='3'>"
+                "<tr><th align='left'>Final reviewed Main FA (separate reference)</th><th>Mean</th></tr>"
+                + "".join(final_rows) + "</table></p>")
+        else:
+            theta_html = ("<p><b>Threshold sensitivity:</b> not available — no video-analyzed B/C trial "
+                          "carries event-level target-finger probabilities.</p>")
+
         caption = (
             "<h3>Data quality & audit</h3>"
             "<p>Not an outcome — the trust context for every other tab. High unresolved/ambiguous rates "
             "mean the camera evidence is weak for those trials (check occlusion or sync); borderline events "
             "are the ones whose finger verdict sits within ±0.05 of the θ=0.40 threshold and were the "
             "manual-audit priority; sync methods show which trials rest on an auto-detected vs "
-            "manually confirmed vs missing alignment.</p>"
+            "manually confirmed vs missing alignment. Excluded carry-over events were manually confirmed "
+            "and are already out of every other tab; suspected carry-over still awaits a verdict and is "
+            "still counted as a real response; extra presses are unmatched raw MIDI presses (QC only).</p>"
             "<p>" + "<br>".join(lines) + "</p>"
+            + (f"<p>{audit_html}</p>" if audit_html else "")
+            + theta_html
         )
-        return caption, [("quality_audit", fig)]
+        figures = {"quality_audit": fig}
+        if fig_theta is not None:
+            figures["quality_threshold_sensitivity"] = fig_theta
+        datasets = {
+            "quality_audit": audit,
+            "quality_threshold_sensitivity": theta,
+        }
+        return caption, figures, datasets

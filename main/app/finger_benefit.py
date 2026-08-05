@@ -232,6 +232,37 @@ def _split_half_points(event_rows: List[dict], metric: str,
     return frame[frame["participant"].isin(keep)].reset_index(drop=True)
 
 
+def descriptive_estimators(event_rows: List[dict], pairs: pd.DataFrame,
+                           metric: str, baseline: str, cued: str) -> List[dict]:
+    """The three estimators' points and their per-participant r / slope,
+    with no group test attached.
+
+    This is the whole descriptive layer of the analysis, and it is
+    meaningful for a SINGLE participant: the coupling argument above is
+    about one participant's five finger cells, and split-half removes it
+    within that participant's own trials. The single-participant window
+    shows exactly this, while compensation_analysis() adds the
+    across-participant inference that N = 1 cannot support."""
+    point_sets = {
+        "naive": _coupled_points(pairs, "baseline"),
+        "oldham": _coupled_points(pairs, "average"),
+        "split_half": _split_half_points(event_rows, metric, baseline, cued),
+    }
+    estimators = []
+    for key, label, x_label, caveat in ESTIMATORS:
+        points = point_sets[key]
+        per_p = _per_participant(points) if len(points) else pd.DataFrame(
+            columns=["participant", "n_points", "r", "p", "z", "slope"])
+        estimators.append({
+            "key": key, "label": label, "x_label": x_label, "caveat": caveat,
+            "n_participants": int(points["participant"].nunique()) if len(points) else 0,
+            "n_points": len(points),
+            "points": points,
+            "per_participant": per_p,
+        })
+    return estimators
+
+
 def compensation_analysis(event_rows: List[dict], metric: str = "rt_complete_s",
                           baseline: str = fc.BASELINE_CONDITION,
                           cued: str = fc.CUED_CONDITION) -> dict:
@@ -255,25 +286,14 @@ def compensation_analysis(event_rows: List[dict], metric: str = "rt_complete_s",
             f"{baseline}/{cued} × {len(fc.FINGER_IDS)}-finger grid on {metric} (have {n})")
         return result
 
-    point_sets = {
-        "naive": _coupled_points(pairs, "baseline"),
-        "oldham": _coupled_points(pairs, "average"),
-        "split_half": _split_half_points(event_rows, metric, baseline, cued),
-    }
-    for key, label, x_label, caveat in ESTIMATORS:
-        points = point_sets[key]
-        per_p = _per_participant(points) if len(points) else pd.DataFrame(
-            columns=["participant", "n_points", "r", "p", "z", "slope"])
-        result["estimators"].append({
-            "key": key, "label": label, "x_label": x_label, "caveat": caveat,
-            "n_participants": int(points["participant"].nunique()) if len(points) else 0,
-            "n_points": len(points),
-            "points": points,
-            "per_participant": per_p,
-            "group": _two_stage(per_p),
-            "slope": _slope_summary(per_p),
+    for entry in descriptive_estimators(event_rows, pairs, metric, baseline, cued):
+        points = entry["points"]
+        entry.update({
+            "group": _two_stage(entry["per_participant"]),
+            "slope": _slope_summary(entry["per_participant"]),
             "rm_corr": _rm_corr(points) if len(points) else None,
         })
+        result["estimators"].append(entry)
     return result
 
 

@@ -1,0 +1,19 @@
+participant,condition,category,count,n_events,proportion
+P02,A,Correct key + correct finger,35,269,0.13011152416356878
+P02,A,Correct key + wrong finger,227,269,0.8438661710037175
+P02,A,Wrong key + correct finger,1,269,0.0037174721189591076
+P02,A,Wrong key + wrong finger,6,269,0.022304832713754646
+P02,A,Unresolved finger,0,269,0.0
+P02,A,No response (timeout),0,269,0.0
+P02,B,Correct key + correct finger,239,270,0.8851851851851852
+P02,B,Correct key + wrong finger,22,270,0.08148148148148149
+P02,B,Wrong key + correct finger,8,270,0.02962962962962963
+P02,B,Wrong key + wrong finger,1,270,0.003703703703703704
+P02,B,Unresolved finger,0,270,0.0
+P02,B,No response (timeout),0,270,0.0
+P02,C,Correct key + correct finger,259,270,0.9592592592592593
+P02,C,Correct key + wrong finger,8,270,0.02962962962962963
+P02,C,Wrong key + correct finger,3,270,0.011111111111111112
+P02,C,Wrong key + wrong finger,0,270,0.0
+P02,C,Unresolved finger,0,270,0.0
+P02,C,No response (timeout),0,270,0.0
