@@ -25,7 +25,10 @@
     "actual_finger_point": [
       514,
       291
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 1,
@@ -58,7 +61,10 @@
     "actual_finger_point": [
       605,
       271
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 2,
@@ -91,7 +97,10 @@
     "actual_finger_point": [
       458,
       276
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 3,
@@ -110,7 +119,10 @@
     "finger_correct": null,
     "finger_probabilities": null,
     "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger_point": null,
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 4,
@@ -143,7 +155,10 @@
     "actual_finger_point": [
       554,
       285
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 5,
@@ -176,7 +191,10 @@
     "actual_finger_point": [
       659,
       288
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 6,
@@ -195,7 +213,10 @@
     "finger_correct": null,
     "finger_probabilities": null,
     "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger_point": null,
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 7,
@@ -214,7 +235,10 @@
     "finger_correct": null,
     "finger_probabilities": null,
     "target_finger_probability": null,
-    "actual_finger_point": null
+    "actual_finger_point": null,
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 8,
@@ -247,7 +271,10 @@
     "actual_finger_point": [
       623,
       317
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 9,
@@ -280,7 +307,10 @@
     "actual_finger_point": [
       349,
       303
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 10,
@@ -313,7 +343,10 @@
     "actual_finger_point": [
       740,
       238
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 11,
@@ -346,6 +379,9 @@
     "actual_finger_point": [
       509,
       323
-    ]
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   }
 ]

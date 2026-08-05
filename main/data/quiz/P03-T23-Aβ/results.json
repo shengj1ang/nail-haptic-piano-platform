@@ -17,7 +17,9 @@
     "finger_probabilities": null,
     "target_finger_probability": null,
     "actual_finger_point": null,
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 1,
@@ -51,7 +53,9 @@
       692,
       233
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 2,
@@ -85,7 +89,9 @@
       601,
       264
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 3,
@@ -119,7 +125,9 @@
       542,
       256
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 4,
@@ -153,7 +161,9 @@
       656,
       253
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 5,
@@ -187,7 +197,9 @@
       622,
       259
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 6,
@@ -221,7 +233,9 @@
       518,
       256
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 7,
@@ -255,7 +269,9 @@
       617,
       263
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 8,
@@ -289,7 +305,9 @@
       698,
       239
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 9,
@@ -323,7 +341,9 @@
       531,
       269
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 10,
@@ -357,7 +377,9 @@
       482,
       252
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 11,
@@ -391,7 +413,9 @@
       657,
       244
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 12,
@@ -425,7 +449,9 @@
       703,
       245
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 13,
@@ -459,7 +485,9 @@
       569,
       254
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 14,
@@ -493,7 +521,9 @@
       603,
       257
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 15,
@@ -527,7 +557,9 @@
       656,
       248
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 16,
@@ -561,7 +593,9 @@
       480,
       245
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 17,
@@ -595,7 +629,9 @@
       605,
       260
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 18,
@@ -629,7 +665,9 @@
       663,
       249
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 19,
@@ -663,7 +701,9 @@
       554,
       261
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 20,
@@ -697,7 +737,9 @@
       363,
       239
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 21,
@@ -731,7 +773,9 @@
       320,
       234
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 22,
@@ -765,7 +809,9 @@
       361,
       236
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 23,
@@ -799,7 +845,9 @@
       442,
       245
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 24,
@@ -833,7 +881,9 @@
       464,
       250
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 25,
@@ -867,7 +917,9 @@
       688,
       236
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 26,
@@ -901,7 +953,9 @@
       604,
       264
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 27,
@@ -935,7 +989,9 @@
       613,
       264
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   },
   {
     "index": 28,
@@ -969,7 +1025,9 @@
       664,
       260
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
   },
   {
     "index": 29,
@@ -1003,6 +1061,8 @@
       709,
       240
     ],
-    "validity": "valid"
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": true
   }
 ]
