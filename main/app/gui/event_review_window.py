@@ -19,12 +19,12 @@ Below the player, the event's target finger, detected finger, and
 probability evidence are shown, and the Actual Finger can be corrected
 from the physical finger list.
 
-A correction changes ONLY actual_finger (and re-judges finger_correct as
-an exact match against the target finger). The stored softmax
-probabilities and target_finger_probability are deliberately left
-untouched: the automatic pipeline always sets actual_finger to the
-softmax argmax, so actual_finger disagreeing with the argmax is the
-audit trail that marks the event as manually corrected (see
+A correction changes actual_finger, re-judges finger_correct as an exact
+match against the target finger, and sets finger_corrected as the audit
+trail. The stored softmax probabilities and target_finger_probability
+are deliberately left untouched, so the event can still be re-judged
+under a different threshold (and corrections made before
+finger_corrected existed remain recognisable - see
 app.quiz.finger_manually_corrected).
 """
 
@@ -230,9 +230,16 @@ class EventReviewWindow(QMainWindow):
 
         save_btn = QPushButton("Save correction")
         save_btn.clicked.connect(self._save_correction)
+        confirm_btn = QPushButton("Confirm as is")
+        confirm_btn.setToolTip(
+            "The automatic verdict was right - change nothing, just record that this event has "
+            "been watched so it leaves the review queue."
+        )
+        confirm_btn.clicked.connect(self._confirm_as_is)
         self.save_note = QLabel(
-            "Correction changes Actual Finger only - the stored probabilities stay untouched, "
-            "which is what marks the event as manually corrected."
+            "Correction changes Actual Finger only - the stored probabilities stay untouched. "
+            "Either button records that a human has ruled on this event, which takes it off the "
+            "review queue."
         )
         self.save_note.setWordWrap(True)
 
@@ -240,6 +247,7 @@ class EventReviewWindow(QMainWindow):
         correction_row.addWidget(QLabel("Actual finger was:"))
         correction_row.addWidget(self.finger_combo, 1)
         correction_row.addWidget(save_btn)
+        correction_row.addWidget(confirm_btn)
 
         box = QGroupBox("Correct Actual Finger")
         box_layout = QVBoxLayout(box)
@@ -413,20 +421,37 @@ class EventReviewWindow(QMainWindow):
 
     # ------------------------------------------------------------------
 
-    def _save_correction(self) -> None:
-        new_finger = self.finger_combo.currentData()
-        # Re-read from disk so a correction saved from another event's
-        # window in the meantime isn't clobbered.
+    def _write_verdict(self, corrected: bool):
+        """Persist this event's human verdict. Re-reads from disk first so
+        a correction saved from another event's window in the meantime
+        isn't clobbered."""
         results = load_quiz_results(quiz_dir(self.quiz_name) / RESULTS_FILENAME)
         r = results[self.event_index]
-        r.actual_finger = new_finger
-        # Manual ground truth replaces the probability-threshold rule for
-        # this event: correct means exactly the target finger.
-        r.finger_correct = (new_finger == r.target_finger) if r.target_finger is not None else None
+        if corrected:
+            new_finger = self.finger_combo.currentData()
+            r.actual_finger = new_finger
+            # Manual ground truth replaces the probability-threshold rule
+            # for this event: correct means exactly the target finger.
+            r.finger_correct = (new_finger == r.target_finger) if r.target_finger is not None else None
+            r.finger_corrected = True  # explicit audit trail, never inferred
+        r.finger_reviewed = True  # watched by a human either way
         save_quiz_results(results, quiz_dir(self.quiz_name) / RESULTS_FILENAME)
         self.result = r
+        return r
+
+    def _save_correction(self) -> None:
+        r = self._write_verdict(corrected=True)
         self.save_note.setText(
-            f"✔ Saved: Actual Finger = {new_finger or 'unresolved'}, finger_correct = {r.finger_correct}. "
-            "Run Analyze selected (data only) in Quiz Analysis to refresh the stored summary metrics."
+            f"✔ Saved: Actual Finger = {r.actual_finger or 'unresolved'}, "
+            f"finger_correct = {r.finger_correct}. Run Analyze selected (data only) in Quiz "
+            "Analysis to refresh the stored summary metrics."
+        )
+        self.saved.emit(self.quiz_name)
+
+    def _confirm_as_is(self) -> None:
+        r = self._write_verdict(corrected=False)
+        self.save_note.setText(
+            f"✔ Reviewed, nothing changed: Actual Finger stays {r.actual_finger or 'unresolved'}, "
+            f"finger_correct = {r.finger_correct}. The event is off the review queue."
         )
         self.saved.emit(self.quiz_name)

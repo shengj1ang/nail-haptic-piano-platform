@@ -137,6 +137,17 @@ class QuizResult:
     # window) after reviewing a suspected carry-over response - see
     # suspected_carryover(). Invalid events are excluded from summarize().
     validity: str = "valid"
+    # Set by the event review window when a human overrides actual_finger,
+    # so the audit trail doesn't have to be inferred from the stored
+    # probabilities - see finger_manually_corrected(). Events corrected
+    # before this field existed carry False and are recognised by the
+    # inference instead.
+    finger_corrected: bool = False
+    # Set whenever a human has ruled on this event in the review window -
+    # including "watched it, the automatic verdict was right, changed
+    # nothing", which finger_corrected can't express. Only this field
+    # takes an event out of the review queue (see needs_finger_review).
+    finger_reviewed: bool = False
 
 
 def save_quiz_results(results: List[QuizResult], path: Path) -> None:
@@ -200,6 +211,21 @@ SENSITIVITY_THRESHOLDS = [0.30, 0.35, 0.40, 0.45, 0.50]
 # a slightly different theta, so these are the events most worth checking
 # in the review video during the manual audit.
 BORDERLINE_MARGIN = 0.05
+
+# Manual-review policy (see needs_finger_review). A failed finger verdict
+# only goes into the review queue if the target finger held at least this
+# much of the probability mass; below it the automatic verdict is taken as
+# final. This is NOT a scoring threshold - FINGER_PROBABILITY_THRESHOLD
+# stays the sole judge of F_t - it only decides which videos a human
+# watches.
+#
+# Calibrated on the P01-P10 audit, where every failed event was reviewed
+# and 290 turned out to be correct: the lowest of those sat at p = 0.042,
+# so this floor keeps all of them (0.02 leaves a safety margin for future
+# participants) while dropping the bulk of the queue - the events where
+# the pressing fingertip is nowhere near the key and the verdict is never
+# overturned.
+FINGER_REVIEW_FLOOR = 0.02
 
 # A matched response this soon after cue onset is faster than a planned
 # reaction - the movement almost certainly started before the cue (typically
@@ -383,14 +409,22 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
     # see suspected_carryover(). Never auto-counted as anticipation.
     suspected = sum(1 for r in results if suspected_carryover(r))
 
-    # Target-vs-detected finger confusion counts (None = unresolved), for
-    # the per-trial detail view's confusion matrix.
-    confusion: Dict[str, Dict[Optional[str], int]] = {}
+    # Target-vs-detected finger confusion for the per-trial detail view
+    # (None column = unresolved). Each cell carries both how many events
+    # landed in it ("n") and how many of those still scored as the right
+    # finger ("passed"), because the two are not the same question: the
+    # detected finger is the argmax, while F_t is the threshold rule on
+    # the *target* finger's mass. An event where a neighbour is fractionally
+    # more probable but the target still clears theta sits off the diagonal
+    # and is scored correct - without "passed" the matrix would look like it
+    # contradicts the trial's finger accuracy.
+    confusion: Dict[str, Dict[Optional[str], Dict[str, int]]] = {}
     for r in responded:
         if r.target_finger is None:
             continue
-        row = confusion.setdefault(r.target_finger, {})
-        row[r.actual_finger] = row.get(r.actual_finger, 0) + 1
+        cell = confusion.setdefault(r.target_finger, {}).setdefault(r.actual_finger, {"n": 0, "passed": 0})
+        cell["n"] += 1
+        cell["passed"] += 1 if r.finger_correct else 0
 
     fa_main = a_count / total if total else None
     return {
@@ -430,6 +464,7 @@ def summarize(results: List[QuizResult]) -> Dict[str, object]:
         "excluded_carryover": excluded_carryover,
         "confusion": confusion,
         "manual_corrections": sum(1 for r in responded if finger_manually_corrected(r)),
+        "to_review": sum(1 for r in results if needs_finger_review(r)),
     }
 
 
@@ -484,20 +519,59 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
 
 
 def finger_manually_corrected(r: QuizResult) -> bool:
-    """Was this event's actual_finger hand-corrected (in the per-event
-    review window)? Manual correction deliberately leaves the stored
-    probabilities untouched, so a *strictly less probable* actual_finger
-    is the audit trail. Ties don't count: the probabilities are distance-
-    only, while app.finger_matching picks the reported finger with an
-    inside-the-key preference on top (and the chord path claims fingers
-    greedily), so two fingertips sharing the top probability can legally
-    disagree with the argmax without anyone touching the event. An
-    originally-unresolved event (no distribution) that now carries a
-    finger is likewise a manual edit."""
+    """Was this event's actual_finger hand-corrected in the event review
+    window? Corrections made since QuizResult.finger_corrected exists say
+    so outright. Older ones have to be inferred from what the correction
+    left behind, since it deliberately keeps the stored probabilities
+    untouched:
+
+      - finger_correct no longer matches the automatic threshold rule
+        (the review window replaces it with an exact target match), or
+      - actual_finger is *strictly less* probable than the argmax.
+
+    Ties are not evidence: the probabilities are distance-only, while
+    app.finger_matching picks the reported finger with an inside-the-key
+    preference on top (and the chord path claims fingers greedily), so two
+    fingertips sharing the top probability can legally disagree with the
+    argmax without anyone touching the event. An originally-unresolved
+    event (no distribution) that now carries a finger is a manual edit."""
+    if r.finger_corrected:
+        return True
+    if r.finger_correct is not None and r.target_finger is not None and r.target_finger_probability is not None:
+        if r.finger_correct != (r.target_finger_probability >= FINGER_PROBABILITY_THRESHOLD):
+            return True
     if r.finger_probabilities:
         top = max(r.finger_probabilities.values())
         return r.finger_probabilities.get(r.actual_finger, -1.0) < top
     return r.actual_finger is not None
+
+
+def needs_finger_review(r: QuizResult) -> bool:
+    """Is this event still waiting for a human to watch its video?
+
+    The queue is exactly the events the automatic rule failed on, since a
+    review can only ever overturn a failure - a passed event is never
+    looked at. Three things take an event out of it: a human already ruled
+    on it (finger_reviewed, set by the review window whether or not the
+    finger changed), there is no verdict to overturn (timeout, unjudgeable
+    or manually excluded event), or the target finger held less than
+    FINGER_REVIEW_FLOOR of the mass, where the detection is not a close
+    call and the automatic verdict stands.
+
+    A target finger missing from the distribution entirely always stays in
+    the queue, whatever the floor: its probability reads 0.0 not because
+    the finger was far from the key but because that hand was never
+    detected, so there is no verdict to trust. Those are exactly the P02
+    events the audit had to overturn from p = 0.0."""
+    if r.timed_out or r.validity == VALIDITY_INVALID_CARRYOVER:
+        return False
+    if r.finger_correct is not False:
+        return False
+    if r.finger_reviewed or finger_manually_corrected(r):
+        return False
+    if not r.finger_probabilities or r.target_finger not in r.finger_probabilities:
+        return True
+    return r.target_finger_probability is not None and r.target_finger_probability >= FINGER_REVIEW_FLOOR
 
 
 def full_summary(quiz_name: str, results: List[QuizResult]) -> Dict[str, object]:

@@ -23,6 +23,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -40,6 +41,7 @@ from ..finger_matching import FINGER_PROBABILITY_THRESHOLD
 from ..quiz import (
     BORDERLINE_MARGIN,
     CARRYOVER_RT_THRESHOLD_S,
+    FINGER_REVIEW_FLOOR,
     META_FILENAME,
     RAW_VIDEO_FILENAME,
     RESULTS_FILENAME,
@@ -49,6 +51,7 @@ from ..quiz import (
     finger_manually_corrected,
     full_summary,
     load_quiz_results,
+    needs_finger_review,
     note_name,
     quiz_dir,
     quiz_raw_dir,
@@ -66,6 +69,15 @@ COLOR_BORDERLINE = QColor(255, 250, 190)
 COLOR_MANUAL = QColor(220, 235, 255)
 COLOR_SUSPECTED = QColor(255, 210, 160)  # carry-over suspect - review me
 COLOR_INVALID = QColor(205, 205, 205)  # manually excluded from all stats
+# Confusion-matrix cells, coloured by the scored verdict rather than by
+# where the cell sits: a neighbour can be the argmax while the target still
+# clears the threshold (near-tie), which is not an error.
+COLOR_TO_REVIEW = QColor(255, 225, 150)  # in the review queue - watch this one
+COLOR_REVIEWED = QColor(225, 235, 225)  # a human has already ruled on it
+COLOR_CORRECT = QColor(215, 240, 215)
+COLOR_NEAR_TIE = QColor(255, 240, 200)
+COLOR_WRONG_FINGER_CELL = QColor(255, 220, 220)
+COLOR_UNRESOLVED = QColor(230, 230, 230)
 
 EVENT_COLUMNS = [
     "#",
@@ -78,8 +90,10 @@ EVENT_COLUMNS = [
     "Finger ✓",
     "RT",
     "Manual",
+    "Review",
     "Validity",
 ]
+COL_REVIEW = 10
 
 
 def _ms(x) -> str:
@@ -125,6 +139,21 @@ class QuizDetailWindow(QMainWindow):
         events_table.customContextMenuRequested.connect(self._show_event_menu)
         self._events_table = events_table
 
+        to_review = summary["to_review"]
+        queue_check = QCheckBox(f"Only events to review ({to_review})")
+        queue_check.setToolTip(
+            "Show just the events still waiting for a verdict: the finger rule failed and the "
+            f"target finger held at least p = {FINGER_REVIEW_FLOOR:.2f}. Watching one takes it off "
+            "the list, whether you change the finger or confirm it as is."
+        )
+        queue_check.setEnabled(bool(to_review))
+        queue_check.toggled.connect(self._filter_to_review)
+        # Keep the filter on across the rebuild that follows a correction,
+        # so working through the queue doesn't reset the view every time.
+        queue_check.setChecked(getattr(self, "_queue_only", False) and bool(to_review))
+        self._queue_check = queue_check
+        self._filter_to_review(queue_check.isChecked())
+
         bottom = QHBoxLayout()
         bottom.addWidget(self._build_confusion_box(summary), 1)
         bottom.addWidget(self._build_stats_box(summary), 1)
@@ -132,11 +161,17 @@ class QuizDetailWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.addWidget(header)
+        layout.addWidget(queue_check)
         layout.addWidget(events_table, 3)
         layout.addLayout(bottom, 2)
         self.setCentralWidget(central)  # deletes the previous central widget
 
     # ------------------------------------------------------------------
+
+    def _filter_to_review(self, only_queue: bool) -> None:
+        self._queue_only = only_queue
+        for row, queued in enumerate(self._row_in_queue):
+            self._events_table.setRowHidden(row, only_queue and not queued)
 
     def _open_event_review(self, row: int, _col: int) -> None:
         if not require_video(self, quiz_raw_dir(self.quiz_name) / RAW_VIDEO_FILENAME):
@@ -191,6 +226,7 @@ class QuizDetailWindow(QMainWindow):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
+        self._row_in_queue = [needs_finger_review(r) for r in results]
 
         for row, r in enumerate(results):
             p = r.target_finger_probability
@@ -198,10 +234,12 @@ class QuizDetailWindow(QMainWindow):
             manual = not r.timed_out and finger_manually_corrected(r)
             invalid = r.validity == VALIDITY_INVALID_CARRYOVER
             suspected = suspected_carryover(r)
+            to_review = needs_finger_review(r)
+            review_text = "▶ watch" if to_review else ("✔ reviewed" if r.finger_reviewed else "")
             validity_text = "excluded" if invalid else ("review!" if suspected else "")
             if r.timed_out:
                 cells = [str(r.index), r.target_note_name, "—", "—", r.target_finger or "—",
-                         "—", "—", "—", "timeout", "", validity_text]
+                         "—", "—", "—", "timeout", "", "", validity_text]
                 tint: Optional[QColor] = COLOR_TIMEOUT
             else:
                 cells = [
@@ -215,6 +253,7 @@ class QuizDetailWindow(QMainWindow):
                     "—" if r.finger_correct is None else ("✓" if r.finger_correct else "✗"),
                     _ms(r.timing_error_s),
                     "✎ manual" if manual else "",
+                    review_text,
                     validity_text,
                 ]
                 if invalid:
@@ -237,6 +276,16 @@ class QuizDetailWindow(QMainWindow):
                     item.setToolTip(
                         f"Within ±{BORDERLINE_MARGIN:.2f} of the θ={FINGER_PROBABILITY_THRESHOLD:.2f} "
                         "threshold - verdict could flip; check this event in the review video."
+                    )
+                if col == COL_REVIEW and review_text:
+                    item.setBackground(COLOR_TO_REVIEW if to_review else COLOR_REVIEWED)
+                    item.setToolTip(
+                        "Failed the finger rule and nobody has ruled on it yet - double-click the "
+                        "row to watch the keypress. Events below "
+                        f"p(target) = {FINGER_REVIEW_FLOOR:.2f} are not queued: the detection isn't "
+                        "a close call there, so the automatic verdict stands."
+                        if to_review else
+                        "A human has watched this event in the review window."
                     )
                 if manual and col == 9:
                     item.setBackground(COLOR_MANUAL)
@@ -277,25 +326,50 @@ class QuizDetailWindow(QMainWindow):
         )
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        near_ties = 0
         for i, target in enumerate(order):
             row_counts = confusion.get(target, {})
             for j, actual in enumerate(order + [None]):
-                count = row_counts.get(actual, 0)
+                cell = row_counts.get(actual)
+                count = cell["n"] if cell else 0
+                passed = cell["passed"] if cell else 0
                 item = QTableWidgetItem(str(count) if count else "")
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if count:
-                    # Diagonal = correct detections (green); off-diagonal =
-                    # substitutions (red); "?" column = unresolved (gray).
-                    if actual == target:
-                        item.setBackground(QColor(215, 240, 215))
-                    elif actual is None:
-                        item.setBackground(QColor(230, 230, 230))
+                    # Colour by the scored verdict, not by the cell's
+                    # position: an off-diagonal cell whose events all
+                    # cleared the threshold is a near-tie, not an error.
+                    if actual is None:
+                        item.setBackground(COLOR_UNRESOLVED)
+                        item.setToolTip("No fingertip detected at the keypress - counts as incorrect.")
+                    elif passed == count:
+                        item.setBackground(COLOR_CORRECT if actual == target else COLOR_NEAR_TIE)
+                        if actual != target:
+                            near_ties += count
+                            item.setToolTip(
+                                f"{actual} was fractionally more probable, but {target} still cleared "
+                                f"θ = {FINGER_PROBABILITY_THRESHOLD:.2f} - scored as the right finger."
+                            )
                     else:
-                        item.setBackground(QColor(255, 220, 220))
+                        item.setBackground(COLOR_WRONG_FINGER_CELL)
+                        near_ties += passed
+                        item.setToolTip(
+                            f"{passed} of {count} still cleared θ = {FINGER_PROBABILITY_THRESHOLD:.2f} "
+                            f"and scored correct; {count - passed} did not."
+                        )
                 table.setItem(i, j, item)
+
+        note = QLabel(
+            "Rows are the cued finger, columns the most probable detected fingertip. Off the "
+            f"diagonal is not automatically an error: the event still scores correct when the target "
+            f"finger holds at least θ = {FINGER_PROBABILITY_THRESHOLD:.2f} of the mass "
+            f"(amber, {near_ties} here). Red failed the rule, grey is unresolved."
+        )
+        note.setWordWrap(True)
         layout = QVBoxLayout(box)
         layout.addWidget(table)
+        layout.addWidget(note)
         return box
 
     def _build_stats_box(self, summary: dict) -> QGroupBox:
@@ -330,6 +404,8 @@ class QuizDetailWindow(QMainWindow):
             f"<b>Excluded carry-over</b> (manually confirmed, removed from all stats): "
             f"{summary['excluded_carryover']}",
             f"<b>Manually corrected events</b>: {summary['manual_corrections']}",
+            f"<b>Still to review</b> (finger rule failed, p(target) ≥ {FINGER_REVIEW_FLOOR:.2f}, "
+            f"no human verdict yet): {summary['to_review']}",
             "<b>QC — unmatched raw presses</b> (not scored, not anticipation): "
             + (
                 f"{extra['extra_presses']} ({extra['double_hits']} simultaneous double-hits, "

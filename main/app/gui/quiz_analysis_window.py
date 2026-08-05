@@ -77,6 +77,11 @@ from .quiz_detail_window import QuizDetailWindow
 from .video_sync_window import VideoSyncWindow
 
 COL_QUIZ = 0
+# First entry of the export picker - re-exports every participant, which
+# is what you want after a round of finger corrections, since Group
+# Analysis reads the CSVs rather than results.json.
+EXPORT_ALL_LABEL = "All participants (overwrite)"
+
 COL_SYNC = 1  # not aligned / auto-aligned / manually aligned
 COL_OFFSET = 2  # aligned flash frame vs software timestamps, in seconds
 COL_SYNC_BTN = 3  # per-row Video Sync button
@@ -133,6 +138,10 @@ def _build_metric_columns():
                              "previous response). NOT false starts or anticipation; kept out of the main "
                              "outcome measures. n/a if midi_raw.json is missing.", True,
          lambda m, s: str(s["extra"]["extra_presses"]) if s.get("extra") else "n/a"),
+        ("To review", "Events whose finger verdict failed and nobody has ruled on yet, with the "
+                      "target finger above the review floor - the videos still to watch in the "
+                      "detail window. Below the floor the automatic verdict stands.", True,
+         lambda m, s: str(s["to_review"]) if s["to_review"] else ""),
         ("Key ok, wrong finger", "Correct-key events that failed the finger threshold rule.", True,
          lambda m, s: str(s["key_ok_wrong_finger"])),
         ("Unresolved", "Responded events where no fingertip could be detected at the keypress.", True,
@@ -257,9 +266,10 @@ class QuizAnalysisWindow(QMainWindow):
 
         export_btn = QPushButton("Export participant data...")
         export_btn.setToolTip(
-            "Pick a Main User Study participant and write <participant>_trials.csv and "
-            "<participant>_events.csv (all metrics + per-event data, no wall-clock timestamps) "
-            "next to their TrialStructure.json."
+            "Pick a Main User Study participant - or all of them at once - and write "
+            "<participant>_trials.csv and <participant>_events.csv (all metrics + per-event data, "
+            "no wall-clock timestamps) next to their TrialStructure.json. Group Analysis reads "
+            "these files, so re-export after correcting fingers."
         )
         export_btn.clicked.connect(self._export_participant)
 
@@ -416,18 +426,26 @@ class QuizAnalysisWindow(QMainWindow):
             self._update_analyze_btn()
 
     def _export_participant(self) -> None:
+        """Re-export one participant, or all of them at once. The CSVs are
+        what Group Analysis reads, so anything corrected in the detail
+        window since the last export only reaches the group numbers once
+        this has run again - hence the export-everything option."""
         participants = list_participants()
         if not participants:
             QMessageBox.information(self, "No participants", "No participants under data/MainUserStudy/.")
             return
-        participant, ok = QInputDialog.getItem(
-            self, "Export participant data", "Participant:", participants, 0, False
+        choice, ok = QInputDialog.getItem(
+            self, "Export participant data", "Participant:", [EXPORT_ALL_LABEL] + participants, 0, False
         )
-        if not ok or not participant:
+        if not ok or not choice:
             return
-        existing = [p for p in export_paths(participant) if p.exists()]
+        targets = participants if choice == EXPORT_ALL_LABEL else [choice]
+
+        existing = [p for t in targets for p in export_paths(t) if p.exists()]
         if existing:
-            names = "\n".join(p.name for p in existing)
+            names = "\n".join(p.name for p in existing[:12])
+            if len(existing) > 12:
+                names += f"\n... and {len(existing) - 12} more"
             answer = QMessageBox.warning(
                 self,
                 "Files already exist",
@@ -437,17 +455,43 @@ class QuizAnalysisWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
+
+        done: List[dict] = []
+        failed: List[str] = []
+        missing_notes: List[str] = []
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            result = export_participant(participant)
-        except Exception as e:
-            QMessageBox.warning(self, "Export failed", f"{participant}: {e}")
-            return
-        message = (
-            f"Exported {participant}: {result['trials']} trials, {result['events']} events -> "
-            + ", ".join(p.name for p in result["paths"])
-        )
-        if result["missing"]:
-            message += f"  |  {len(result['missing'])} trials had no quiz data: " + ", ".join(result["missing"])
+            for i, participant in enumerate(targets, 1):
+                self.status_label.setText(f"Exporting {participant} ({i}/{len(targets)})...")
+                QApplication.processEvents()
+                try:
+                    result = export_participant(participant)
+                except Exception as e:
+                    failed.append(f"{participant}: {e}")
+                    continue
+                done.append(result)
+                if result["missing"]:
+                    missing_notes.append(
+                        f"{participant}: {len(result['missing'])} trials had no quiz data ("
+                        + ", ".join(result["missing"]) + ")"
+                    )
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        trials = sum(r["trials"] for r in done)
+        events = sum(r["events"] for r in done)
+        if len(targets) == 1 and done:
+            message = (
+                f"Exported {targets[0]}: {trials} trials, {events} events -> "
+                + ", ".join(p.name for p in done[0]["paths"])
+            )
+        else:
+            message = f"Exported {len(done)}/{len(targets)} participants: {trials} trials, {events} events"
+        if missing_notes:
+            message += "  |  " + "  |  ".join(missing_notes)
+        if failed:
+            message += f"  |  {len(failed)} failed"
+            QMessageBox.warning(self, "Export failed", "\n".join(failed))
         self.status_label.setText(message)
 
     def _open_sync_window(self, name: str) -> None:
