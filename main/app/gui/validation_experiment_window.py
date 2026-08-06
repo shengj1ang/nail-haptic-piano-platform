@@ -1593,9 +1593,9 @@ class SpectrogramWindow(_SweepWindowBase):
                 "the ranges you set above.</i>")
 
     def _build_extra_config(self, config_row: QHBoxLayout) -> None:
-        # This experiment covers the real motor ports only (LRA=11, ERM=10).
-        # Its many parameters live on two wrapped rows below (see
-        # _extra_config_rows), so the config area never runs off-screen.
+        # Motor port is selected independently of actuator type. Its many
+        # parameters live on wrapped rows below (see _extra_config_rows), so
+        # the config area never runs off-screen.
         self.motor_spin.setRange(0, 11)
 
     def _extra_config_rows(self) -> list:
@@ -1611,8 +1611,8 @@ class SpectrogramWindow(_SweepWindowBase):
             self.type_combo.setCurrentIndex(index)
         self.type_combo.setToolTip(
             "Actuator type. Selecting it resets the amp and frequency ranges "
-            "to that type's defaults (ERM freq 0-1000 Hz, LRA freq 0-350 Hz; "
-            "both amp 0-255).")
+            "to that type's defaults (ERM freq 50-5000 Hz, LRA freq 0-350 Hz; "
+            "both amp 0-255). The selected motor port is left unchanged.")
 
         self.amp_min_spin = QSpinBox()
         self.amp_min_spin.setRange(actuator_spectrogram.AMP_MIN,
@@ -1735,7 +1735,8 @@ class SpectrogramWindow(_SweepWindowBase):
                               self.freq_max_spin.value())
         amps = m.amp_values(amp_step, self.amp_min_spin.value(),
                             self.amp_max_spin.value())
-        per_cell = m.SETTLE_S + self.vibrate_spin.value() + m.REST_S
+        rest_s = m.rest_s_for(self.type_combo.currentData())
+        per_cell = m.SETTLE_S + self.vibrate_spin.value() + rest_s
         return len(freqs) * (m.BASELINE_S + len(amps) * per_cell)
 
     def _update_estimate(self) -> None:
@@ -1754,10 +1755,6 @@ class SpectrogramWindow(_SweepWindowBase):
 
     def _on_type_changed(self) -> None:
         self._apply_type_defaults()
-        # Point the port at the type's usual wiring (the one mapping in
-        # common.haptic_config); the user can still override it.
-        self.motor_spin.setValue(
-            hc.get_actuator_motor_port(self.type_combo.currentData()))
         # Test Buzz and the info line follow the selected type.
         self._refresh_haptic_label()
         self.test_buzz_btn.setToolTip(self._buzz_tooltip())

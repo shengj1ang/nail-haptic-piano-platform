@@ -70,7 +70,7 @@ class TestBackwardCompatibility(_TempConfigCase):
         self.assertEqual(config.lra.default_frequency, 224)
         self.assertEqual(config.lra.default_amp, 64)
         self.assertEqual(config.erm.default_frequency, 1000)
-        self.assertEqual(config.erm.default_amp, 50)
+        self.assertEqual(config.erm.default_amp, 80)
         self.assertEqual(hc.last_warnings(), [])
 
     def test_missing_config_file_is_not_an_error(self):
@@ -113,7 +113,7 @@ class TestActiveDefaults(_TempConfigCase):
         write_config(self.config_path, {"haptic": {
             "using": "lra",
             "lra": {"default_frequency": 224, "default_amp": 64},
-            "erm": {"default_frequency": 1000, "default_amp": 50}}})
+            "erm": {"default_frequency": 1000, "default_amp": 80}}})
         hc.invalidate_cache()
         self.assertEqual(hc.get_active_haptic_type(), "lra")
         active = hc.get_active_haptic_defaults()
@@ -126,12 +126,12 @@ class TestActiveDefaults(_TempConfigCase):
         write_config(self.config_path, {"haptic": {
             "using": "erm",
             "lra": {"default_frequency": 224, "default_amp": 64},
-            "erm": {"default_frequency": 1000, "default_amp": 50}}})
+            "erm": {"default_frequency": 1000, "default_amp": 80}}})
         hc.invalidate_cache()
         self.assertEqual(hc.get_active_haptic_type(), "erm")
         active = hc.get_active_haptic_defaults()
         self.assertEqual((active.default_frequency, active.default_amp),
-                         (1000, 50))
+                         (1000, 80))
 
     def test_the_inactive_actuator_is_still_reachable(self):
         """Switching `using` must not hide the other actuator's defaults -
@@ -147,9 +147,9 @@ class TestActiveDefaults(_TempConfigCase):
 
     def test_summary_and_description_follow_the_config(self):
         hc.update_haptic_config(using="erm")
-        self.assertEqual(hc.summary_line(), "ERM @ 1000 Hz, amp 50")
+        self.assertEqual(hc.summary_line(), "ERM @ 1000 Hz, amp 80")
         self.assertIn("Current haptic actuator: ERM", hc.describe_active())
-        self.assertIn("Default drive: 1000 Hz, amp 50", hc.describe_active())
+        self.assertIn("Default drive: 1000 Hz, amp 80", hc.describe_active())
 
 
 # =========================================================================
@@ -473,6 +473,25 @@ class TestValidationWindows(_TempConfigCase):
             self.assertEqual((freq, amp, label), (1200, 55, "ERM"), cls.__name__)
             self.assertIn(f"F {window.motor_spin.value()} 1200",
                           window._pre_buzz_cmds(window.motor_spin.value()))
+
+    def test_spectrogram_type_change_preserves_the_selected_motor_port(self):
+        """Actuator type changes ranges and buzz defaults, never wiring."""
+        from app.gui.validation_experiment_window import SpectrogramWindow
+        window = self._window(SpectrogramWindow)
+        self.assertEqual(window.motor_spin.value(), 0)
+
+        erm_index = window.type_combo.findData("ERM")
+        self.assertGreaterEqual(erm_index, 0)
+        window.type_combo.setCurrentIndex(erm_index)
+
+        self.assertEqual(window.motor_spin.value(), 0)
+        self.assertEqual(window.freq_min_spin.value(), 50)
+        self.assertEqual(window.freq_max_spin.value(), 5000)
+
+        lra_index = window.type_combo.findData("LRA")
+        window.type_combo.setCurrentIndex(lra_index)
+        self.assertEqual(window.motor_spin.value(), 0)
+        self.assertEqual(window.freq_max_spin.value(), 350)
 
     def test_lra_experiments_buzz_with_the_lra_config(self):
         """An LRA experiment stays on the LRA's configured drive even when

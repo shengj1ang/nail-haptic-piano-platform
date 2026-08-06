@@ -587,7 +587,7 @@ window or experiment carries its own copy of "224 Hz / amp 64".
 "haptic": {
   "using": "lra",
   "lra": { "default_frequency": 224, "default_amp": 64 },
-  "erm": { "default_frequency": 1000, "default_amp": 50 }
+  "erm": { "default_frequency": 1000, "default_amp": 80 }
 }
 ```
 
@@ -597,7 +597,7 @@ window or experiment carries its own copy of "224 Hz / amp 64".
 | `haptic.lra.default_frequency` | LRA drive frequency in Hz. | `224` |
 | `haptic.lra.default_amp` | LRA drive amp (firmware PWM duty byte). | `64` |
 | `haptic.erm.default_frequency` | ERM PWM **carrier** frequency in Hz. | `1000` |
-| `haptic.erm.default_amp` | ERM drive amp. | `50` |
+| `haptic.erm.default_amp` | ERM drive amp. | `80` |
 
 **The two frequencies do not mean the same thing.** An LRA's frequency is
 a real mechanical drive frequency: the actuator only vibrates properly at

@@ -48,9 +48,9 @@ You pick:
 
 - **Motor port** (0–11) — which port the actuator under test is wired to.
 - **Actuator type** — **ERM** or **LRA**. Selecting it **seeds the amp and
-  frequency ranges with that type's defaults** (ERM freq 0–1000 Hz, LRA
-  freq 0–350 Hz; both amp 0–255) and points the port at its usual wiring
-  (ERM → 10, LRA → 11).
+  frequency ranges with that type's defaults** (ERM freq 50–5000 Hz, LRA
+  freq 0–350 Hz; both amp 0–255). The motor port is independent and is
+  deliberately left unchanged when the type is switched.
 - **Amp range** and **Frequency range** — adjustable min/max for each
   axis, seeded from the type. (The sweep can't drive below 50 Hz, the
   firmware `F`-command minimum, so the frequency axis starts there even if
@@ -81,11 +81,11 @@ You pick:
 Cell count = frequencies × amps, so the run is long and finer precision
 multiplies it fast. At the default 2 s Vibrate time:
 
-| precision | ERM (0–1000 Hz) | LRA (0–350 Hz) |
+| precision | ERM (50–5000 Hz, 2 s rest) | LRA (0–350 Hz, 0.15 s rest) |
 |-----------|-----------------|----------------|
-| Coarse | ~220 s | ~90 s |
-| Medium | ~15 min | ~6 min |
-| Fine | ~50 min+ | ~15 min |
+| Coarse | ~33 min | ~90 s |
+| Medium | ~2.0 h | ~5 min |
+| Fine | ~7.9 h | ~18 min |
 
 The exact estimate is printed when you Start. Use **Coarse** precision and
 a short Vibrate time for a quick look; go finer only for the region you
@@ -107,19 +107,17 @@ care about.
 Launcher → **9. Validation Experiments** → **Actuator Spectrogram
 (ERM/LRA)**: the standard Start/Stop + progress bar + log + plot-preview
 shell, with the motor-port / type / precision / Vibrate pickers, a Test
-Buzz, and an "Open Accelerometer Live View" button. Selecting a type also
-points the port at that type's usual wiring (ERM → 10, LRA → 11); override
-if needed.
+Buzz, and an "Open Accelerometer Live View" button. The selected motor port
+is preserved when the actuator type changes.
 
-**Test Buzz uses the LRA's best config (224 Hz, amp 64) for *both* actuator
-types** — a single, consistent known-good wiring check, not the swept
-drive. (An ERM will not spin at 224 Hz; the buzz is a wiring/where-is-it
-check.)
+**Test Buzz follows the selected actuator type's configured default** —
+currently LRA 224 Hz / amp 64 and ERM 1000 Hz / amp 80. It is a wiring check,
+not one of the swept cells.
 
 Or standalone:
 
 ```bash
-python actuator_spectrogram.py    # ERM, Coarse precision, 2 s, ~220 s
+python actuator_spectrogram.py    # configured actuator, Coarse precision
 ```
 
 The script auto-detects the rig and, on exit — including Ctrl+C — stops
@@ -167,15 +165,16 @@ At the top of `actuator_spectrogram.py`:
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `MOTOR_INDEX` | 10 | default motor port (ERM channel; LRA is 11) |
-| `TYPE_CONFIG` | ERM amp 0–255 / freq 0–1000 · LRA amp 0–255 / freq 0–350 | per-type **default** amp & frequency ranges (all adjustable per run) |
+| `MOTOR_INDEX` | 0 | default motor port; switching ERM/LRA leaves it unchanged |
+| `TYPE_CONFIG` | ERM amp 0–255 / freq 50–5000 · LRA amp 0–255 / freq 0–350 | per-type **default** amp & frequency ranges (all adjustable per run) |
 | `AMP_MIN` / `AMP_MAX` | 0 / 255 | absolute bounds the amp-range controls allow |
 | `FREQ_DRIVE_MIN` / `FREQ_MAX_LIMIT` | 50 / 20000 | firmware `F`-command min/max (Hz); the sweep starts at the min |
 | `PRECISION_STEPS` | Coarse/Medium/Fine → freq 100/50/25 Hz, amp 32/16/8 | scan precision → (freq step, amp step) |
 | `MEASURE_S` (Vibrate) | 2.00 | default per-cell continuous drive/measure window; set per run (`MEASURE_S_MIN`/`MEASURE_S_MAX` = 0.5–30 s) |
 | `ANNOTATE_MODES` | off / rms / normalized | print each cell's value: none, the selected metric's raw m/s², or 0–1 normalised |
 | `COLORMAP` | `magma_r` | pale (low) → near-black (high): darker = stronger |
-| `BASELINE_S` / `SETTLE_S` / `REST_S` | 0.30 / 0.30 / 0.15 | other per-step timing (baseline re-measured once per frequency row) |
+| `BASELINE_S` / `SETTLE_S` | 0.30 / 0.30 | quiet row baseline and motor-on settling time |
+| `ERM_REST_S` / `LRA_REST_S` | 2.00 / 0.15 | motor-off rest between cells; the ERM needs time to spin down, while the LRA keeps its historical timing |
 
 `MS2_PER_COUNT` (0.00980665 — LIS3DH HR ±2 g, 1 count = 1 mg) and the
 metric names/formulas live in `../acceleration_metrics.py`, shared with

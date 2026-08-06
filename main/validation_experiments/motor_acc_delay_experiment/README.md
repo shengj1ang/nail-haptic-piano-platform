@@ -432,7 +432,7 @@ Selecting an actuator resets the motor port, PWM frequency and drive
 amp to that actuator's **configured** defaults — the port from the
 project's wiring map (LRA → 11, ERM → 10) and the frequency/amp from
 `config.json`'s `haptic` block (defaults: LRA 224 Hz / amp 64, ERM
-1000 Hz / amp 50; see main/README.md, "Haptic actuator
+1000 Hz / amp 80; see main/README.md, "Haptic actuator
 configuration"). Each can still be overridden afterwards, and an
 override is what the run uses and what its meta records
 (`haptic_config.amp_source` / `pwm_freq_source` say which). **Vibration duration** (0.5–10 s, default 2 s, 0.5 s steps)

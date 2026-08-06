@@ -36,7 +36,7 @@ You pick:
 
   * the motor port (0-11),
   * the actuator type (ERM or LRA), which sets the default amp and
-    frequency ranges (ERM freq 0-1000 Hz, LRA freq 0-350 Hz; both amp
+    frequency ranges (ERM freq 50-5000 Hz, LRA freq 0-350 Hz; both amp
     0-255),
   * the amp and frequency ranges (adjustable, seeded from the type),
   * a scan precision (how finely both axes are stepped),
@@ -141,13 +141,11 @@ except ImportError:  # direct execution from this folder - add main/ to the path
 # Configuration
 # ==========================================
 
-# Which actuator this experiment opens on, and the port it is wired to:
-# both follow config.json's haptic block (the actuator in use), so the
-# window opens on the rig's actual actuator. These are module-level
-# fallbacks for command-line runs - the GUI re-reads the config when the
-# window opens and its Type / Motor port controls override both.
+# Which actuator this experiment opens on, and its independent default port.
+# Type follows config.json, while the spectrogram always opens on motor 0;
+# switching ERM/LRA only seeds sweep ranges and never rewrites this port.
 DEFAULT_MOTOR_TYPE = hc.actuator_label(hc.get_active_haptic_type())
-MOTOR_INDEX = hc.get_actuator_motor_port()
+MOTOR_INDEX = 0
 ACC_SENSOR_ID = 0
 
 # What a run saved before its meta recorded these is assumed to have
@@ -159,7 +157,7 @@ HISTORICAL_MOTOR_INDEX = 10
 # Per-actuator default ranges (all user-adjustable in the launcher; these
 # are what "select this type" seeds the range controls with).
 TYPE_CONFIG = {
-    "ERM": {"amp_min": 0, "amp_max": 255, "freq_min": 0, "freq_max": 1000},
+    "ERM": {"amp_min": 0, "amp_max": 255, "freq_min": 50, "freq_max": 5000},
     "LRA": {"amp_min": 0, "amp_max": 255, "freq_min": 0, "freq_max": 350},
 }
 MOTOR_TYPES = list(TYPE_CONFIG.keys())
@@ -197,7 +195,10 @@ DEFAULT_ANNOTATE = "off"
 ACC_INTERVAL_MS = 1       # fast stream so the RMS captures the vibration
 BASELINE_S = 0.30         # quiet window, re-measured once per frequency row
 SETTLE_S = 0.30           # motor-on spin-up before the measurement window
-REST_S = 0.15             # motor-off rest between cells
+LRA_REST_S = 0.15         # the historical short rest is sufficient for an LRA
+ERM_REST_S = 2.00         # let the rotor stop before the next ERM cell
+# Backward-compatible name for callers that mean the historical/LRA value.
+REST_S = LRA_REST_S
 
 # High intensity -> dark: magma reversed runs pale (low) to near-black
 # (high), matching "darker = stronger".
@@ -253,6 +254,11 @@ def type_defaults(motor_type: str) -> dict:
     return TYPE_CONFIG.get(motor_type, TYPE_CONFIG[DEFAULT_MOTOR_TYPE])
 
 
+def rest_s_for(motor_type: str) -> float:
+    """Motor-off rest for an actuator type (ERM needs time to spin down)."""
+    return ERM_REST_S if str(motor_type).upper() == "ERM" else LRA_REST_S
+
+
 def amp_values(step: int, amp_min: int, amp_max: int) -> List[int]:
     """Amp sweep points across [amp_min, amp_max], always ending at amp_max."""
     vals = list(range(int(amp_min), int(amp_max) + 1, step))
@@ -290,7 +296,8 @@ def steps_for(precision: str):
 def measure_cell(ser, freq_hz: int, amp: int, baseline_magnitude: float,
                  measure_s: float, log: LogFn,
                  motor_index: int = MOTOR_INDEX,
-                 acc_sensor_id: int = ACC_SENSOR_ID):
+                 acc_sensor_id: int = ACC_SENSOR_ID,
+                 rest_s: float = REST_S):
     """Drive one (freq, amp) cell for measure_s and return
     (CellResult, raw samples). The PWM frequency is assumed already set
     (once per frequency row); this drives the amp, waits out the settle +
@@ -300,7 +307,7 @@ def measure_cell(ser, freq_hz: int, amp: int, baseline_magnitude: float,
     time.sleep(SETTLE_S)
     vib = collect_samples(ser, measure_s, acc_sensor_id)
     send(ser, "X", wait_s=0.0)
-    time.sleep(REST_S)
+    time.sleep(rest_s)
 
     if not vib:
         log(f"  freq={freq_hz} amp={amp}: no samples")
@@ -483,7 +490,7 @@ def save_meta(csv_path: str, png_path: str, grid_pth: str, raw_path: str,
               motor_type: str, amp_min: int, amp_max: int, freq_min: float,
               freq_max: float, precision: str, freq_step: int, amp_step: int,
               measure_s: float, annotate_mode: str, metric: str,
-              peak: CellResult) -> str:
+              peak: CellResult, rest_s: float = REST_S) -> str:
     meta = {
         "experiment": "actuator_spectrogram",
         "saved_at": int(stamp),
@@ -504,7 +511,7 @@ def save_meta(csv_path: str, png_path: str, grid_pth: str, raw_path: str,
             "baseline_s": BASELINE_S,
             "settle_s": SETTLE_S,
             "measure_s": measure_s,
-            "rest_s": REST_S,
+            "rest_s": rest_s,
             "acc_interval_ms": ACC_INTERVAL_MS,
             "annotate_mode": annotate_mode,
         },
@@ -842,7 +849,7 @@ def estimated_duration_s(precision: str = DEFAULT_PRECISION,
     d = type_defaults(motor_type)
     freqs = freq_values(freq_step, d["freq_min"], d["freq_max"])
     amps = amp_values(amp_step, d["amp_min"], d["amp_max"])
-    per_cell = SETTLE_S + measure_s + REST_S
+    per_cell = SETTLE_S + measure_s + rest_s_for(motor_type)
     return len(freqs) * (BASELINE_S + len(amps) * per_cell)
 
 
@@ -890,13 +897,15 @@ def run_experiment(log: Optional[LogFn] = None,
     freqs = freq_values(freq_step, freq_min, freq_max)
     amps = amp_values(amp_step, amp_min, amp_max)
     total_cells = len(freqs) * len(amps)
-    per_cell = SETTLE_S + measure_s + REST_S
+    rest_s = rest_s_for(motor_type)
+    per_cell = SETTLE_S + measure_s + rest_s
     est = len(freqs) * (BASELINE_S + len(amps) * per_cell)
 
     log(f"{motor_type} intensity map on motor port {motor_index}")
     log(f"drive frequency {freqs[0]}..{freqs[-1]} Hz step {freq_step} "
         f"({len(freqs)} rows) x amp {amps[0]}..{amps[-1]} step {amp_step} "
         f"({len(amps)} cols) = {total_cells} cells, {measure_s:.1f} s each")
+    log(f"Motor-off rest between cells: {rest_s:.2f} s ({motor_type})")
     log(f"Plot metric: {metric_spec(plot_metric).short_label} "
         "(both metrics are measured and saved; the map can be re-plotted "
         "with either afterwards)")
@@ -912,7 +921,7 @@ def run_experiment(log: Optional[LogFn] = None,
         meta={"motor_index": motor_index, "motor_type": motor_type,
               "acc_interval_ms": ACC_INTERVAL_MS, "measure_s": measure_s,
               "baseline_s": BASELINE_S, "settle_s": SETTLE_S,
-              "rest_s": REST_S, "precision": precision},
+              "rest_s": rest_s, "precision": precision},
     )
 
     ser = open_rig(log=log, interactive=interactive)
@@ -947,7 +956,8 @@ def run_experiment(log: Optional[LogFn] = None,
                     raise SweepAborted()
                 cell, samples = measure_cell(
                     ser, freq, amp, baseline_magnitude, measure_s, log,
-                    motor_index=motor_index, acc_sensor_id=acc_sensor_id)
+                    motor_index=motor_index, acc_sensor_id=acc_sensor_id,
+                    rest_s=rest_s)
                 done += 1
                 progress(done, total_cells)
                 if cell is not None:
@@ -984,7 +994,8 @@ def run_experiment(log: Optional[LogFn] = None,
                               motor_index, acc_sensor_id, motor_type,
                               amp_min, amp_max, freq_min, freq_max,
                               precision, freq_step, amp_step, measure_s,
-                              annotate_mode, plot_metric, peak)
+                              annotate_mode, plot_metric, peak,
+                              rest_s=rest_s)
 
         log(f"\n=== Strongest vibration at freq={peak.freq_hz} Hz, "
             f"amp={peak.amp} ({peak_ms2:.2f} m/s² "

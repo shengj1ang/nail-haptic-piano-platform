@@ -489,6 +489,35 @@ class TestSpectrogramMetricSwitching(unittest.TestCase):
                              sorted([METRIC_VECTOR_RMS,
                                      METRIC_LEGACY_MAGNITUDE_RMS]))
 
+    def test_erm_and_lra_have_independent_ranges_and_rest_times(self):
+        erm = spectro.type_defaults("ERM")
+        lra = spectro.type_defaults("LRA")
+        self.assertEqual((erm["freq_min"], erm["freq_max"]), (50, 5000))
+        self.assertEqual((lra["freq_min"], lra["freq_max"]), (0, 350))
+        self.assertEqual(spectro.rest_s_for("ERM"), 2.0)
+        self.assertEqual(spectro.rest_s_for("LRA"), 0.15)
+
+    def test_duration_estimate_uses_the_selected_actuator_rest(self):
+        measure_s = 2.0
+        erm = spectro.estimated_duration_s(
+            "Coarse", measure_s=measure_s, motor_type="ERM")
+        lra = spectro.estimated_duration_s(
+            "Coarse", measure_s=measure_s, motor_type="LRA")
+
+        def expected(motor_type):
+            defaults = spectro.type_defaults(motor_type)
+            freq_step, amp_step = spectro.steps_for("Coarse")
+            freqs = spectro.freq_values(
+                freq_step, defaults["freq_min"], defaults["freq_max"])
+            amps = spectro.amp_values(
+                amp_step, defaults["amp_min"], defaults["amp_max"])
+            per_cell = (spectro.SETTLE_S + measure_s
+                        + spectro.rest_s_for(motor_type))
+            return len(freqs) * (spectro.BASELINE_S + len(amps) * per_cell)
+
+        self.assertAlmostEqual(erm, expected("ERM"))
+        self.assertAlmostEqual(lra, expected("LRA"))
+
 
 class TestOldCsvCompatibility(unittest.TestCase):
     """A pre-refactor CSV must still plot - under the legacy metric only,
