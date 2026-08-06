@@ -66,14 +66,32 @@ class HapticCueOutput(CueOutput):
 
     The configured drive is read ONCE, on construction, so a config edit
     mid-quiz can never change the cue between two events of the same
-    session (and the session's own record says what it delivered)."""
+    session (and the session's own record says what it delivered).
 
-    def __init__(self):
+    `port` and `controller` are both optional and both default to the
+    original behaviour (auto-detect a single attached board), so
+    HapticQuizWindow and every other existing caller is unaffected. They
+    exist for two later needs: the remote student machine has *two*
+    serial boards attached - the LED strip and this rig - and
+    auto-detection cannot tell them apart, so it passes an explicit port
+    (see remote_guidance/config.py); and tests inject a fake controller
+    to exercise cue logic with no hardware present."""
+
+    def __init__(self, port: Optional[str] = None, controller: Optional[VibratorController] = None):
         config = hc.get_haptic_config()
         self.actuator_type = config.using
         self.amplitude = config.active.default_amp
         self.frequency = config.active.default_frequency
-        self.controller = VibratorController()
+        if controller is not None:
+            self.controller = controller
+        elif port is None:
+            # Constructed with no arguments in the default case, exactly as
+            # before this parameter existed - existing callers and tests
+            # that substitute a zero-argument VibratorController stand-in
+            # keep working.
+            self.controller = VibratorController()
+        else:
+            self.controller = VibratorController(port=port)
         self.controller.connect()
         self.controller.stop_all()
         # Every motor pin boots at the firmware's default PWM frequency

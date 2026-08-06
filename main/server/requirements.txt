@@ -1,0 +1,15 @@
+# Everything the relay needs, and nothing else - no camera, MIDI,
+# MediaPipe, LED or haptic dependency appears here, because none of that
+# code runs on the server. Copy server/ to a host, install this file, run
+# `python -m server`.
+fastapi>=0.110
+uvicorn>=0.27
+wsproto>=1.2
+pydantic>=2.5
+PyJWT>=2.8
+cryptography>=42.0
+argon2-cffi>=21.3
+
+# Optional: only needed for `python -m server --gui` (the Qt control
+# panel). A headless deployment can leave it out.
+# PySide6>=6.6

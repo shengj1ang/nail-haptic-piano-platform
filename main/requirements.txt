@@ -39,3 +39,16 @@ statsmodels==0.14.6
 tabulate==0.10.0
 threadpoolctl==3.6.0
 xarray==2026.7.0
+
+# Remote Guidance / Tele-training (remote_guidance/, server/). The client
+# side needs only websocket-client - a synchronous WebSocket client, so
+# the Qt windows can run it on a worker thread instead of hosting a
+# second event loop. The rest are the relay's; server/requirements.txt
+# lists them on their own, for deploying that folder by itself.
+argon2-cffi==25.1.0
+cryptography==50.0.0
+fastapi==0.141.1
+PyJWT==2.13.0
+uvicorn==0.52.1
+websocket-client==1.8.0
+wsproto==1.3.2

@@ -1,0 +1,7 @@
+# SQLite's transient journal sidecars. The database itself is tracked;
+# these two are not a copy of it, they are the write-ahead log and its
+# shared-memory index. They change on every read, and a committed pair
+# can disagree with the .db beside it - checkpoint into the database
+# instead (PRAGMA wal_checkpoint(TRUNCATE)).
+*.db-wal
+*.db-shm

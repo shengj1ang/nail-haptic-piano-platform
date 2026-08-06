@@ -1,0 +1,17 @@
+{
+  "bind_host": "127.0.0.1",
+  "port": 18765,
+  "database_path": "data/remote_guidance.db",
+  "jwt_private_key_path": "secrets/jwt_private.pem",
+  "jwt_public_key_path": "secrets/jwt_public.pem",
+  "access_token_ttl_days": 30,
+  "refresh_token_ttl_days": 180,
+  "issuer": "remote-guidance-server",
+  "audience": "remote-guidance-clients",
+  "allow_registration": true,
+  "tls": {
+    "enabled": false,
+    "certfile": null,
+    "keyfile": null
+  }
+}

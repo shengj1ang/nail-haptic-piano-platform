@@ -248,5 +248,18 @@ class ScreenCueOutput(CueOutput):
     def clear(self) -> None:
         self.window.set_target(None, "")
 
+    def flush(self) -> None:
+        """Repaint now instead of at the next event-loop pass.
+
+        set_target() only schedules an update(), so the moment
+        show_target() returns is *before* the cue is on screen. The quiz
+        doesn't care (its timing error is measured against the same
+        convention throughout), but the remote module has to timestamp
+        the instant the visual cue actually became visible, so it calls
+        this and stamps afterwards - see remote_guidance/cue_outputs.py.
+        Optional: nothing else calls it, and behaviour is unchanged for
+        callers that don't."""
+        self.window.widget.repaint()
+
     def close(self) -> None:
         self.window.close()

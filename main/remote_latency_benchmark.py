@@ -1,0 +1,47 @@
+"""Network latency benchmark for the relayed tele-training path.
+
+Sends simulated key/finger commands from a teacher account to a connected
+student client over one already-established WebSocket and reports what
+came back. Defaults follow the report's `System Transmission Performance
+Benchmarking`: 1000 probes at 500 ms intervals, with warm-up samples
+recorded separately and excluded from the statistics.
+
+    python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
+        --username teacher1 --room-id <room id>
+
+    python remote_latency_benchmark.py --gui
+
+Round-trip time is the primary metric, because both of its timestamps are
+taken from one monotonic clock on this machine and it therefore needs no
+clock synchronisation. One-way latency is only reported as a measurement
+when --clocks-synced asserts both hosts are NTP-synchronised and the
+offset uncertainty is recorded with it; otherwise the output shows RTT/2,
+labelled a symmetry-based estimate.
+
+Everything measured here is software dispatch/render timing. It is not
+physical LED or actuator onset - see server/README.md.
+
+Results land in data/remote_guidance/latency/<run id>/ as samples.csv,
+summary.json and latency.png.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if "--gui" in argv:
+        from remote_guidance.tools.benchmark_window import main as gui_main
+
+        return gui_main()
+
+    from remote_guidance.tools.latency_benchmark import main as cli_main
+
+    return cli_main(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

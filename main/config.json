@@ -47,5 +47,63 @@
       "default_frequency": 1000,
       "default_amp": 50
     }
+  },
+  "remote_guidance": {
+    "schema_version": 1,
+    "network": {
+      "server_url": "http://127.0.0.1:18765",
+      "username": "demoteacher",
+      "room_id": "a0d67fbc-9706-4d60-a92a-cb7379e647ce",
+      "join_code": "G8KK5X",
+      "verify_tls": true,
+      "heartbeat_interval_s": 10.0,
+      "reconnect_initial_delay_s": 1.0,
+      "reconnect_max_delay_s": 30.0,
+      "guidance_queue_size": 16
+    },
+    "student": {
+      "camera": {
+        "index": 0,
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "flip_vertical": true,
+        "flip_horizontal": true
+      },
+      "midi": {
+        "port_name": "SE25 MIDI1"
+      },
+      "keyboard_profile": "white-city-lab-20260717",
+      "led": {
+        "port": null
+      },
+      "haptic": {
+        "port": null
+      },
+      "default_guidance_mode": "both",
+      "record_video": true,
+      "default_timeout_s": 5.0
+    },
+    "teacher": {
+      "camera": {
+        "index": 0,
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "flip_vertical": true,
+        "flip_horizontal": true
+      },
+      "midi": {
+        "port_name": "SE25 MIDI1"
+      },
+      "keyboard_profile": "white-city-lab-20260717",
+      "chord_detection": true
+    },
+    "local_server": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18765,
+      "use_gui": true
+    }
   }
 }
