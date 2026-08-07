@@ -176,12 +176,11 @@ class CompositeCueOutput(CueOutput):
     def show_targets(self, targets: Sequence[Tuple[int, Optional[str]]]) -> CueDispatch:
         """Fire every enabled channel and stamp each completion.
 
-        Channels are driven in the order LED, haptic, visual: the two
-        serial writes go out first so neither waits behind a synchronous
-        repaint, and the screen - the slowest and the one whose completion
-        is hardest to pin down - is stamped last. cue_ready is the maximum
-        regardless of order, so this only affects how early each channel
-        starts, not the recorded result.
+        The visual is painted first so a slow or unhealthy serial output
+        cannot hold the on-screen instruction hostage. LED and haptic
+        follow immediately. cue_ready is still the maximum completion
+        across every enabled channel, so reaction timing continues to
+        start only when the complete cue is ready.
 
         A chord is one cue event, not several: each channel is told the
         whole set once, so all of it becomes ready together and there is
@@ -190,6 +189,16 @@ class CompositeCueOutput(CueOutput):
         their own (app.quiz.CueOutput.show_targets)."""
         dispatch = CueDispatch(dispatch_start_monotonic_ns=self._clock())
         targets = list(targets)
+
+        if self.visual is not None:
+            try:
+                self.visual.show_targets(targets)
+                # Forces the repaint, so the stamp is after the frame was
+                # drawn rather than after it was merely scheduled.
+                _flush(self.visual)
+                dispatch.visual_painted_monotonic_ns = self._clock()
+            except Exception as exc:  # noqa: BLE001
+                dispatch.errors.append(f"visual: {exc}")
 
         if self.led is not None:
             try:
@@ -204,16 +213,6 @@ class CompositeCueOutput(CueOutput):
                 dispatch.haptic_command_complete_monotonic_ns = self._clock()
             except Exception as exc:  # noqa: BLE001
                 dispatch.errors.append(f"haptic: {exc}")
-
-        if self.visual is not None:
-            try:
-                self.visual.show_targets(targets)
-                # Forces the repaint, so the stamp is after the frame was
-                # drawn rather than after it was merely scheduled.
-                _flush(self.visual)
-                dispatch.visual_painted_monotonic_ns = self._clock()
-            except Exception as exc:  # noqa: BLE001
-                dispatch.errors.append(f"visual: {exc}")
 
         ready = [
             t

@@ -673,8 +673,8 @@ Three independent processes:
 
 | Process | Entry point | Devices it owns |
 |---|---|---|
-| Student Client | `student_remote_guidance.py` | camera 1, MIDI keyboard 1, key LED strip, nail actuators |
-| Teacher Client | `teacher_remote_guidance.py` | camera 2, MIDI keyboard 2 |
+| Student Client | `student_remote_guidance.py` | camera 1, MIDI keyboard 1, key LED strip, nail actuators, local key audio while ready |
+| Teacher Client | `teacher_remote_guidance.py` | camera 2, MIDI keyboard 2, local key audio while MIDI is connected |
 | Relay Server | `python -m server` | none - see `server/README.md` |
 
 **Every device call happens on the client that owns it.** The server
@@ -705,8 +705,9 @@ Then start the three endpoints from the launcher's **8. Tele-training**
 section - *Relay Server* first (it refuses to open a second one if a
 relay is already answering), then *Teacher Client* and *Student Client*.
 Each opens as its own process, so all three run side by side. That
-section holds those four buttons and nothing else: every one of the three
-programs carries its own settings.
+section has five entries in this order: Relay Server, Teacher Client,
+Student Client, Tele-training Setup Wizard and Network Latency Benchmark.
+Every one of the three running programs carries its own settings.
 
 The relay control panel deliberately opens as a compact 440 × 360 window.
 All server details, controls, connected rooms/clients and log output are
@@ -735,14 +736,32 @@ then **choose a room**, then the session itself:
 2. *Student*: sign in, type that code.
 3. The teacher presses **Start live session**, the student presses
    **Ready for guidance**, and any key the teacher plays cues the student.
-   The order of those first two presses does not matter.
+   The order of those first two presses does not matter. Each person's
+   own physical key presses also play locally in their client.
+
+The client windows use the launcher's dark card-style Qt CSS but have
+different identities: Teacher is warm amber and Student is cool cyan. A
+compact command bar puts role, stage, link state and Settings on one line;
+the detailed status is one slim line below it, so the header no longer
+takes several mostly-empty rows. Long status text is available as a
+tooltip instead of forcing the window wider.
+
+The Session stage is divided into workspaces instead of showing the
+camera, every control and the results table at the same time. Teacher has
+**Live studio**, **Recording library** and **Student results** tabs.
+Student has **Practice studio** and **Session results** tabs. On both live
+pages the setup/control card and a bounded 560 × 360 camera preview sit
+side by side; the preview remains complete without becoming the whole
+interface. Finishing a session opens the relevant results workspace.
 
 The **Guidance** choice (`Visual`, `Haptic` or `Both`) appears only on
 the student Session page. The teacher does not choose how cues are
-rendered; their live row contains **Connect MIDI**, **Chord detection**
-and the session controls. When the student becomes ready, their client
-reports its choice to the teacher and the relay stores that student-owned
-value on the session.
+rendered; their live row contains **Connect MIDI**, **Chord detection**,
+**Timbre** and the session controls. Both clients have their own Timbre
+choice (`Piano`, `Electric Piano`, `Sine`, `Mute`), copied from Student
+Quiz; changing it affects that client's new notes immediately. When the
+student becomes ready, their client reports its guidance choice to the
+teacher and the relay stores that student-owned value on the session.
 
 **The join code is the only room identifier anyone types.** Step 2 is one
 field with no mode to pick, the same on both clients: a code joins (for
@@ -759,22 +778,52 @@ config - `config.json` still holds no password. Overtype the username
 and the pre-filled password clears itself, so a demo secret is never
 offered to a real account.
 
-**No camera or MIDI port is opened until step 3 is *pressed*.** Signing
-in, choosing a room and sitting on the session page touch no hardware;
-the devices are claimed by **Start live session** / **Ready for
-guidance** and handed straight back when the session stops, on **Change
-room** and on close. The student's LED strip is the exception - it has
-its own Connect button, because the sync flash is worth checking before
-a session rather than during one.
+**No camera, MIDI port or audio output is opened until an explicit
+hardware action is pressed.** Signing in, choosing a room and sitting on
+the session page touch no hardware; the devices are claimed by **Start
+live session** / **Ready for guidance** (or the teacher's manual
+**Connect MIDI**) and handed straight back when the session/MIDI check
+stops, on **Change room** and on close. `Mute` does not open audio at all.
+The student's LED strip is the exception - it has its own Connect button,
+because the sync flash is worth checking before a session rather than
+during one.
 
-The teacher Session page has two tabs. **Live guidance** contains the
-live camera/MIDI controls. **Recorded guidance** contains the existing
+Running Teacher and Student on the same computer does not open extra MIDI
+connections for sound. Teacher audio consumes note-on/off messages from
+the detector's existing reader; student audio consumes the recorder's
+existing messages. Each process has at most one normal shared-mode output
+stream, which the OS mixes, and closes it as soon as that role stops. If
+audio output cannot be opened, the client warns and continues without
+sound rather than blocking the session.
+
+The two camera/MediaPipe pipelines also run outside the GUI threads in a
+Tele-training-only latest-frame worker. A slow vision pass can reduce the
+preview frame rate, but it cannot hold a ready MIDI/network event or cue
+behind it, and old preview frames are dropped instead of queued. Each
+worker is capped at its configured camera FPS to avoid wasting CPU. On the
+student, the screen cue is painted before LED/haptic serial writes, so a
+slow serial device cannot postpone the visible instruction; reaction time
+still begins after the last enabled channel completes. This ordering is
+especially important when both clients share one busy computer.
+
+If a run still looks slow, the teacher event table separates the next
+places to look: a large **Net RTT** means the receive acknowledgement was
+slow, **Queue** means an earlier cue was still active, and **Dispatch**
+means the student's enabled output channels were slow. The relay itself
+has no batching interval: it forwards first and persists asynchronously.
+
+The teacher's **Recording library** workspace contains the existing
 song/sequence upload and remote playback controls plus **Record a new
-song...**, which opens the platform's existing Song Recording Wizard
-with the devices from Teacher Settings. Opening that wizard is the other
-explicit action that claims teacher hardware; closing it releases the
-devices and refreshes the song picker. A recorded run creates its own
-`recording` session, so it is not necessary to start Live guidance first.
+song...**, which opens Tele-training's private Teacher Recording Wizard.
+It copies section 3's three-page capture/fingering/save flow and writes
+the same `data/music/<song>/` format, but does not import or subclass
+section 3's UI. Its camera, MIDI keyboard and keyboard profile are fixed,
+read-only values from Teacher Settings, and its three pages use the same
+warm amber Teacher theme. Opening that wizard is the other explicit
+action that claims teacher hardware; closing it releases camera, MIDI,
+LED, audio and video output and refreshes the song picker. A recorded run
+creates its own `recording` session, so it is not necessary to start Live
+studio first.
 If the teacher triggers before the student presses **Ready for
 guidance**, the student holds that one trigger and starts the download as
 soon as it becomes ready.
@@ -858,6 +907,13 @@ server's opens its bind address, port, registration and token lifetimes.
 Nothing in the launcher edits any of them, and neither client can see the
 other's devices. The block in full:
 
+Client Settings keeps the role's main-window identity: warm amber for
+Teacher, cool cyan for Student. Its compact header is followed by a
+two-column Camera / Keyboard+MIDI workspace, a short device-ownership
+card, a one-line status strip and the action row. The MIDI key readout is
+an accented monitor card. Long messages use a tooltip rather than
+widening the dialog, so the full form remains visible at 1040 × 650.
+
 The student and teacher Settings dialogs also have **Capture camera +
 profile preview**. It takes one photograph using the camera values
 currently in the form, draws the selected calibration profile's colored
@@ -870,12 +926,14 @@ The MIDI port is selected only here. The two Session pages do not repeat
 the port dropdown or its Refresh button: the student opens its saved port
 when **Ready for guidance** is pressed, while the teacher's **Connect
 MIDI** action opens the teacher port saved in Settings. On the teacher
-page, **Connect MIDI** and **Chord detection** share the same compact row
-as the live guidance controls. That teacher row deliberately has no
-student-guidance selector: `Visual` / `Haptic` / `Both` is chosen on the
-student Session page.
+page, **Connect MIDI** and **Chord detection** share the first row of a
+compact Live controls card, with Timbre and session actions below. The
+student Session page has
+its own Timbre selector. These selectors change local sound only; that
+teacher row deliberately has no student-guidance selector: `Visual` /
+`Haptic` / `Both` is chosen on the student Session page.
 
-Beside the MIDI picker, **Connect & test** temporarily opens the currently
+Beside the MIDI picker, **Connect and test** temporarily opens the currently
 selected input. Press any key on the physical keyboard and the Settings
 dialog shows its note number/name and the exact port label it came from;
 this is the quick way to distinguish `#1` from `#2` before saving. Changing

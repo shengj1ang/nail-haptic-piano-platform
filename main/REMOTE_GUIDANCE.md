@@ -44,10 +44,11 @@ Two people, two machines, one relay in between.
   it remotely. The student downloads the whole thing first and schedules
   every cue locally, so no individual note waits on the network.
 
-The teacher's **Recorded guidance** tab can open the platform's existing
-`RecordingWizard` directly, so a new `data/music/<song>/` performance can
-be recorded without leaving the Teacher Client. This is an integration
-of `app.gui.recording_wizard`, not a second recording implementation.
+The teacher's **Recording library** workspace opens Tele-training's own
+`TeacherRecordingWizard`, so a new `data/music/<song>/` performance can
+be recorded without leaving the Teacher Client. It is a private copy of
+section 3's three-stage algorithm and output format; it does **not**
+import or subclass `app.gui.recording_wizard.RecordingWizard`.
 
 "Upload" here does **not** copy or move that source folder. The teacher
 reads it and sends only the note/finger/timing event list; the relay
@@ -68,8 +69,8 @@ Both modes come from the report's "Tele-training Guidance Modes".
 
 | Process | Entry point | Owns |
 |---|---|---|
-| Student Client | `student_remote_guidance.py` | camera 1, MIDI keyboard 1, LED strip, nail actuators |
-| Teacher Client | `teacher_remote_guidance.py` | camera 2, MIDI keyboard 2 |
+| Student Client | `student_remote_guidance.py` | camera 1, MIDI keyboard 1, LED strip, nail actuators, one shared-mode audio output stream while ready |
+| Teacher Client | `teacher_remote_guidance.py` | camera 2, MIDI keyboard 2, one shared-mode audio output stream while MIDI is connected |
 | Relay Server | `python -m server` | nothing physical |
 
 They are separate OS processes, not windows in one app. The launcher's
@@ -91,19 +92,22 @@ starts them with `QProcess.startDetached` (see
 | `timing.py` | 393 | Wall vs monotonic clocks, `DispatchTimings`, `ClockOffsetEstimator`, `LatencyStats`, `one_way_estimate` |
 | `network_client.py` | 479 | `RemoteApiClient` (stdlib urllib REST) + `RemoteWebSocketClient` (threaded, `websocket-client`). **No Qt** |
 | `qt_bridge.py` | 104 | The only place the network layer meets Qt - turns callbacks into signals |
-| `cue_outputs.py` | 350 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; drives every channel with the whole chord (§4.11) |
+| `cue_outputs.py` | 349 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; paints visual first so serial cannot hold it hostage, while cue-ready remains the last enabled channel (§4.1, §4.11) |
 | `gui_common.py` | 571 | `SignInPanel`, `RoomPanel`, `ApiCallWorker`, `StageWindow` mixin |
-| `settings_window.py` | 462 | `RemoteSettingsDialog` - **one role's** camera/MIDI/profile, temporary press-a-key MIDI identification with guaranteed release on close, the snapshot half of the camera/profile mask preview, and the duplicate-name warning |
+| `client_styles.py` | 295 | Tele-training-only launcher-style QSS; warm Teacher and cool Student palettes shared by each role's main window and Settings, including compact role bars, cards, tabs, inputs, MIDI monitor and result tables |
+| `settings_window.py` | 511 | `RemoteSettingsDialog` - role-themed two-column Camera / Keyboard+MIDI workspace; temporary press-a-key MIDI identification with guaranteed release on close, the snapshot half of the camera/profile mask preview, and the duplicate-name warning |
 | `launcher_actions.py` | 116 | `ProcessSpec`s and health check for launcher section 8 |
 | `setup_store.py` | 180 | **The isolation rules.** Profile folders the setup wizard may create and write; no Qt, no config |
 | `setup_wizard.py` | 599 | `RemoteSetupWizard` - click-to-scan camera selection → calibration launcher → MIDI-mapping launcher. It constructs no camera when opened (§4.12) |
 | `calibration_wizard.py` | 456 | Tele-training's copy of Initial Setup's five-page name → capture → boundary → cropped edges → key-fill flow; only its safe save destination differs (§4.12) |
 | `midi_mapping_wizard.py` | 473 | Tele-training's copy of Initial Setup's two-page Middle C check → live camera/key-highlight mapping flow; it lists and writes only marked Tele-training profiles (§4.12) |
+| `vision_worker.py` | 170 | Latest-only background camera + MediaPipe loop shared by the two clients; keeps native vision calls off both GUI/network fast paths |
 | `student/session.py` | 551 | **The core.** Event model, queueing, all timing rules. No Qt, no hardware |
-| `student/window.py` | 1194 | Student GUI: devices in, Qt signals out; owns the visual/haptic/both choice, announces it when ready, and defers an early recorded trigger until ready |
-| `teacher/live_detector.py` | 218 | Camera → HandTracker → MIDI → finger matching, assembled for the teacher |
+| `student/window.py` | 1378 | Student GUI: compact cyan role bar plus separate Practice/Results workspaces; devices in, Qt signals out; owns the visual/haptic/both choice and Quiz-style local MIDI audio/timbre, announces readiness, and defers an early recorded trigger until ready |
+| `teacher/live_detector.py` | 270 | Background camera/HandTracker snapshot + one latency-first non-blocking MIDI reader → finger matching plus note-on/off events for local audio |
 | `teacher/recording_import.py` | 160 | `data/music`/`data/sequence` → uploadable recording |
-| `teacher/window.py` | 980 | Teacher GUI; separate live/recorded tabs, integrated Song Recording Wizard, and session control without choosing the student's rendering mode |
+| `teacher/recording_wizard.py` | 635 | Tele-training-private three-page Teacher recording flow; fixed Teacher Settings devices, amber UI, section 3-compatible capture/fingering/save pipeline, and complete close-time release |
+| `teacher/window.py` | 1115 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
 | `tools/latency_benchmark.py` | 572 | The benchmark CLI |
 | `tools/benchmark_window.py` | 251 | GUI wrapper around that CLI (runs it as a QProcess) |
 
@@ -119,7 +123,7 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 2400 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging, tabs/wizard integration, camera/profile preview, duplicate-keyboard warning + temporary MIDI test/release lifecycle, and that every message handler exists and a live cue reaches `accept()` |
+| `test-script/test_remote_guidance_config.py` | 2865 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging plus main-window/Settings role themes and workspace separation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, duplicate-keyboard warning + temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, and that every message handler exists and a live cue reaches `accept()` |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
 | `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
@@ -127,7 +131,7 @@ certificate generation).
 | `test-script/test_chord_cue.py` | 454 | Cueing a chord on every channel (§4.11), that scoring stays single-note, and that the single-finger path the local quiz and the main study use is untouched |
 | `test-script/test_remote_setup_wizard.py` | 603 | On-demand camera selection, five-page cropped calibration, both MIDI-mapping images/overlays, and what the setup flows cannot do (§4.12): write `config.json` or touch a profile they did not create |
 
-**233 tests** in the three remote files, **23** in the MIDI port file,
+**253 tests** in the three remote files, **23** in the MIDI port file,
 **16** in the profile preview file, **32** in the chord cue file and **32**
 in the setup wizard file, none of which need hardware or a real network.
 
@@ -241,6 +245,7 @@ nor reaction time.
 |---|---|
 | Teacher key→finger detection | `app.camera`, `app.hand_tracking`, `app.midi`, `app.finger_matching` (incl. `match_notes_to_fingers` for chords) |
 | MIDI port identity and opening | `app.midi.list_input_ports` / `resolve_input_port` / `MidiInputReader` - never `mido.get_input_names()` or `mido.open_input()`, which cannot address two identical keyboards (§9.8) |
+| Local key sound and timbres | `note_audio.NoteAudioPlayer`, `TIMBRES` and `DEFAULT_TIMBRE` - the same player and choices as Student Quiz; Tele-training only routes its existing MIDI events into it |
 | Student cue channels | `app.gui.cue_window.ScreenCueOutput`, `app.haptic_cue.HapticCueOutput`, `profile_led_mapper` + `note_led_map` |
 | Recording + LED sync mark | `app.music_recording` (`RawMidiRecorder`, `SyncInfo`) |
 | Correctness / summary | `app.finger_matching.is_finger_correct`, `app.quiz.summarize` |
@@ -384,18 +389,19 @@ switch, which handed the teacher the student's calibration.
 
 ```
 TEACHER                          RELAY                    STUDENT
-  camera+MIDI tick
-  match_note_to_finger
+  background camera+MediaPipe ──► latest hand snapshot
+  MIDI tick (never waits for vision)
+  match_note_to_finger(latest completed hands)
   perf_counter_ns  ─┐
   guidance.live ────┼──────────►  adds server stamps ───►  StudentSession.accept()
                     │             forwards to room         stamps arrival
                     │                                      ├─ guidance.received ──►
   RTT ends here ◄───┴──────────────────────────────────────┘   (BEFORE any cue work)
-                                                           tick() → present_next()
+                                                           tick() → present_next() (before vision snapshot/UI)
                                                            CompositeCueOutput.show_targets()
-                                                             LED write → flush   ─┐
-                                                             haptic write → flush ─┼─ max = cue_ready
-                                                             screen paint (repaint)┘
+                                                             screen paint (repaint)─┐ shown first
+                                                             LED write → flush      ├─ max = cue_ready
+                                                             haptic write → flush  ─┘
                                   ◄─────────────────────── guidance.presented
                                                            MIDI note-on arrives
                                                            reaction = response - cue_ready
@@ -422,8 +428,25 @@ one page:
 ```
 Step 1 of 3 - Sign in     server URL, username, password. Nothing else.
 Step 2 of 3 - Room        one field: the join code. Nothing else.
-Step 3 of 3 - Session     devices, controls, camera, event table.
+Step 3 of 3 - Session     role-specific workspaces for setup/live view/results.
 ```
+
+The chrome above that stack is deliberately short. Role, stage, relay
+link and the one Settings button share a single command bar, followed by
+one 30 px status strip. Long messages are kept in the label tooltip and
+must not expand the minimum window width. The styles live only in
+`client_styles.py`: Teacher uses amber/brown, Student uses cyan/navy, so
+two clients running beside one another are recognisable immediately.
+
+The Session page does not stack every large widget vertically:
+
+- Teacher: **Live studio**, **Recording library**, **Student results**.
+- Student: **Practice studio**, **Session results**.
+
+Live/practice uses a horizontal, draggable control/preview split. The
+preview is bounded at 560 × 360: it shows the whole scaled frame, but is
+not intended to dominate the program. Result tables live on their own
+pages and a finished session selects that page automatically.
 
 **The join code is the only room identifier a user ever sees.** The room
 uuid is still stored - every REST call is keyed by it, and
@@ -462,9 +485,11 @@ keeping what they typed there would be nothing to pre-fill next launch.
 only the WebSocket. The camera, MediaPipe and the MIDI port saved in that
 role's Settings are claimed by an explicit hardware action:
 `_start_live_session()` on the teacher, `_start_session()` on the
-student, or **Record a new song...** on the teacher's Recorded guidance
-tab. The first two release on stop/leave/close; the integrated recording
-wizard owns and releases its camera/MIDI/LED for its own window lifetime.
+student, or **Record a new song...** in the teacher's Recording library
+workspace. The teacher's explicit **Connect MIDI** also claims its MIDI port.
+The first two release on stop/leave/close; the integrated recording
+wizard owns and releases its camera/MIDI/LED/audio for its own window
+lifetime.
 
 This used to happen in `enter_session()`, which meant a client held the
 camera through the whole of setup and locked out every other tool. Three
@@ -484,39 +509,112 @@ The student's LED strip stays on its own **Connect LED** button - the
 sync flash wants checking before a session, not during one.
 
 The teacher's **Connect MIDI** button and **Chord detection** checkbox
-share the single Live guidance control row with the session actions. The
-removed MIDI selector/Refresh row must not be reintroduced; changing the
-port belongs in Settings.
+share the first row of the Live controls card; Instrument and the session
+actions remain in that same compact card. The removed MIDI
+selector/Refresh row must not be reintroduced; changing the port belongs
+in Settings.
 
-### Teacher Live / Recorded tabs and recording wizard
+### Local key audio and same-machine ownership
 
-The teacher Session stage contains a `QTabWidget` with exactly two
-pages. **Live guidance** owns Connect MIDI, Chord detection, the live
-session controls and camera view. **Recorded guidance** owns the song
-picker, Refresh, Upload, playback mode, Trigger, its own pause/resume/stop
-controls, and **Record a new song...**. The student's event table and
-summary remain below the tabs because results belong to either mode.
+Both clients use the exact `note_audio.py` path used by Student Quiz.
+Their Session pages list `TIMBRES` (`Piano`, `Electric Piano`, `Sine`,
+`Mute`), and changing the choice affects new notes immediately. Teacher
+sound follows the teacher's physical key presses; student sound follows
+the student's physical response presses. Incoming guidance does not
+play a second tone on the student.
 
-**Record a new song...** constructs the existing
-`app.gui.recording_wizard.RecordingWizard` with `self.cfg` - the
-teacher-role `Config` view - so it uses the camera, MIDI port and keyboard
-profile from Teacher Settings rather than the platform's unrelated
-top-level defaults. It opens as a separate wizard window because its
-three-page capture/review UI is intentionally large. While it is open,
-the Teacher Client locks Settings, Change room and the Live hardware
-controls to prevent two owners claiming the same devices; any detector
-opened earlier by manual **Connect MIDI** is closed before the wizard or
-a recorded session starts. Closing the wizard restores the controls;
-completing it refreshes the picker and selects the new `music/<song>`
-entry.
+This must not create a second owner for scarce input hardware. The
+teacher detector's one `MidiInputReader` returns both the note-ons used
+for finger guidance and the note-on/off events used for sound. The
+student similarly routes the events already returned by its one
+`RawMidiRecorder` to both scoring and sound. Do not add another MIDI
+listener for audio.
 
-Recorded guidance is independent of Live guidance. Upload is available
+When both clients run on one computer, each has at most one ordinary
+`sounddevice.OutputStream`; the OS mixes those output streams rather
+than either client requesting exclusive access. `Mute` creates no audio
+stream at all. Teacher audio exists only while its MIDI connection is
+open; student audio exists only while it is ready for a session. Stop,
+Change room and window close call `stop_all()` and `close()` immediately.
+If the host audio backend nevertheless refuses a stream, that client
+warns and continues with guidance/recording instead of failing the
+lesson or opening another device.
+
+### Live latency fast path
+
+The relay has no fixed cadence or database wait: it forwards an incoming
+WebSocket frame immediately, then queues persistence in the background.
+The observed same-machine delay can therefore be dominated by client
+work when both camera/MediaPipe pipelines and serial outputs share an
+already busy computer.
+
+Keep these ordering/ownership rules together:
+
+- `LatestVisionWorker` runs camera capture, MediaPipe and overlay drawing
+  outside each client's Qt GUI thread. It stores only the latest completed
+  frame/hands; old preview frames never queue and can never delay a cue.
+  Its loop is capped at that role's configured camera FPS, so moving work
+  off the GUI does not turn it into an unbounded CPU loop.
+- Teacher `poll()` takes the latest completed hand snapshot, drains MIDI
+  first and returns a waiting note immediately. It never waits for a new
+  vision result just to send guidance.
+- Student `_tick()` processes MIDI, `StudentSession.tick()` and the local
+  recording scheduler before it consumes the latest vision snapshot.
+- `CompositeCueOutput` repaints the visual channel before LED/haptic
+  serial writes, so an unhealthy serial device cannot delay the visible
+  instruction. `cue_ready` is still the maximum completion timestamp of
+  all enabled channels, preserving the reaction-time rule in §4.1.
+
+The regression tests inject blocked/slow vision and hardware channels:
+a session tick must still run immediately, the visual call must be first,
+and teacher MIDI must not call camera read. Do not move native vision back
+onto either window timer or restore serial-first visual ordering.
+
+### Teacher workspaces and recording wizard
+
+The teacher Session stage contains a `QTabWidget` with exactly three
+pages. **Live studio** owns Connect MIDI, Chord detection, Timbre, the live
+session controls and bounded camera preview. **Recording library** owns
+the song picker, Refresh, Upload, playback mode, Trigger, its own
+pause/resume/stop controls, and **Record a new song...**. **Student
+results** owns the event table and student-computed summary, so neither
+live nor recorded controls are vertically squeezed by a results panel.
+
+**Record a new song...** constructs
+`remote_guidance.teacher.recording_wizard.TeacherRecordingWizard` with
+`self.cfg`, the isolated `teacher_config()` view. The copy must not call
+`Config.load()` and its first page deliberately has no camera, MIDI or
+profile picker: it shows all three Teacher Settings values read-only,
+and Next remains disabled if the Teacher MIDI/profile is unavailable.
+That prevents a one-off recording from quietly using section 1's
+top-level devices.
+
+The implementation copies section 3's capture algorithm and keeps using
+the shared low-level data helpers (`RawMidiRecorder`, `SyncInfo`,
+`AnalyzeWorker`, `build_score_midi`, `build_fingering_entries`, etc.), so
+it still writes the exact `data/music/<song>/` format that playback,
+upload and analysis expect. It does not import or subclass section 3's
+UI class; future Tele-training UI/device changes therefore cannot alter
+**3. Recording & Playback**. Its three pages use the Teacher amber theme:
+read-only device audit, bounded camera plus capture controls, then review
+and save.
+
+The wizard opens the configured Teacher camera when its window opens;
+MIDI, LED sync and local audio are claimed only by **Start recording**.
+While it is open, the Teacher Client locks Settings, Change room and Live
+hardware controls; any detector opened earlier by manual **Connect MIDI**
+is closed first. Closing the wizard stops polling and releases camera,
+MIDI, LED, audio and video writer. Completing it refreshes the picker and
+selects the new `music/<song>` entry.
+
+Recorded sessions are independent of live sessions. Upload is available
 as soon as a room and local song exist - do not make it depend on a live
 `session_id`. **Trigger on student** creates its own REST session with
 `mode: "recording"`, `recording_id` and `playback_mode`, sends
 `session.start`, then `recording.start`. No teacher `guidance_mode` is
-included. While either mode is active the other tab is disabled, and
-the active tab's own transport buttons remain available. If
+included. While either mode is active the other guidance workspace is
+disabled, the Results workspace stays readable, and the active mode's
+own transport buttons remain available. If
 `recording.start` reaches the student before **Ready for guidance**, the
 student stores that envelope in `_pending_recording_start` and consumes
 it immediately after becoming ready; it must not silently discard the
@@ -565,8 +663,10 @@ Two details that are load-bearing:
   `sign_out()` calls `restore_demo_password()`, because `_on_signed_in()`
   clears the box (there is a test for both).
 
-Window minimum heights: teacher 623 px, student 541 px (both must stay
-under ~700 so they fit a 768px screen - there is a test).
+Without a live frame the current minimum-height hints are about 532 px
+(Teacher) and 511 px (Student); a 560 × 360 preview can raise them to
+about 607/586 px. Both must stay under ~700 so they fit a 768px screen -
+there is a test.
 
 ### Settings: one button per program, each owning its own
 
@@ -578,6 +678,16 @@ see only its own settings:
 | Student Client | `RemoteSettingsDialog("student", ...)` | its camera, MIDI port, calibration profile |
 | Teacher Client | `RemoteSettingsDialog("teacher", ...)` | its camera, MIDI port, calibration profile |
 | Relay Server | `server.gui.ServerSettingsDialog` | bind host, port, registration, token TTLs |
+
+The two client dialogs use the same visual identity as the window that
+opened them: amber/brown for Teacher and cyan/navy for Student. A compact
+role header sits above one horizontal device workspace (**Camera** on the
+left, **Keyboard + MIDI** on the right), followed by a short ownership
+note, one-line status strip and actions. Save and the camera/profile
+preview are the role-accent primary actions; the live MIDI readout is an
+accented monitor card. At 1040 × 650 the whole dialog is visible, and its
+minimum-size hint remains about 956 × 496 rather than growing with long
+status text (the full text is kept in a tooltip).
 
 Both client settings dialogs include **Capture camera + profile
 preview**. It uses the camera values and calibration profile currently
@@ -600,7 +710,7 @@ their camera for their whole lifetime and a second capture on the same
 device fails on most backends. Keep new callers on that shared module
 rather than growing a second overlay.
 
-Both dialogs also put **Connect & test** beside their MIDI port picker.
+Both dialogs also put **Connect and test** beside their MIDI port picker.
 It temporarily constructs `MidiListener` for the value currently shown;
 pressing any key updates the dialog with `note N (name)` and the resolved
 port label, matching the verification readout in the MIDI Mapping Wizard.
@@ -761,9 +871,11 @@ them once (either client's *Create account* button does it, or see
 
 Teacher creates a room → reads the join code → student joins → teacher
 **Start live session** → student **Ready for guidance**. Those last two
-presses open the live-session devices. For the recorded path, the
-teacher's explicit **Record a new song...** action opens the integrated
-wizard and claims its devices until the wizard closes.
+presses open the live-session devices and their local key-audio streams
+(unless `Mute` is selected). Pick each role's **Timbre** on its Session
+page; the choices are the same as Student Quiz. For the recorded path, the
+teacher's explicit **Record a new song...** action opens the private
+Teacher wizard and claims its devices until the wizard closes.
 
 Benchmark (needs a student connected and answering):
 
@@ -880,15 +992,19 @@ Each of these cost real debugging time. They all have tests now.
 
 ## 10. Known gaps and what is not verified
 
-### Never tested on real hardware
+### Real-hardware status
 
-Nothing below has run against a physical device. The code paths execute
-and the objects are constructed, but no LED has lit and no motor has
-moved under this module:
+A user smoke-tested teacher key → student prompt on one computer in
+August 2026. One run was about two seconds under heavy machine load and a
+later retry was visibly faster, which exposed the client-side scheduling
+bottlenecks addressed in §6's “Live latency fast path”. The new
+background-vision/visual-first version has deterministic injected tests
+but still needs a fresh user timing run with real devices. The following
+remain unverified:
 
 - LED key cue and the LED sync flash
 - Haptic cue on an explicit serial port
-- Teacher live finger detection with a real camera + MIDI keyboard
+- Instrumented teacher MIDI-press → student visual-onset timing on real hardware
 - Student video recording and the offline finger pass
 - The two-machine benchmark (**all latency figures so far are loopback
   on one machine** - ~1.3 ms RTT, which says nothing about a campus
@@ -958,7 +1074,7 @@ moved under this module:
 - Wire the photodiode/accelerometer rig into the reserved columns.
 - Multi-student rooms (routing + teacher UI).
 - Token refresh + a clearer reconnect UX.
-- Trim `student/window.py` (1157 lines) - the session-page building and
+- Trim `student/window.py` (1378 lines) - the session-page building and
   the recording/analysis plumbing could split out.
 
 ---

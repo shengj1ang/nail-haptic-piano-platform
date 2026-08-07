@@ -5,7 +5,7 @@ teacher role and nothing more:
 
     app.camera.Camera            -> the teacher's own camera
     app.hand_tracking.HandTracker-> hand landmarks
-    app.midi.MidiListener        -> note-on events, on its own thread
+    app.midi.MidiInputReader     -> non-blocking note-on/note-off events
     app.finger_matching          -> match_note_to_finger for one note,
                                     match_notes_to_fingers for a chord
     app.keyboard.template/
@@ -14,10 +14,12 @@ teacher role and nothing more:
 No matching algorithm is written here. `poll()` returns whatever the
 shared matcher decided, already packed into protocol GuidanceActions.
 
-The window drives this from a QTimer, the same way
-app/gui/finger_detector_window.py drives its own loop - MIDI reading is
-already off the GUI thread inside MidiListener, and one MediaPipe pass
-per tick is what every other live tool in this codebase does.
+The window drains MIDI and completed vision snapshots from a QTimer.
+Camera reads and MediaPipe run continuously in LatestVisionWorker, so a
+slow frame cannot stall the MIDI/network path. MidiInputReader.poll()
+only drains rtmidi's buffer and never waits; the same single MIDI
+connection supplies both guidance note-ons and local audio note-on/off
+feedback.
 """
 
 from __future__ import annotations
@@ -36,10 +38,11 @@ from app.hand_tracking import Hand, HandTracker, draw_hands
 from app.keyboard.midi_mapping import MidiMapping, note_name
 from app.keyboard.template import KeyboardTemplate
 from app.keyboard.visualize import build_color_luts, draw_labels, overlay_keys
-from app.midi import MidiListener
+from app.midi import MidiInputReader, MidiMessage
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 
 from ..protocol import GuidanceAction
+from ..vision_worker import LatestVisionWorker
 
 log = logging.getLogger("remote_guidance.teacher.detector")
 
@@ -52,12 +55,15 @@ class DetectionResult:
     frame: Optional[np.ndarray] = None
     actions: List[GuidanceAction] = None
     hands: Dict[str, Hand] = None
+    midi_events: List[MidiMessage] = None
 
     def __post_init__(self) -> None:
         if self.actions is None:
             self.actions = []
         if self.hands is None:
             self.hands = {}
+        if self.midi_events is None:
+            self.midi_events = []
 
 
 class TeacherLiveDetector:
@@ -81,7 +87,9 @@ class TeacherLiveDetector:
 
         self.camera: Optional[Camera] = Camera(cfg.camera) if open_camera else None
         self.tracker: Optional[HandTracker] = HandTracker() if open_camera else None
-        self.midi: Optional[MidiListener] = None
+        self._vision_worker: Optional[LatestVisionWorker] = None
+        self._vision_sequence = 0
+        self.midi: Optional[MidiInputReader] = None
 
         self.template: Optional[KeyboardTemplate] = None
         self.mapping: Optional[MidiMapping] = None
@@ -90,6 +98,15 @@ class TeacherLiveDetector:
         self.profile_error: Optional[str] = None
 
         self.load_profile(cfg.active_keyboard_profile)
+        if self.camera is not None and self.tracker is not None:
+            self._vision_worker = LatestVisionWorker(
+                self.camera,
+                self.tracker,
+                annotate=lambda frame, _hands: self._annotate(frame),
+                name="remote-teacher-vision",
+                max_fps=cfg.camera.fps or 30,
+            )
+            self._vision_worker.start()
 
     # -- setup ---------------------------------------------------------
 
@@ -125,7 +142,7 @@ class TeacherLiveDetector:
         available ports listed if it cannot - same behaviour as every
         other tool here."""
         self.disconnect_midi()
-        self.midi = MidiListener(port_name or self.cfg.midi.port_name)
+        self.midi = MidiInputReader(port_name or self.cfg.midi.port_name)
         return self.midi.port_name
 
     def disconnect_midi(self) -> None:
@@ -146,8 +163,44 @@ class TeacherLiveDetector:
         match_notes_to_fingers so no fingertip is credited with two notes
         at once - the chord support the report describes, available from
         the first version of the protocol because guidance.live already
-        carries a list of actions."""
+        carries a list of actions.
+
+        MIDI is deliberately drained before camera/MediaPipe work. When
+        any key event is waiting, return it immediately using the most
+        recent completed hand frame; otherwise a slow camera read can put
+        every ready note behind hundreds of milliseconds of vision work.
+        A note tick skips one preview frame, which is invisible at normal
+        playing rates and keeps the live guidance path latency-first.
+        """
         result = DetectionResult()
+
+        worker = getattr(self, "_vision_worker", None)
+        if worker is not None:
+            snapshot = worker.snapshot()
+            if snapshot.sequence > self._vision_sequence:
+                self._vision_sequence = snapshot.sequence
+                self.last_hands = snapshot.hands
+                result.frame = snapshot.frame
+            result.hands = self.last_hands
+
+        if self.midi is not None:
+            result.midi_events = self.midi.poll()
+            if result.midi_events:
+                notes = [
+                    event.note
+                    for event in result.midi_events
+                    if event.type == "note_on" and event.velocity > 0
+                ]
+                result.hands = self.last_hands
+                if notes:
+                    result.actions = self.actions_for(notes)
+                return result
+
+        # Real clients do all vision work on LatestVisionWorker. Keep the
+        # synchronous fallback for open_camera=False tests and injected
+        # camera/tracker implementations.
+        if worker is not None:
+            return result
 
         frame = self.camera.read() if self.camera is not None else None
         if frame is not None and self.tracker is not None:
@@ -156,13 +209,6 @@ class TeacherLiveDetector:
                 self._annotate(frame)
             result.frame = frame
         result.hands = self.last_hands
-
-        if self.midi is None:
-            return result
-
-        notes = [event.note for event in self.midi.pop_events()]
-        if notes:
-            result.actions = self.actions_for(notes)
         return result
 
     def actions_for(self, notes: List[int]) -> List[GuidanceAction]:
@@ -204,6 +250,12 @@ class TeacherLiveDetector:
         """Releases every device it opened, each independently, so one
         failure cannot leave the camera or the MIDI port held."""
         self.disconnect_midi()
+        if self._vision_worker is not None:
+            self._vision_worker.close()
+            self._vision_worker = None
+            self.tracker = None
+            self.camera = None
+            return
         if self.tracker is not None:
             try:
                 self.tracker.close()

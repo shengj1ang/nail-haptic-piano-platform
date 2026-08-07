@@ -5,7 +5,8 @@ remote_guidance.gui_common.StageWindow): **sign in**, then **choose a
 room**, then the session itself. Nothing about guiding is shown - and no
 device is opened - until a room has actually been chosen.
 
-In the session stage two tabs separate the ways to guide:
+In the session stage three workspaces separate live teaching, recorded
+material and the student's results:
 
   - **Live**: the teacher's own camera + MIDI keyboard run the platform's
     existing detection chain (see live_detector.py), and every note-on
@@ -15,14 +16,18 @@ In the session stage two tabs separate the ways to guide:
     uploaded as a recording (metadata + note/finger events, no video) and
     triggered remotely. The student downloads it in full and schedules it
     locally, so no individual note waits on the network. The same tab can
-    open the platform's existing Song Recording Wizard to create a new
-    data/music entry first.
+    open Tele-training's private Teacher Recording Wizard to create a new
+    data/music entry first without coupling this UI to section 3.
+  - **Student results**: the response table and summary have their own
+    page, so they never squeeze the live camera preview.
 
 Signing in, choosing a room and arriving on the session page all touch no
 device. Hardware is claimed only by an explicit action: **Start live
 session**, the manual **Connect MIDI** check, or **Record a new song...**.
-The live devices are handed back on Stop, on "Change room" and on close;
-the recording wizard releases its devices when that window closes.
+The live devices and local note-audio stream are handed back on Stop, on
+"Change room" and on close; the recording wizard releases its devices
+when that window closes. Audio consumes the detector's existing MIDI
+events, so it never opens a second MIDI connection.
 
 The live table shows what the student reported back - received, cue
 presented, what was actually played, and the student's reaction time -
@@ -41,6 +46,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -48,6 +54,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -59,11 +66,12 @@ from PySide6.QtWidgets import (
 
 from app.config import Config
 from app.gui.image_view import ImageView
-from app.gui.recording_wizard import RecordingWizard
 from app.keyboard.midi_mapping import note_name
 from app.music_recording import sanitize_song_name
+from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 
 from ..config import RemoteGuidanceConfig, teacher_config
+from ..client_styles import TEACHER_STATUS_STYLES, TEACHER_STYLE_SHEET
 from ..gui_common import (
     STATUS_STYLES,
     ApiCallWorker,
@@ -94,6 +102,7 @@ from ..protocol import (
 from ..qt_bridge import RemoteClientBridge
 from ..timing import mono_ns, wall_ns
 from .live_detector import TeacherLiveDetector
+from .recording_wizard import TeacherRecordingWizard
 from .recording_import import ImportedRecording, describe, import_song, list_available_songs
 
 log = logging.getLogger("remote_guidance.teacher.window")
@@ -139,6 +148,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None):
         super().__init__()
         self.setWindowTitle("Remote Guidance - Teacher Client")
+        self.resize(1180, 760)
 
         self.remote = remote or RemoteGuidanceConfig.load()
         # The platform-wide config, kept so the Settings dialog can offer
@@ -149,8 +159,9 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         # cannot repoint the shared settings the local tools use.
         self.cfg = teacher_config(cfg, self.remote)
 
-        # Opened when the session stage is entered, not here.
+        # Opened only after an explicit hardware action, never here.
         self.detector: Optional[TeacherLiveDetector] = None
+        self.audio: Optional[NoteAudioPlayer] = None
         self.bridge: Optional[RemoteClientBridge] = None
         self.room: Optional[dict] = None
         self.session_id: Optional[str] = None
@@ -158,7 +169,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.session_mode: Optional[str] = None
         self.recording_id: Optional[str] = None
         self.imported: Optional[ImportedRecording] = None
-        self.recording_wizard: Optional[RecordingWizard] = None
+        self.recording_wizard: Optional[TeacherRecordingWizard] = None
         self._worker: Optional[ApiCallWorker] = None
 
         # message_id -> row, plus the teacher's own monotonic send stamp
@@ -183,27 +194,61 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         stages = self.build_stages(self.remote, "teacher", self._build_session_page())
         self.sign_in_panel.statusChanged.connect(self._set_status)
         self.room_panel.statusChanged.connect(self._set_status)
+        for panel in (self.sign_in_panel, self.room_panel):
+            panel.statusChanged.connect(
+                lambda _message, level, current=panel: current.status_label.setStyleSheet(
+                    TEACHER_STATUS_STYLES.get(level, "")
+                )
+            )
+        for label in stages.findChildren(QLabel):
+            if label.styleSheet() == STATUS_STYLES["idle"]:
+                label.setStyleSheet(TEACHER_STATUS_STYLES["idle"])
 
-        # The stage label and the client's one Settings button share the
-        # top row, so settings are reachable from every stage without
-        # taking a line of their own.
-        header = QHBoxLayout()
-        header.addWidget(self.stage_label, 1)
+        # Compact command bar: the previous stage, link and status labels
+        # each consumed a full row, leaving a large empty header above the
+        # useful workspace.  Role + stage + link + Settings now share one
+        # line; the detailed message is the slim strip immediately below.
+        self.role_label = QLabel("TEACHER  /  CONTROL DESK")
+        self.role_label.setObjectName("roleTitle")
+        self.stage_label.setObjectName("stageChip")
+        self.stage_label.setStyleSheet("")
+        self.link_label.setObjectName("linkStatus")
+        self.link_label.setWordWrap(False)
+        self.link_label.setStyleSheet("")
+        self.link_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.status_label.setObjectName("globalStatus")
+        self.status_label.setWordWrap(False)
+        self.status_label.setMaximumHeight(30)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.status_label.setStyleSheet(TEACHER_STATUS_STYLES["idle"])
+
+        top_bar = QFrame()
+        top_bar.setObjectName("topBar")
+        header = QHBoxLayout(top_bar)
+        header.setContentsMargins(12, 7, 8, 7)
+        header.setSpacing(9)
+        header.addWidget(self.role_label)
+        header.addWidget(self.stage_label)
+        header.addWidget(self.link_label, 1)
         header.addWidget(self.build_settings_button())
 
         central = QWidget()
+        central.setObjectName("teacherCentral")
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(10, 8, 10, 10)
-        layout.addLayout(header)
-        layout.addWidget(self.link_label)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(7)
+        layout.addWidget(top_bar)
         layout.addWidget(self.status_label)
         layout.addWidget(stages, 1)
         self.setCentralWidget(central)
+        self.setStyleSheet(TEACHER_STYLE_SHEET)
 
     def _build_session_page(self) -> QWidget:
         self.room_label = header_label("")
         self.change_room_btn = QPushButton("Change room")
         self.change_room_btn.clicked.connect(self.back_to_rooms)
+        self.room_label.setObjectName("roomChip")
+        self.room_label.setStyleSheet("")
 
         top = QHBoxLayout()
         top.addWidget(self.room_label, 1)
@@ -216,29 +261,45 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.chord_check.setToolTip("Match simultaneous note-ons together so no fingertip is credited with two.")
         self.chord_check.setChecked(self.remote.teacher.chord_detection)
         self.chord_check.toggled.connect(self._on_chord_toggled)
+        self.timbre_combo = QComboBox()
+        for key, timbre in TIMBRES.items():
+            self.timbre_combo.addItem(timbre.name, key)
+        self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
+        self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
 
         self.live_btn = QPushButton("Start live session")
+        self.live_btn.setProperty("role", "primary")
         self.live_btn.clicked.connect(self._start_live_session)
         self.pause_btn = QPushButton("Pause")
         self.resume_btn = QPushButton("Resume")
         self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setProperty("role", "danger")
         self.pause_btn.clicked.connect(self._pause)
         self.resume_btn.clicked.connect(self._resume)
         self.stop_btn.clicked.connect(self._stop)
         for button in (self.pause_btn, self.resume_btn, self.stop_btn):
             button.setEnabled(False)
 
-        live_box = QGroupBox("Live guidance")
+        live_box = QGroupBox("Live controls")
+        live_box.setMinimumWidth(330)
         live = QVBoxLayout(live_box)
         self.live_controls_row = QHBoxLayout()
         self.live_controls_row.addWidget(self.midi_btn)
         self.live_controls_row.addWidget(self.chord_check)
-        self.live_controls_row.addStretch(1)
-        self.live_controls_row.addWidget(self.live_btn)
-        self.live_controls_row.addWidget(self.pause_btn)
-        self.live_controls_row.addWidget(self.resume_btn)
-        self.live_controls_row.addWidget(self.stop_btn)
         live.addLayout(self.live_controls_row)
+
+        timbre_row = QHBoxLayout()
+        timbre_row.addWidget(QLabel("Instrument:"))
+        timbre_row.addWidget(self.timbre_combo, 1)
+        live.addLayout(timbre_row)
+        live.addStretch(1)
+        live.addWidget(self.live_btn)
+
+        live_transport_row = QHBoxLayout()
+        live_transport_row.addWidget(self.pause_btn)
+        live_transport_row.addWidget(self.resume_btn)
+        live_transport_row.addWidget(self.stop_btn)
+        live.addLayout(live_transport_row)
 
         # -- pre-recorded ----------------------------------------------
         self.song_combo = QComboBox()
@@ -253,6 +314,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
                 {"paced": "Paced (wait for each response)", "original_timing": "Original timing"}[mode], mode
             )
         self.trigger_btn = QPushButton("Trigger on student")
+        self.trigger_btn.setProperty("role", "primary")
         self.trigger_btn.setEnabled(False)
         self.trigger_btn.clicked.connect(self._trigger_recording)
 
@@ -264,46 +326,61 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.recording_pause_btn = QPushButton("Pause")
         self.recording_resume_btn = QPushButton("Resume")
         self.recording_stop_btn = QPushButton("Stop")
+        self.recording_stop_btn.setProperty("role", "danger")
         self.recording_pause_btn.clicked.connect(self._pause)
         self.recording_resume_btn.clicked.connect(self._resume)
         self.recording_stop_btn.clicked.connect(self._stop)
         for button in (self.recording_pause_btn, self.recording_resume_btn, self.recording_stop_btn):
             button.setEnabled(False)
 
-        recording_box = QGroupBox("Song library and remote playback")
-        recording = QVBoxLayout(recording_box)
+        library_box = QGroupBox("Local song library")
+        recording = QVBoxLayout(library_box)
         recording_intro = QLabel(
             "Record a teacher performance, or choose an existing music/sequence entry. Upload sends only "
             "note/finger timing data to the relay; Trigger starts a separate recorded-guidance session."
         )
         recording_intro.setWordWrap(True)
+        recording_intro.setObjectName("mutedText")
+        recording_intro.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         recording.addWidget(recording_intro)
 
         song_row = QHBoxLayout()
         song_row.addWidget(QLabel("Song:"))
         song_row.addWidget(self.song_combo, 1)
         song_row.addWidget(self.song_refresh_btn)
-        song_row.addWidget(self.upload_btn)
-        song_row.addWidget(self.playback_combo)
-        song_row.addWidget(self.trigger_btn)
         recording.addLayout(song_row)
+        recording.addWidget(self.record_song_btn)
 
+        playback_box = QGroupBox("Remote playback")
+        playback = QVBoxLayout(playback_box)
+        playback_mode_row = QHBoxLayout()
+        playback_mode_row.addWidget(QLabel("Playback mode:"))
+        playback_mode_row.addWidget(self.playback_combo, 1)
+        playback.addLayout(playback_mode_row)
+        playback_actions = QHBoxLayout()
+        playback_actions.addWidget(self.upload_btn)
+        playback_actions.addWidget(self.trigger_btn)
+        playback.addLayout(playback_actions)
+        playback.addStretch(1)
         recorded_actions = QHBoxLayout()
-        recorded_actions.addWidget(self.record_song_btn)
-        recorded_actions.addStretch(1)
         recorded_actions.addWidget(self.recording_pause_btn)
         recorded_actions.addWidget(self.recording_resume_btn)
         recorded_actions.addWidget(self.recording_stop_btn)
-        recording.addLayout(recorded_actions)
+        playback.addLayout(recorded_actions)
 
         # -- live view -------------------------------------------------
-        self.view = ImageView()
+        self.view = ImageView(max_size=(560, 360))
         self.detect_label = header_label("Press Start live session to open the camera and MIDI keyboard.")
+        self.detect_label.setObjectName("mutedText")
+        self.detect_label.setStyleSheet("")
 
         self.table = QTableWidget(0, len(HEADERS))
         self.table.setHorizontalHeaderLabels(HEADERS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
 
         self.summary_view = QTextEdit()
         self.summary_view.setReadOnly(True)
@@ -313,59 +390,60 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             "machine by the platform's shared scoring - the server and this window never re-derive it."
         )
 
-        camera_panel = QWidget()
-        camera_layout = QVBoxLayout(camera_panel)
-        camera_layout.setContentsMargins(0, 0, 0, 0)
-        camera_layout.addWidget(self.view, 1)
+        self.camera_panel = QGroupBox("Camera preview")
+        self.camera_panel.setObjectName("cameraCard")
+        camera_layout = QVBoxLayout(self.camera_panel)
+        camera_layout.addWidget(self.view, 1, Qt.AlignmentFlag.AlignCenter)
         camera_layout.addWidget(self.detect_label)
 
-        events_panel = QWidget()
-        events_layout = QVBoxLayout(events_panel)
-        events_layout.setContentsMargins(0, 0, 0, 0)
-        events_layout.addWidget(self.table, 1)
-        events_layout.addWidget(self.summary_view)
+        summary_box = QGroupBox("Student summary")
+        summary_layout = QVBoxLayout(summary_box)
+        summary_layout.addWidget(self.summary_view)
 
         self.live_guidance_page = QWidget()
-        live_layout = QVBoxLayout(self.live_guidance_page)
-        live_layout.setContentsMargins(6, 6, 6, 6)
-        live_layout.addWidget(live_box)
-        live_layout.addWidget(camera_panel, 1)
+        live_layout = QHBoxLayout(self.live_guidance_page)
+        live_layout.setContentsMargins(9, 9, 9, 9)
+        live_splitter = QSplitter(Qt.Orientation.Horizontal)
+        live_splitter.addWidget(live_box)
+        live_splitter.addWidget(self.camera_panel)
+        live_splitter.setStretchFactor(0, 2)
+        live_splitter.setStretchFactor(1, 3)
+        live_splitter.setSizes([380, 620])
+        live_splitter.setChildrenCollapsible(False)
+        live_layout.addWidget(live_splitter)
 
         self.recorded_guidance_page = QWidget()
-        recorded_layout = QVBoxLayout(self.recorded_guidance_page)
-        recorded_layout.setContentsMargins(6, 6, 6, 6)
-        recorded_layout.addWidget(recording_box)
-        recorded_layout.addStretch(1)
+        recorded_layout = QHBoxLayout(self.recorded_guidance_page)
+        recorded_layout.setContentsMargins(9, 9, 9, 9)
+        recorded_layout.addWidget(library_box, 3)
+        recorded_layout.addWidget(playback_box, 2)
+
+        self.results_guidance_page = QWidget()
+        results_layout = QVBoxLayout(self.results_guidance_page)
+        results_layout.setContentsMargins(9, 9, 9, 9)
+        results_layout.addWidget(summary_box)
+        results_layout.addWidget(self.table, 1)
 
         self.guidance_tabs = QTabWidget()
-        self.live_tab_index = self.guidance_tabs.addTab(self.live_guidance_page, "Live guidance")
-        self.recorded_tab_index = self.guidance_tabs.addTab(self.recorded_guidance_page, "Recorded guidance")
+        self.live_tab_index = self.guidance_tabs.addTab(self.live_guidance_page, "Live studio")
+        self.recorded_tab_index = self.guidance_tabs.addTab(self.recorded_guidance_page, "Recording library")
+        self.results_tab_index = self.guidance_tabs.addTab(self.results_guidance_page, "Student results")
         self.guidance_tabs.setCurrentIndex(self.live_tab_index)
-
-        # A splitter rather than fixed stretch factors: how much room the
-        # active guidance page needs versus the event table depends on the
-        # lesson, and dragging is quicker than resizing the window.
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.guidance_tabs)
-        splitter.addWidget(events_panel)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        splitter.setChildrenCollapsible(False)
-        self.guidance_tabs.setMinimumHeight(230)
-        events_panel.setMinimumHeight(150)
 
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(7)
         layout.addLayout(top)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.guidance_tabs, 1)
 
         self._refresh_songs()
         return page
 
     def _set_status(self, message: str, level: str = "idle") -> None:
         self.status_label.setText(message)
-        self.status_label.setStyleSheet(STATUS_STYLES.get(level, ""))
+        self.status_label.setToolTip(message)
+        self.status_label.setStyleSheet(TEACHER_STATUS_STYLES.get(level, ""))
 
     def apply_settings(self) -> None:
         """Rebuild the teacher's Config view from the saved settings.
@@ -452,6 +530,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def _close_detector(self) -> None:
         """Give the camera, MediaPipe and the MIDI port back the moment
         guiding stops, so the next tool to want them is not blocked."""
+        self._close_audio()
         if self.detector is not None:
             self.detector.close()
             self.detector = None
@@ -464,6 +543,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         if not self._open_detector() or self.detector is None:
             return False
         if self.detector.midi_connected:
+            self._open_audio()
             return True
         try:
             port = self.detector.connect_midi(self.cfg.midi.port_name or None)
@@ -472,15 +552,62 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             return False
         self.midi_btn.setText("Disconnect MIDI")
         self.detect_label.setText(f"MIDI connected on {port}. Play a key to send guidance.")
+        self._open_audio()
         return True
 
     def _toggle_midi(self) -> None:
         if self.detector is not None and self.detector.midi_connected:
             self.detector.disconnect_midi()
+            self._close_audio()
             self.midi_btn.setText("Connect MIDI")
             self.detect_label.setText("MIDI disconnected.")
             return
         self._connect_midi()
+
+    def _open_audio(self) -> None:
+        """Open at most one local output stream, using the MIDI reader
+        the detector already owns. CoreAudio/PortAudio output streams are
+        mixed by the OS, so teacher and student clients can run on the
+        same machine without either claiming the output exclusively."""
+        timbre = self.timbre_combo.currentData() or DEFAULT_TIMBRE
+        if timbre == "mute":
+            self._close_audio()
+            return
+        if self.audio is not None:
+            self.audio.set_timbre(timbre)
+            return
+        try:
+            self.audio = NoteAudioPlayer(timbre=timbre)
+        except Exception as exc:  # noqa: BLE001 - guidance still works without local sound
+            self.audio = None
+            QMessageBox.warning(
+                self,
+                "Audio output not available",
+                f"Could not start audio playback ({exc}). Continuing without sound feedback.",
+            )
+
+    def _close_audio(self) -> None:
+        """Stop every voice and release this client's output stream."""
+        if self.audio is None:
+            return
+        audio, self.audio = self.audio, None
+        try:
+            audio.stop_all()
+        except Exception:  # noqa: BLE001 - close still has to run
+            log.exception("stopping the teacher audio voices failed")
+        try:
+            audio.close()
+        except Exception:  # noqa: BLE001 - never leave the remaining devices held
+            log.exception("closing the teacher audio stream failed")
+
+    def _on_timbre_changed(self, index: int) -> None:
+        timbre = self.timbre_combo.itemData(index) or DEFAULT_TIMBRE
+        if timbre == "mute":
+            self._close_audio()
+        elif self.audio is not None:
+            self.audio.set_timbre(timbre)
+        elif self.detector is not None and self.detector.midi_connected:
+            self._open_audio()
 
     def _on_chord_toggled(self, checked: bool) -> None:
         if self.detector is not None:
@@ -528,7 +655,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             self.set_settings_enabled(idle and not wizard_open)
 
     def _open_recording_wizard(self) -> None:
-        """Open the platform's existing song wizard from the recorded tab."""
+        """Open Tele-training's Teacher-only copy of the song wizard."""
         if self.room is None or self.session_active:
             return
         if self.recording_wizard is not None:
@@ -539,7 +666,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         # wizard needs exclusive ownership of the same teacher devices.
         self._close_detector()
         try:
-            wizard = RecordingWizard(self.cfg)
+            wizard = TeacherRecordingWizard(self.cfg)
         except Exception as exc:  # camera construction can fail before the wizard is shown
             QMessageBox.warning(self, "Could not open Song Recording Wizard", str(exc))
             return
@@ -547,7 +674,6 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.recording_wizard = wizard
         wizard.setParent(self, Qt.WindowType.Window)
         wizard.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        wizard.resize(1000, 860)
         wizard.finished.connect(lambda result, opened=wizard: self._on_recording_wizard_finished(opened, result))
         wizard.show()
         self._sync_guidance_controls()
@@ -556,7 +682,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             "idle",
         )
 
-    def _on_recording_wizard_finished(self, wizard: RecordingWizard, _result: int) -> None:
+    def _on_recording_wizard_finished(self, wizard: TeacherRecordingWizard, _result: int) -> None:
         saved = wizard.review_page.isComplete()
         song_label = None
         if saved:
@@ -590,7 +716,9 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _on_link_state(self, state: str, detail: str) -> None:
         self.link_label.setText(f"Link: {state} {('- ' + detail) if detail else ''}")
-        self.link_label.setStyleSheet(STATUS_STYLES["ok" if state == "connected" else "warn"])
+        self.link_label.setStyleSheet(
+            TEACHER_STATUS_STYLES["ok" if state == "connected" else "warn"]
+        )
 
     def _run_api(self, call, on_ok, busy: str) -> None:
         if self._worker_running():
@@ -779,6 +907,12 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         result = self.detector.poll()
         if result.frame is not None:
             self.view.set_frame(result.frame)
+        if self.audio is not None:
+            for midi_event in result.midi_events:
+                if midi_event.type == "note_on" and midi_event.velocity > 0:
+                    self.audio.play_key(midi_event.note)
+                else:
+                    self.audio.stop_key(midi_event.note)
         if result.actions:
             self._send_guidance(result.actions)
 
@@ -923,6 +1057,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             "(app.quiz.summarize) - not re-derived here or on the server.",
         ]
         self.summary_view.setPlainText("\n".join(lines))
+        self.guidance_tabs.setCurrentIndex(self.results_tab_index)
         if stage == STAGE_FINAL:
             self._set_status("Final results received.", "ok")
             self._fetch_stored_summary()

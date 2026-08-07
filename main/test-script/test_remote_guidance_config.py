@@ -241,6 +241,100 @@ class RoleIsolationTests(_TempConfigCase):
             rgc.role_config(self.cfg, self.remote, "supervisor")
 
 
+class TeacherMidiEventSharingTests(unittest.TestCase):
+    """Teacher guidance and local sound must share one MIDI input."""
+
+    def test_one_reader_returns_guidance_note_ons_and_audio_releases(self):
+        from unittest import mock
+
+        from app.midi import MidiMessage
+        from remote_guidance.teacher.live_detector import TeacherLiveDetector
+
+        class FakeReader:
+            instances = []
+
+            def __init__(self, port_name):
+                self.port_name = port_name
+                self.closed = False
+                self.__class__.instances.append(self)
+
+            def poll(self):
+                return [
+                    MidiMessage("note_on", 60, 100),
+                    MidiMessage("note_off", 60, 64),
+                    MidiMessage("note_on", 61, 0),
+                ]
+
+            def close(self):
+                self.closed = True
+
+        cfg = Config()
+        cfg.midi.port_name = "Teacher Keyboard"
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "remote_guidance.teacher.live_detector.MidiInputReader", FakeReader
+        ):
+            detector = TeacherLiveDetector(cfg, profile_data_dir=Path(directory), open_camera=False)
+            self.assertEqual(detector.connect_midi(), "Teacher Keyboard")
+            detector.camera = mock.MagicMock()
+            result = detector.poll()
+            detector.camera.read.assert_not_called()
+            detector.close()
+
+        self.assertEqual(len(FakeReader.instances), 1)
+        self.assertEqual([action.note for action in result.actions], [60])
+        self.assertEqual([event.note for event in result.midi_events], [60, 60, 61])
+        self.assertTrue(FakeReader.instances[0].closed)
+
+
+class VisionWorkerTests(unittest.TestCase):
+    def test_latest_frame_is_processed_off_thread_and_resources_close(self):
+        import threading
+
+        from remote_guidance.vision_worker import LatestVisionWorker
+
+        class Camera:
+            def __init__(self):
+                self.calls = 0
+                self.released = False
+
+            def read(self):
+                self.calls += 1
+                return {"frame": self.calls}
+
+            def release(self):
+                self.released = True
+
+        class Tracker:
+            def __init__(self):
+                self.closed = False
+                self.called_on = None
+
+            def process(self, frame):
+                self.called_on = threading.current_thread().name
+                return {"Right": frame["frame"]}
+
+            def close(self):
+                self.closed = True
+
+        camera, tracker = Camera(), Tracker()
+        worker = LatestVisionWorker(
+            camera,
+            tracker,
+            annotate=lambda frame, _hands: frame.update(annotated=True),
+            name="test-remote-vision",
+        )
+        worker.start()
+        snapshot = worker.wait_for_frame(timeout=1.0)
+        worker.close()
+
+        self.assertGreater(snapshot.sequence, 0)
+        self.assertTrue(snapshot.frame["annotated"])
+        self.assertEqual(snapshot.hands["Right"], snapshot.frame["frame"])
+        self.assertEqual(tracker.called_on, "test-remote-vision")
+        self.assertTrue(camera.released)
+        self.assertTrue(tracker.closed)
+
+
 class SerialPortValidationTests(unittest.TestCase):
     """The LED strip and the vibration rig are separate boards, and
     auto-detection scores them similarly. One port for both would drive a
@@ -384,6 +478,28 @@ class CompositeCueTests(unittest.TestCase):
             dispatch.haptic_command_complete_monotonic_ns,
         ):
             self.assertIsNotNone(stamp)
+
+    def test_visual_is_rendered_before_slow_hardware_channels(self):
+        order = []
+
+        class OrderedMapper(FakeMapper):
+            def light_key(self, note):
+                order.append("led")
+                return super().light_key(note)
+
+        class OrderedCue(FakeCue):
+            def show_target(self, note, finger):
+                order.append(self.name)
+                super().show_target(note, finger)
+
+        cue = CompositeCueOutput(
+            led=LedKeyCue(OrderedMapper()),
+            visual=OrderedCue("visual"),
+            haptic=OrderedCue("haptic"),
+            guidance_mode="both",
+        )
+        cue.show_target(60, "R1")
+        self.assertEqual(order, ["visual", "led", "haptic"])
 
     def test_cue_ready_is_the_last_channel_to_finish(self):
         clock = _StepClock()
@@ -1208,6 +1324,33 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             self.assertEqual(dialog.port_combo.currentText(), port)
             self.assertEqual(dialog.profile_combo.currentText(), profile)
 
+    def test_settings_use_role_themes_and_a_two_column_device_workspace(self):
+        dialogs = []
+        for role, accent in (("teacher", "#f2a65a"), ("student", "#57c7ff")):
+            dialog = self._dialog(role)
+            dialogs.append(dialog)
+            self.assertEqual(dialog.objectName(), f"{role}Settings")
+            self.assertIn(accent, dialog.styleSheet())
+            self.assertIn(role.upper(), dialog.settings_title.text())
+            self.assertEqual(dialog.settings_header.objectName(), "topBar")
+            self.assertGreaterEqual(dialog.devices_layout.indexOf(dialog.camera_group), 0)
+            self.assertGreaterEqual(dialog.devices_layout.indexOf(dialog.keyboard_box), 0)
+            self.assertEqual(dialog.midi_test_output.objectName(), "midiMonitor")
+            self.assertEqual(dialog.save_btn.property("role"), "primary")
+            self.assertEqual(dialog.preview_btn.property("role"), "primary")
+            self.assertLess(dialog.minimumSizeHint().height(), 700)
+            self.assertLess(dialog.minimumSizeHint().width(), 1100)
+
+        self.assertNotEqual(dialogs[0].styleSheet(), dialogs[1].styleSheet())
+
+    def test_settings_status_is_a_compact_strip_with_full_text_in_its_tooltip(self):
+        dialog = self._dialog("student")
+        message = "A deliberately long status message whose full detail must remain available."
+        dialog._set_status(message, "ok")
+        self.assertLessEqual(dialog.status.maximumHeight(), 32)
+        self.assertFalse(dialog.status.wordWrap())
+        self.assertEqual(dialog.status.toolTip(), message)
+
     def test_two_identical_keyboards_are_both_offered(self):
         """Teacher and student normally use the same model of keyboard, so
         the picker has to show both. mido's own port list showed one."""
@@ -1517,6 +1660,107 @@ class RemoteSettingsDialogTests(unittest.TestCase):
         )
 
 
+class TeacherRecordingWizardTests(unittest.TestCase):
+    """Tele-training owns a styled copy; section 3 remains independent."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _wizard(self):
+        from unittest import mock
+
+        from app.config import CameraConfig, Config
+        from remote_guidance.teacher.recording_wizard import TeacherRecordingWizard
+
+        class FakeCamera:
+            instances = []
+
+            def __init__(self, camera_cfg):
+                self.camera_cfg = camera_cfg
+                self.released = False
+                type(self).instances.append(self)
+
+            def read(self):
+                return None
+
+            def release(self):
+                self.released = True
+
+        cfg = Config.load()
+        cfg.camera = CameraConfig(index=7, width=800, height=600, fps=25)
+        cfg.midi.port_name = "Teacher Settings MIDI"
+        cfg.active_keyboard_profile = "teacher-settings-profile"
+        with mock.patch("remote_guidance.teacher.recording_wizard.Camera", FakeCamera), mock.patch(
+            "remote_guidance.teacher.recording_wizard.list_profiles",
+            return_value=["teacher-settings-profile"],
+        ):
+            wizard = TeacherRecordingWizard(cfg)
+            wizard.info_page.initializePage()
+        self.addCleanup(wizard.close)
+        return wizard, cfg, FakeCamera.instances[-1]
+
+    def test_private_wizard_reads_all_devices_from_teacher_settings(self):
+        from unittest import mock
+
+        wizard, cfg, camera = self._wizard()
+        self.assertIs(camera.camera_cfg, cfg.camera)
+        self.assertEqual(wizard.info_page.port_name(), "Teacher Settings MIDI")
+        self.assertEqual(wizard.info_page.keyboard_profile_name(), "teacher-settings-profile")
+        self.assertIn("Camera 7", wizard.info_page.camera_value.text())
+        self.assertIn("Teacher Settings MIDI", wizard.info_page.midi_value.text())
+        self.assertFalse(hasattr(wizard.info_page, "port_combo"))
+        self.assertFalse(hasattr(wizard.info_page, "profile_combo"))
+
+        wizard.info_page.title_edit.setText("Remote lesson song")
+        with mock.patch(
+            "remote_guidance.teacher.recording_wizard.list_profiles",
+            return_value=["teacher-settings-profile"],
+        ):
+            self.assertTrue(wizard.info_page.isComplete())
+
+    def test_private_wizard_is_not_the_section_three_wizard_and_uses_teacher_ui(self):
+        from app.gui.recording_wizard import RecordingWizard as SectionThreeRecordingWizard
+        from remote_guidance.teacher.recording_wizard import TeacherRecordingWizard
+
+        wizard, _cfg, _camera = self._wizard()
+        self.assertFalse(issubclass(TeacherRecordingWizard, SectionThreeRecordingWizard))
+        self.assertEqual(TeacherRecordingWizard.__module__, "remote_guidance.teacher.recording_wizard")
+        self.assertEqual(wizard.objectName(), "teacherRecordingWizard")
+        self.assertIn("#f2a65a", wizard.styleSheet())
+        self.assertEqual(wizard.wizardStyle(), wizard.WizardStyle.ClassicStyle)
+        self.assertEqual(wizard.record_page.view.max_size, (560, 360))
+        self.assertEqual(wizard.record_page.start_btn.property("role"), "primary")
+        self.assertEqual(wizard.record_page.stop_btn.property("role"), "danger")
+        self.assertLess(wizard.minimumHeight(), 700)
+
+    def test_closing_private_wizard_releases_every_claimed_device(self):
+        from unittest import mock
+
+        wizard, _cfg, camera = self._wizard()
+        recorder = mock.MagicMock()
+        audio = mock.MagicMock()
+        writer = mock.MagicMock()
+        led = mock.MagicMock()
+        wizard.record_page.midi_recorder = recorder
+        wizard.record_page.audio = audio
+        wizard.record_page.video_writer = writer
+        wizard.record_page.led = led
+        wizard.show()
+        self.app.processEvents()
+        wizard.close()
+        self.app.processEvents()
+
+        recorder.close.assert_called_once_with()
+        audio.stop_all.assert_called_once_with()
+        audio.close.assert_called_once_with()
+        writer.release.assert_called_once_with()
+        led.close.assert_called_once_with()
+        self.assertTrue(camera.released)
+
+
 class _ClientStageChecks:
     """Shared checks for both remote clients' staged flow.
 
@@ -1740,29 +1984,48 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
 
         return TeacherRemoteWindow(Config.load(), rgc.RemoteGuidanceConfig())
 
-    device_attributes = ("detector", "bridge")
-    hardware_attributes = ("detector",)
+    device_attributes = ("detector", "audio", "bridge")
+    hardware_attributes = ("detector", "audio")
     window_module = "remote_guidance.teacher.window"
     required_widgets = (
         "view", "table", "summary_view", "detect_label", "link_label", "status_label",
         "sign_in_panel", "room_panel", "room_label", "song_combo", "upload_btn", "trigger_btn",
         "live_btn", "pause_btn", "resume_btn", "stop_btn", "midi_btn",
-        "chord_check", "playback_combo", "guidance_tabs", "live_guidance_page",
-        "recorded_guidance_page", "record_song_btn", "recording_pause_btn",
+        "chord_check", "timbre_combo", "playback_combo", "guidance_tabs", "live_guidance_page",
+        "recorded_guidance_page", "results_guidance_page", "record_song_btn", "recording_pause_btn",
         "recording_resume_btn", "recording_stop_btn", "song_refresh_btn", "stages", "stage_label",
+        "role_label", "camera_panel", "results_tab_index",
     )
 
-    def test_live_and_recorded_guidance_are_separate_tabs(self):
-        self.assertEqual(self.window.guidance_tabs.count(), 2)
+    def test_guidance_and_results_have_separate_workspaces(self):
+        self.assertEqual(self.window.guidance_tabs.count(), 3)
         self.assertEqual(
-            [self.window.guidance_tabs.tabText(i) for i in range(2)],
-            ["Live guidance", "Recorded guidance"],
+            [self.window.guidance_tabs.tabText(i) for i in range(3)],
+            ["Live studio", "Recording library", "Student results"],
         )
         self.assertTrue(self.window.live_guidance_page.isAncestorOf(self.window.live_btn))
+        self.assertTrue(self.window.live_guidance_page.isAncestorOf(self.window.view))
         self.assertTrue(self.window.recorded_guidance_page.isAncestorOf(self.window.song_combo))
         self.assertTrue(self.window.recorded_guidance_page.isAncestorOf(self.window.record_song_btn))
+        self.assertTrue(self.window.results_guidance_page.isAncestorOf(self.window.table))
+        self.assertTrue(self.window.results_guidance_page.isAncestorOf(self.window.summary_view))
+        self.assertFalse(self.window.live_guidance_page.isAncestorOf(self.window.table))
 
-    def test_recording_wizard_reuses_the_teacher_device_configuration(self):
+    def test_teacher_has_a_compact_warm_role_header(self):
+        self.assertEqual(self.window.centralWidget().objectName(), "teacherCentral")
+        self.assertIn("TEACHER", self.window.role_label.text())
+        self.assertIn("#f2a65a", self.window.styleSheet())
+        self.assertEqual(self.window.role_label.parent().objectName(), "topBar")
+        self.assertIs(self.window.stage_label.parent(), self.window.role_label.parent())
+        self.assertIs(self.window.link_label.parent(), self.window.role_label.parent())
+        self.assertIs(self.window.settings_btn.parent(), self.window.role_label.parent())
+        self.assertLessEqual(self.window.status_label.maximumHeight(), 30)
+
+    def test_teacher_camera_preview_is_complete_but_bounded(self):
+        self.assertEqual(self.window.view.max_size, (560, 360))
+        self.assertTrue(self.window.camera_panel.isAncestorOf(self.window.view))
+
+    def test_recording_wizard_uses_the_private_copy_with_teacher_configuration(self):
         from unittest import mock
 
         old_room = self.window.room
@@ -1770,8 +2033,12 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         wizard.review_page.isComplete.return_value = False
         self.window.room = {"room_id": "r-1", "name": "test room"}
         try:
-            with mock.patch("remote_guidance.teacher.window.RecordingWizard", return_value=wizard) as wizard_cls, \
-                    mock.patch.object(self.window, "_close_detector") as close_detector:
+            with (
+                mock.patch(
+                    "remote_guidance.teacher.window.TeacherRecordingWizard", return_value=wizard
+                ) as wizard_cls,
+                mock.patch.object(self.window, "_close_detector") as close_detector,
+            ):
                 self.window._open_recording_wizard()
                 finished = wizard.finished.connect.call_args.args[0]
                 self.assertFalse(self.window.guidance_tabs.isTabEnabled(self.window.live_tab_index))
@@ -1874,19 +2141,81 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         self.assertGreaterEqual(self.window.live_controls_row.indexOf(self.window.midi_btn), 0)
         self.assertGreaterEqual(self.window.live_controls_row.indexOf(self.window.chord_check), 0)
 
+    def test_teacher_offers_the_quiz_timbres(self):
+        from note_audio import DEFAULT_TIMBRE, TIMBRES
+
+        choices = [self.window.timbre_combo.itemData(i) for i in range(self.window.timbre_combo.count())]
+        self.assertEqual(choices, list(TIMBRES))
+        self.assertEqual(self.window.timbre_combo.currentData(), DEFAULT_TIMBRE)
+
+    def test_teacher_mute_does_not_claim_the_audio_output(self):
+        from unittest import mock
+
+        old_index = self.window.timbre_combo.currentIndex()
+        old_detector, old_audio = self.window.detector, self.window.audio
+        self.window.detector = mock.MagicMock(midi_connected=True)
+        self.window.audio = None
+        try:
+            with mock.patch("remote_guidance.teacher.window.NoteAudioPlayer") as player:
+                self.window.timbre_combo.setCurrentIndex(self.window.timbre_combo.findData("mute"))
+                self.window._open_audio()
+            player.assert_not_called()
+            self.assertIsNone(self.window.audio)
+        finally:
+            self.window.detector = None
+            self.window.timbre_combo.setCurrentIndex(old_index)
+            self.window.detector, self.window.audio = old_detector, old_audio
+
+    def test_teacher_audio_reuses_detector_events_and_releases_with_it(self):
+        from unittest import mock
+
+        from app.midi import MidiMessage
+        from remote_guidance.teacher.live_detector import DetectionResult
+
+        detector = mock.MagicMock()
+        detector.poll.return_value = DetectionResult(
+            midi_events=[
+                MidiMessage("note_on", 60, 90),
+                MidiMessage("note_on", 61, 0),
+                MidiMessage("note_off", 62, 64),
+            ]
+        )
+        audio = mock.MagicMock()
+        old_detector, old_audio = self.window.detector, self.window.audio
+        self.window.detector, self.window.audio = detector, audio
+        try:
+            self.window._tick()
+            audio.play_key.assert_called_once_with(60)
+            self.assertEqual([call.args[0] for call in audio.stop_key.call_args_list], [61, 62])
+            detector.connect_midi.assert_not_called()
+
+            self.window._close_detector()
+            audio.stop_all.assert_called_once_with()
+            audio.close.assert_called_once_with()
+            detector.close.assert_called_once_with()
+            self.assertIsNone(self.window.audio)
+            self.assertIsNone(self.window.detector)
+        finally:
+            self.window.detector, self.window.audio = old_detector, old_audio
+
     def test_connect_midi_uses_the_port_saved_in_settings(self):
         from unittest import mock
 
         old_port = self.window.cfg.midi.port_name
+        old_audio = self.window.audio
         detector = mock.MagicMock()
         detector.midi_connected = False
         detector.connect_midi.return_value = "Configured Teacher MIDI"
         self.window.cfg.midi.port_name = "Configured Teacher MIDI"
         self.window.detector = detector
         try:
-            with mock.patch.object(self.window, "_open_detector", return_value=True):
+            with mock.patch.object(self.window, "_open_detector", return_value=True), mock.patch(
+                "remote_guidance.teacher.window.NoteAudioPlayer"
+            ):
                 self.assertTrue(self.window._connect_midi())
         finally:
+            self.window._close_audio()
+            self.window.audio = old_audio
             self.window.detector = None
             self.window.cfg.midi.port_name = old_port
 
@@ -1999,13 +2328,149 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
 
         return StudentRemoteWindow(Config.load(), rgc.RemoteGuidanceConfig())
 
-    device_attributes = ("camera", "tracker", "bridge")
-    hardware_attributes = ("camera", "tracker")
+    device_attributes = ("camera", "tracker", "_vision_worker", "audio", "bridge")
+    hardware_attributes = ("camera", "tracker", "_vision_worker", "audio")
     window_module = "remote_guidance.student.window"
+    required_widgets = (
+        "view", "table", "progress", "link_label", "status_label", "sign_in_panel", "room_panel",
+        "room_label", "guidance_combo", "name_edit", "timeout_spin", "timbre_combo", "record_check",
+        "led_btn", "led_status", "start_btn", "stop_btn", "workspace_tabs", "practice_page",
+        "results_page", "practice_tab_index", "results_tab_index", "role_label", "camera_panel", "stages",
+        "stage_label",
+    )
+
+    def test_practice_and_results_have_separate_workspaces(self):
+        self.assertEqual(self.window.workspace_tabs.count(), 2)
+        self.assertEqual(
+            [self.window.workspace_tabs.tabText(i) for i in range(2)],
+            ["Practice studio", "Session results"],
+        )
+        self.assertTrue(self.window.practice_page.isAncestorOf(self.window.guidance_combo))
+        self.assertTrue(self.window.practice_page.isAncestorOf(self.window.view))
+        self.assertTrue(self.window.results_page.isAncestorOf(self.window.table))
+        self.assertFalse(self.window.practice_page.isAncestorOf(self.window.table))
+
+    def test_student_has_a_compact_cool_role_header(self):
+        self.assertEqual(self.window.centralWidget().objectName(), "studentCentral")
+        self.assertIn("STUDENT", self.window.role_label.text())
+        self.assertIn("#57c7ff", self.window.styleSheet())
+        self.assertEqual(self.window.role_label.parent().objectName(), "topBar")
+        self.assertIs(self.window.stage_label.parent(), self.window.role_label.parent())
+        self.assertIs(self.window.link_label.parent(), self.window.role_label.parent())
+        self.assertIs(self.window.settings_btn.parent(), self.window.role_label.parent())
+        self.assertLessEqual(self.window.status_label.maximumHeight(), 30)
+
+    def test_student_camera_preview_is_complete_but_bounded(self):
+        self.assertEqual(self.window.view.max_size, (560, 360))
+        self.assertTrue(self.window.camera_panel.isAncestorOf(self.window.view))
 
     def test_session_page_does_not_repeat_the_settings_midi_picker(self):
         self.assertFalse(hasattr(self.window, "port_combo"))
         self.assertFalse(hasattr(self.window, "_refresh_ports"))
+
+    def test_student_offers_the_quiz_timbres(self):
+        from note_audio import DEFAULT_TIMBRE, TIMBRES
+
+        choices = [self.window.timbre_combo.itemData(i) for i in range(self.window.timbre_combo.count())]
+        self.assertEqual(choices, list(TIMBRES))
+        self.assertEqual(self.window.timbre_combo.currentData(), DEFAULT_TIMBRE)
+
+    def test_student_mute_does_not_claim_the_audio_output(self):
+        from unittest import mock
+
+        old_index = self.window.timbre_combo.currentIndex()
+        old_recorder, old_audio = self.window.midi_recorder, self.window.audio
+        self.window.midi_recorder = mock.MagicMock()
+        self.window.audio = None
+        try:
+            with mock.patch("remote_guidance.student.window.NoteAudioPlayer") as player:
+                self.window.timbre_combo.setCurrentIndex(self.window.timbre_combo.findData("mute"))
+                self.window._open_audio()
+            player.assert_not_called()
+            self.assertIsNone(self.window.audio)
+        finally:
+            self.window.midi_recorder = None
+            self.window.timbre_combo.setCurrentIndex(old_index)
+            self.window.midi_recorder, self.window.audio = old_recorder, old_audio
+
+    def test_student_audio_reuses_recorder_events_and_releases(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        events = [
+            SimpleNamespace(type="note_on", note=64, abs_time=12.0),
+            SimpleNamespace(type="note_off", note=64, abs_time=12.2),
+        ]
+        recorder = mock.MagicMock()
+        recorder.pop_events.return_value = events
+        audio = mock.MagicMock()
+        session = mock.MagicMock()
+        old = (
+            self.window.midi_recorder,
+            self.window.audio,
+            self.window.session,
+            self.window.scheduler,
+            self.window.raw_events,
+        )
+        self.window.midi_recorder = recorder
+        self.window.audio = audio
+        self.window.session = session
+        self.window.scheduler = None
+        self.window.raw_events = []
+        try:
+            self.window._tick()
+            audio.play_key.assert_called_once_with(64)
+            audio.stop_key.assert_called_once_with(64)
+            session.on_note.assert_called_once_with(64, wall_time_ns=12_000_000_000)
+            self.assertEqual(self.window.raw_events, events)
+
+            self.window._close_audio()
+            audio.stop_all.assert_called_once_with()
+            audio.close.assert_called_once_with()
+            self.assertIsNone(self.window.audio)
+        finally:
+            (
+                self.window.midi_recorder,
+                self.window.audio,
+                self.window.session,
+                self.window.scheduler,
+                self.window.raw_events,
+            ) = old
+
+    def test_student_presents_queued_guidance_before_vision_work(self):
+        from unittest import mock
+
+        order = []
+        camera = mock.MagicMock()
+        camera.read.side_effect = lambda: order.append("vision") or None
+        session = mock.MagicMock()
+        session.tick.side_effect = lambda: order.append("session")
+        old = (
+            self.window.camera,
+            self.window.tracker,
+            self.window._vision_worker,
+            self.window.midi_recorder,
+            self.window.session,
+            self.window.scheduler,
+        )
+        self.window.camera = camera
+        self.window.tracker = None
+        self.window._vision_worker = None
+        self.window.midi_recorder = None
+        self.window.session = session
+        self.window.scheduler = None
+        try:
+            self.window._tick()
+            self.assertEqual(order, ["session", "vision"])
+        finally:
+            (
+                self.window.camera,
+                self.window.tracker,
+                self.window._vision_worker,
+                self.window.midi_recorder,
+                self.window.session,
+                self.window.scheduler,
+            ) = old
 
     def test_a_live_cue_reaches_the_session_through_accept(self):
         """The dispatcher's whole job for guidance.live: hand the envelope
@@ -2132,7 +2597,7 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
     required_widgets = (
         "view", "table", "progress", "link_label", "status_label", "sign_in_panel", "room_panel",
         "room_label", "guidance_combo", "name_edit", "timeout_spin", "record_check",
-        "led_btn", "led_status", "start_btn", "stop_btn", "stages", "stage_label",
+        "timbre_combo", "led_btn", "led_status", "start_btn", "stop_btn", "stages", "stage_label",
     )
 
 

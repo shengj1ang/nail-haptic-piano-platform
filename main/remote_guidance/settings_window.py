@@ -25,7 +25,7 @@ pixel mask and key ids, and opens the result in a separate dialog. It
 does not save the form or the photograph, and it refuses a resolution
 mismatch rather than resizing a mask into a misleading fit.
 
-The MIDI picker has a temporary Connect & test action. It opens only the
+The MIDI picker has a temporary Connect and test action. It opens only the
 currently selected port and shows each note pressed, so two identical
 keyboards can be identified before saving. The listener is never part of
 the client session: changing the selection, saving, cancelling or closing
@@ -53,12 +53,14 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -78,7 +80,12 @@ from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.profiles import list_profiles
 
 from .config import ROLE_STUDENT, ROLE_TEACHER, RemoteGuidanceConfig
-from .gui_common import STATUS_STYLES
+from .client_styles import (
+    STUDENT_STATUS_STYLES,
+    STUDENT_STYLE_SHEET,
+    TEACHER_STATUS_STYLES,
+    TEACHER_STYLE_SHEET,
+)
 
 ROLE_TITLES = {ROLE_STUDENT: "Student", ROLE_TEACHER: "Teacher"}
 PREVIEW_CAPTURE_READS = 3
@@ -190,6 +197,11 @@ class RemoteSettingsDialog(QDialog):
         self.role = role
         self.title = ROLE_TITLES.get(role, role.title())
         self.setWindowTitle(f"{self.title} Settings")
+        self.setObjectName(f"{role}Settings")
+        self.resize(1040, 650)
+        self.setMinimumSize(840, 560)
+        self._status_styles = TEACHER_STATUS_STYLES if role == ROLE_TEACHER else STUDENT_STATUS_STYLES
+        self.setStyleSheet(TEACHER_STYLE_SHEET if role == ROLE_TEACHER else STUDENT_STYLE_SHEET)
         self.cfg = cfg
         self.remote = remote or RemoteGuidanceConfig.load()
         self.saved = False
@@ -199,7 +211,7 @@ class RemoteSettingsDialog(QDialog):
 
         role_config = getattr(self.remote, role)
 
-        self.camera_group = CameraGroup("Camera", role_config.camera)
+        self.camera_group = CameraGroup("01  /  Camera", role_config.camera)
 
         self.port_combo = QComboBox()
         # Editable: the port may belong to a keyboard that is not plugged
@@ -209,10 +221,10 @@ class RemoteSettingsDialog(QDialog):
         # can contain "... #1"/"... #2" - see the hint below and app.midi.
         self.port_hint = QLabel("")
         self.port_hint.setWordWrap(True)
-        self.port_hint.setStyleSheet(STATUS_STYLES["warn"])
-        port_refresh = QPushButton("Refresh")
-        port_refresh.clicked.connect(self._refresh_ports)
-        self.midi_test_btn = QPushButton("Connect & test")
+        self.port_hint.setStyleSheet(self._status_styles["warn"])
+        self.port_refresh_btn = QPushButton("Refresh")
+        self.port_refresh_btn.clicked.connect(self._refresh_ports)
+        self.midi_test_btn = QPushButton("Connect and test")
         self.midi_test_btn.setToolTip(
             "Temporarily open the selected MIDI input. Press any key and check the note readout below; "
             "the port is released when Settings closes."
@@ -220,6 +232,8 @@ class RemoteSettingsDialog(QDialog):
         self.midi_test_btn.clicked.connect(self._toggle_midi_test)
         self.midi_test_output = QLabel("MIDI test: not connected.")
         self.midi_test_output.setWordWrap(True)
+        self.midi_test_output.setObjectName("midiMonitor")
+        self.midi_test_output.setMinimumHeight(54)
         test_font = self.midi_test_output.font()
         test_font.setPointSize(test_font.pointSize() + 2)
         self.midi_test_output.setFont(test_font)
@@ -232,16 +246,18 @@ class RemoteSettingsDialog(QDialog):
 
         port_row = QHBoxLayout()
         port_row.addWidget(self.port_combo, 1)
-        port_row.addWidget(port_refresh)
+        port_row.addWidget(self.port_refresh_btn)
         port_row.addWidget(self.midi_test_btn)
 
-        keyboard_box = QGroupBox("Keyboard")
-        keyboard_form = QFormLayout(keyboard_box)
+        self.keyboard_box = QGroupBox("02  /  Keyboard + MIDI")
+        keyboard_form = QFormLayout(self.keyboard_box)
+        keyboard_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         keyboard_form.addRow("MIDI port:", port_row)
         keyboard_form.addRow("", self.port_hint)
         keyboard_form.addRow("", self.midi_test_output)
         keyboard_form.addRow("Calibration profile:", self.profile_combo)
         self.preview_btn = QPushButton("Capture camera + profile preview")
+        self.preview_btn.setProperty("role", "primary")
         self.preview_btn.setToolTip(
             "Use the camera values currently shown above, take one picture, and overlay this profile's "
             "keyboard mask in a separate preview window. Nothing is saved."
@@ -250,11 +266,14 @@ class RemoteSettingsDialog(QDialog):
         keyboard_form.addRow("", self.preview_btn)
 
         self.status = QLabel("")
-        self.status.setWordWrap(True)
+        self.status.setObjectName("globalStatus")
+        self.status.setWordWrap(False)
+        self.status.setMaximumHeight(32)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         note = QLabel(self._note_text())
         note.setWordWrap(True)
-        note.setStyleSheet(STATUS_STYLES["idle"])
+        note.setObjectName("mutedText")
 
         shared = QLabel(
             "This changes only the "
@@ -263,7 +282,7 @@ class RemoteSettingsDialog(QDialog):
             "are left exactly as they are."
         )
         shared.setWordWrap(True)
-        shared.setStyleSheet(STATUS_STYLES["idle"])
+        shared.setObjectName("mutedText")
 
         local_btn = QPushButton("Use this machine's setup")
         local_btn.setToolTip(
@@ -276,12 +295,41 @@ class RemoteSettingsDialog(QDialog):
         buttons.accepted.connect(self._save)
         buttons.rejected.connect(self.reject)
         buttons.addButton(local_btn, QDialogButtonBox.ButtonRole.ResetRole)
+        self.save_btn = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self.save_btn.setText("Save settings")
+        self.save_btn.setProperty("role", "primary")
+
+        self.settings_title = QLabel(f"{self.title.upper()}  /  DEVICE SETTINGS")
+        self.settings_title.setObjectName("roleTitle")
+        settings_subtitle = QLabel("Camera · MIDI input · calibrated keyboard profile")
+        settings_subtitle.setObjectName("dialogSubtitle")
+        heading = QVBoxLayout()
+        heading.setSpacing(1)
+        heading.addWidget(self.settings_title)
+        heading.addWidget(settings_subtitle)
+        self.settings_header = QFrame()
+        self.settings_header.setObjectName("topBar")
+        header_layout = QHBoxLayout(self.settings_header)
+        header_layout.setContentsMargins(14, 9, 14, 9)
+        header_layout.addLayout(heading)
+
+        self.scope_box = QGroupBox("Scope and device ownership")
+        scope_layout = QVBoxLayout(self.scope_box)
+        scope_layout.setSpacing(5)
+        scope_layout.addWidget(note)
+        scope_layout.addWidget(shared)
+
+        self.devices_layout = QHBoxLayout()
+        self.devices_layout.setSpacing(10)
+        self.devices_layout.addWidget(self.camera_group, 1)
+        self.devices_layout.addWidget(self.keyboard_box, 1)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.camera_group)
-        layout.addWidget(keyboard_box)
-        layout.addWidget(note)
-        layout.addWidget(shared)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+        layout.addWidget(self.settings_header)
+        layout.addLayout(self.devices_layout, 1)
+        layout.addWidget(self.scope_box)
         layout.addWidget(self.status)
         layout.addWidget(buttons)
 
@@ -385,7 +433,7 @@ class RemoteSettingsDialog(QDialog):
         self.midi_test_listener = None
         if listener is not None:
             listener.close()
-        self.midi_test_btn.setText("Connect & test")
+        self.midi_test_btn.setText("Connect and test")
         self.midi_test_output.setText(message)
 
     def _fill_from_local(self) -> None:
@@ -452,7 +500,8 @@ class RemoteSettingsDialog(QDialog):
 
     def _set_status(self, message: str, level: str = "idle") -> None:
         self.status.setText(message)
-        self.status.setStyleSheet(STATUS_STYLES.get(level, ""))
+        self.status.setToolTip(message)
+        self.status.setStyleSheet(self._status_styles.get(level, ""))
 
 
 def _spin(minimum: int, maximum: int, value: int) -> QSpinBox:

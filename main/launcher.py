@@ -230,10 +230,10 @@ SECTIONS = [
             # It is setup, not settings - it writes only the
             # remote_guidance block and its own profile folder, and never
             # the values the formal experiment reads.
-            ("Tele-training Setup Wizard", RemoteSetupWizard),
             ("Relay Server", ProcessEntry("launch_server")),
-            ("Student Client", ProcessEntry("launch_student")),
             ("Teacher Client", ProcessEntry("launch_teacher")), 
+            ("Student Client", ProcessEntry("launch_student")),
+            ("Tele-training Setup Wizard", RemoteSetupWizard),
             ("Network Latency Benchmark", ProcessEntry("launch_benchmark")),
         ],
     ),
