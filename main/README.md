@@ -66,6 +66,10 @@ REMOTE_GUIDANCE.md              design + handover notes for the whole tele-train
 quiz_analysis.py                entry point - batch offline analysis of saved quiz sessions: outcome
                                  metrics table, LED sync alignment, per-event review/correction,
                                  carry-over review, participant CSV export (section 7: data analysis)
+tool_compress_review_videos.py  maintenance tool - scans data/quiz/*/review.mp4 and converts only
+                                 non-H.264 review copies with ffmpeg; never enters raw/
+tool_backup_quiz_to_zip.py      maintenance tool - macOS/7z participant backup: creates one tested
+                                 data/quiz-zip/Pxx.zip for each complete P01-P20 participant
 
 config.json                     app/ settings (auto-created): camera/MIDI, active_keyboard_profile,
                                  visual_cue_style, haptic (actuator in use + per-actuator default
@@ -85,6 +89,8 @@ data/quiz/<attempt>/             saved quiz sessions (video+MIDI raw + analysis 
                                  the manual carry-over review; raw/ also holds sync_align.json - the
                                  trial's confirmed LED sync anchor - and sync_detect.json, the audit
                                  trail of the anchor last used)
+data/quiz-zip/Pxx.zip            optional participant-level backups created by
+                                 tool_backup_quiz_to_zip.py; never used as live experiment input
 data/validation_experiments/<experiment>/   timestamped CSV/PNG/raw_acc.npz/meta.json runs of the
                                  validation experiments (see validation_experiments/ below); the
                                  raw_acc.npz holds the run's full three-axis accelerometer samples,
@@ -136,6 +142,65 @@ runtime                         Python Environment in Windows, python 3.11.9, do
 venv.bat                        Do not read/write this file
 launcher.bat                    Do not read/write this file
 ```
+
+---
+
+## Quiz data maintenance tools
+
+These two standalone, no-argument tools use paths relative to this `main/`
+directory. Run them from here; neither tool is part of the launcher or the
+analysis pipeline.
+
+### Compress generated review videos to H.264
+
+```bash
+python3 tool_compress_review_videos.py
+```
+
+`tool_compress_review_videos.py` scans every direct
+`data/quiz/<attempt>/review.mp4`, reports its codec, and shows a confirmation
+menu before making changes. Files already encoded as H.264 and unreadable or
+unknown files are skipped. The path pattern cannot enter
+`data/quiz/<attempt>/raw/`, so original `raw/performance.mp4` recordings are
+outside the tool's scope.
+
+For each non-H.264 review, the tool renames the source to `tmp-review.mp4` and
+runs this exact conversion command in that attempt directory:
+
+```bash
+ffmpeg -i tmp-review.mp4 review.mp4
+```
+
+The temporary original is deleted only after the output is non-empty,
+confirmed as H.264, fully decodable by ffmpeg, and has exactly the same frame
+count as the source. If ffmpeg is absent, disappears, fails, produces an empty
+file, produces a non-H.264 file, or changes the frame count, the source is not
+deleted. The tool restores the original `review.mp4` and preserves any failed
+output as `failed-review.mp4` (or the next unused numbered name). An existing
+`tmp-review.mp4`, output file, or symbolic link is never overwritten.
+
+### Back up complete participants as ZIP files
+
+```bash
+python3 tool_backup_quiz_to_zip.py
+```
+
+`tool_backup_quiz_to_zip.py` runs only on macOS and requires the `7z` command
+on `PATH`. It previews every archive it is ready to create and asks for
+confirmation before creating `data/quiz-zip/`. Only participant directories
+matching P01 through P20 and trial T01 through T27 are eligible. A participant
+is archived only after all 27 trial numbers are present, preventing an
+incomplete `Pxx.zip` from being permanently skipped as an existing backup on a
+later run. `TEST-*`, `remote-*`, other unexpected directory names, symbolic
+links used in place of trial directories, and `.DS_Store` files at every
+depth are excluded.
+
+Each participant is written first as `data/quiz-zip/tmp-Pxx.zip` with
+`7z a -tzip`, so the archive format is ZIP rather than 7z. The temporary
+archive must pass `7z t` before it is renamed to `Pxx.zip`. Existing
+`Pxx.zip` and temporary archives are never overwritten. A failed or
+interrupted temporary archive is preserved for inspection, and no source
+directory or source file is ever deleted or modified.
 
 ---
 
