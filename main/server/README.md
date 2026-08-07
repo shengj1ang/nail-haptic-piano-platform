@@ -73,6 +73,12 @@ reliably released. Room/client rows come from the child process's own log
 lines, which this window owns - no extra unauthenticated status endpoint
 is exposed just to fill a dashboard.
 
+The main panel opens at a compact **440 × 360 px**, also its minimum
+size. The complete dashboard is wrapped in a resizable scroll area,
+so server details, every button, the rooms/client tree and the server log
+remain available without the window occupying most of a laptop screen.
+The tree and log keep their own scroll bars as well.
+
 The CLI form is what a headless deployment uses; the GUI is a convenience
 for running the whole stack on one desk.
 
@@ -174,6 +180,21 @@ registration, token lifetimes - are the **Settings** button on the
 control panel here, which writes `server_config.json`. Or edit the client
 block by hand:
 
+Each client Settings dialog can also take a one-shot camera photograph
+and display the selected keyboard profile's colored pixel mask over it in
+a separate preview window. It uses the form's current, possibly unsaved
+camera/profile values and saves neither the picture nor the form. A
+resolution mismatch is reported rather than resized into a false-looking
+alignment.
+
+This Settings dialog is also the only MIDI port selector for its role.
+The student and teacher Session pages read the saved port directly and
+do not repeat a MIDI dropdown or Refresh button. The teacher keeps a
+manual **Connect MIDI** action beside **Chord detection** on its single
+live-control row. There is no student-guidance selector on that row:
+`visual` / `haptic` / `both` is selected by the student client on its own
+Session page.
+
 ```json
 "remote_guidance": {
   "network": {
@@ -200,10 +221,11 @@ Student and teacher each have their **own** camera, MIDI port and
 keyboard profile; neither touches the shared `camera`/`midi`/
 `active_keyboard_profile` keys the ordinary (non-remote) tools use.
 
-The student's LED strip and haptic rig are both serial devices, so both
-ports are given explicitly. Setting them to the same port is rejected
-with a clear error rather than letting auto-detection pick whichever
-board answers first.
+The student's LED strip and haptic rig are both serial devices. Blank
+ports use auto-detection; `student.led.port` and `student.haptic.port`
+remain config-only overrides for a machine where the two similar boards
+are detected incorrectly. Setting both overrides to the same port is
+rejected with a clear error.
 
 **No credentials live in `config.json`.** Usernames, passwords, tokens
 and TLS private keys are never written there.
@@ -390,7 +412,7 @@ All paths are prefixed `/api/v1`. Everything except `/health`,
 | POST | `/rooms/{room_id}/recordings` | owning teacher | upload a fingering/MIDI sequence (metadata + events, no video) |
 | GET | `/rooms/{room_id}/recordings` | member | list them |
 | GET | `/recordings/{recording_id}` | member | full event list - the student downloads this **before** playback |
-| POST | `/rooms/{room_id}/sessions` | owning teacher | open a guidance session |
+| POST | `/rooms/{room_id}/sessions` | owning teacher | open a guidance session; the teacher does not select the student's rendering mode |
 | GET | `/sessions/{session_id}` | member | session state |
 | GET | `/sessions/{session_id}/events` | member | stored guidance + performance events |
 | GET | `/sessions/{session_id}/summary` | member | counts, plus the student's own reported summary |
@@ -398,6 +420,31 @@ All paths are prefixed `/api/v1`. Everything except `/health`,
 `/sessions/{id}/summary` returns the student's result under
 `student_reported_summary` with `summary_source: "student"`. The naming
 is deliberate: the server did not compute it.
+
+The current teacher sends `{"mode": "live"}` when opening a live
+session. Its initial `guidance_mode` is the neutral value
+`student_choice`, not a visual/haptic default. Once the student is ready,
+its session-bound `recording.ready` frame reports `visual`, `haptic` or
+`both`; the background writer stores that student-reported value on the
+session. Older clients may still send a concrete value in the REST body,
+but the student's later ready message remains authoritative.
+
+The Teacher Client's Recorded guidance tab follows the same ownership
+rule. After uploading the selected song's note/finger events, Trigger
+creates a separate session with `mode: "recording"`, `recording_id` and
+`playback_mode` (and no teacher guidance modality), then sends
+`session.start` followed by `recording.start`. It no longer creates or
+borrows a live session merely to enable recorded playback. A student
+that has not yet entered Ready state retains the one-shot
+`recording.start` envelope locally and consumes it immediately after it
+becomes ready.
+
+A recording upload never writes to either client's song library. It
+inserts a new uuid-keyed recording and event rows in SQLite, so uploading
+the same named source again creates another relay record instead of
+overwriting the previous one. The student consumes the downloaded event
+list in memory; its performed-session files are written separately by
+the client under `data/quiz/<session name>/`.
 
 ---
 
@@ -454,7 +501,7 @@ Message types:
 | `performance.response` | student | what was actually played; `stage` is `provisional` or `final` |
 | `session.start` / `pause` / `resume` / `stop` | teacher | session control |
 | `session.finished` | student | end of session + the student's own summary |
-| `recording.ready` | student | pre-recorded sequence downloaded, standing by |
+| `recording.ready` | student | ready for guidance; reports the student's selected modality and enabled output channels |
 | `recording.start` / `pause` / `stop` | teacher | remote trigger for that sequence |
 | `latency.probe` | teacher | benchmark probe |
 | `latency.received` | student | immediate ack - this is what transport RTT ends on |

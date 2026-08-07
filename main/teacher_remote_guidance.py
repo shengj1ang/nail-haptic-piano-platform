@@ -17,8 +17,8 @@ Run it standalone:
 or from the launcher's "8. Tele-training" section, which starts it as its
 own process.
 
-Configure the teacher's camera, MIDI port and keyboard profile in the
-launcher's Remote Guidance Settings, or in config.json's
+Configure the teacher's camera, MIDI port and keyboard profile from this
+client's own Settings button, or in config.json's
 remote_guidance.teacher block - they are kept separate from the student's
 and from the ordinary tools' shared settings.
 """

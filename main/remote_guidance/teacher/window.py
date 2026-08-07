@@ -5,7 +5,7 @@ remote_guidance.gui_common.StageWindow): **sign in**, then **choose a
 room**, then the session itself. Nothing about guiding is shown - and no
 device is opened - until a room has actually been chosen.
 
-In the session stage there are two ways to guide:
+In the session stage two tabs separate the ways to guide:
 
   - **Live**: the teacher's own camera + MIDI keyboard run the platform's
     existing detection chain (see live_detector.py), and every note-on
@@ -14,15 +14,15 @@ In the session stage there are two ways to guide:
   - **Pre-recorded**: an existing data/music or data/sequence folder is
     uploaded as a recording (metadata + note/finger events, no video) and
     triggered remotely. The student downloads it in full and schedules it
-    locally, so no individual note waits on the network.
+    locally, so no individual note waits on the network. The same tab can
+    open the platform's existing Song Recording Wizard to create a new
+    data/music entry first.
 
-No device is opened until guiding actually starts. Signing in, choosing a
-room and arriving on the session page all touch nothing: the camera,
-MediaPipe and the MIDI port are claimed by **Start live session** and
-handed back on Stop, on "Change room" and on close. Anything else would
-hold the camera through a whole lesson's setup and lock out the other
-tools that want it - "Connect MIDI" is still there as a manual override
-for checking a port before starting.
+Signing in, choosing a room and arriving on the session page all touch no
+device. Hardware is claimed only by an explicit action: **Start live
+session**, the manual **Connect MIDI** check, or **Record a new song...**.
+The live devices are handed back on Stop, on "Change room" and on close;
+the recording wizard releases its devices when that window closes.
 
 The live table shows what the student reported back - received, cue
 presented, what was actually played, and the student's reaction time -
@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -58,8 +59,9 @@ from PySide6.QtWidgets import (
 
 from app.config import Config
 from app.gui.image_view import ImageView
+from app.gui.recording_wizard import RecordingWizard
 from app.keyboard.midi_mapping import note_name
-from app.midi import list_input_ports
+from app.music_recording import sanitize_song_name
 
 from ..config import RemoteGuidanceConfig, teacher_config
 from ..gui_common import (
@@ -70,7 +72,6 @@ from ..gui_common import (
     room_summary,
 )
 from ..protocol import (
-    GUIDANCE_MODES,
     PLAYBACK_MODES,
     PLAYBACK_PACED,
     STAGE_FINAL,
@@ -153,8 +154,11 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.bridge: Optional[RemoteClientBridge] = None
         self.room: Optional[dict] = None
         self.session_id: Optional[str] = None
+        self.session_active = False
+        self.session_mode: Optional[str] = None
         self.recording_id: Optional[str] = None
         self.imported: Optional[ImportedRecording] = None
+        self.recording_wizard: Optional[RecordingWizard] = None
         self._worker: Optional[ApiCallWorker] = None
 
         # message_id -> row, plus the teacher's own monotonic send stamp
@@ -198,28 +202,20 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _build_session_page(self) -> QWidget:
         self.room_label = header_label("")
-        back_btn = QPushButton("Change room")
-        back_btn.clicked.connect(self.back_to_rooms)
+        self.change_room_btn = QPushButton("Change room")
+        self.change_room_btn.clicked.connect(self.back_to_rooms)
 
         top = QHBoxLayout()
         top.addWidget(self.room_label, 1)
-        top.addWidget(back_btn)
+        top.addWidget(self.change_room_btn)
 
         # -- live guidance ---------------------------------------------
-        self.port_combo = QComboBox()
-        port_refresh = QPushButton("Refresh")
-        port_refresh.clicked.connect(self._refresh_ports)
         self.midi_btn = QPushButton("Connect MIDI")
         self.midi_btn.clicked.connect(self._toggle_midi)
         self.chord_check = QCheckBox("Chord detection")
         self.chord_check.setToolTip("Match simultaneous note-ons together so no fingertip is credited with two.")
         self.chord_check.setChecked(self.remote.teacher.chord_detection)
         self.chord_check.toggled.connect(self._on_chord_toggled)
-
-        self.guidance_combo = QComboBox()
-        for mode in GUIDANCE_MODES:
-            self.guidance_combo.addItem(mode, mode)
-        self.guidance_combo.setCurrentText(self.remote.student.default_guidance_mode)
 
         self.live_btn = QPushButton("Start live session")
         self.live_btn.clicked.connect(self._start_live_session)
@@ -234,27 +230,20 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
         live_box = QGroupBox("Live guidance")
         live = QVBoxLayout(live_box)
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("MIDI:"))
-        row1.addWidget(self.port_combo, 1)
-        row1.addWidget(port_refresh)
-        row1.addWidget(self.midi_btn)
-        row1.addWidget(self.chord_check)
-        row2 = QHBoxLayout()
-        row2.addWidget(QLabel("Student guidance:"))
-        row2.addWidget(self.guidance_combo)
-        row2.addStretch(1)
-        row2.addWidget(self.live_btn)
-        row2.addWidget(self.pause_btn)
-        row2.addWidget(self.resume_btn)
-        row2.addWidget(self.stop_btn)
-        live.addLayout(row1)
-        live.addLayout(row2)
+        self.live_controls_row = QHBoxLayout()
+        self.live_controls_row.addWidget(self.midi_btn)
+        self.live_controls_row.addWidget(self.chord_check)
+        self.live_controls_row.addStretch(1)
+        self.live_controls_row.addWidget(self.live_btn)
+        self.live_controls_row.addWidget(self.pause_btn)
+        self.live_controls_row.addWidget(self.resume_btn)
+        self.live_controls_row.addWidget(self.stop_btn)
+        live.addLayout(self.live_controls_row)
 
         # -- pre-recorded ----------------------------------------------
         self.song_combo = QComboBox()
-        song_refresh = QPushButton("Refresh")
-        song_refresh.clicked.connect(self._refresh_songs)
+        self.song_refresh_btn = QPushButton("Refresh")
+        self.song_refresh_btn.clicked.connect(self._refresh_songs)
         self.upload_btn = QPushButton("Upload")
         self.upload_btn.setEnabled(False)
         self.upload_btn.clicked.connect(self._upload_recording)
@@ -267,14 +256,45 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.trigger_btn.setEnabled(False)
         self.trigger_btn.clicked.connect(self._trigger_recording)
 
-        recording_box = QGroupBox("Pre-recorded sequence")
-        recording = QHBoxLayout(recording_box)
-        recording.addWidget(QLabel("Song:"))
-        recording.addWidget(self.song_combo, 1)
-        recording.addWidget(song_refresh)
-        recording.addWidget(self.upload_btn)
-        recording.addWidget(self.playback_combo)
-        recording.addWidget(self.trigger_btn)
+        self.record_song_btn = QPushButton("Record a new song...")
+        self.record_song_btn.setToolTip(
+            "Open the platform's Song Recording Wizard using this teacher's camera, MIDI port and profile."
+        )
+        self.record_song_btn.clicked.connect(self._open_recording_wizard)
+        self.recording_pause_btn = QPushButton("Pause")
+        self.recording_resume_btn = QPushButton("Resume")
+        self.recording_stop_btn = QPushButton("Stop")
+        self.recording_pause_btn.clicked.connect(self._pause)
+        self.recording_resume_btn.clicked.connect(self._resume)
+        self.recording_stop_btn.clicked.connect(self._stop)
+        for button in (self.recording_pause_btn, self.recording_resume_btn, self.recording_stop_btn):
+            button.setEnabled(False)
+
+        recording_box = QGroupBox("Song library and remote playback")
+        recording = QVBoxLayout(recording_box)
+        recording_intro = QLabel(
+            "Record a teacher performance, or choose an existing music/sequence entry. Upload sends only "
+            "note/finger timing data to the relay; Trigger starts a separate recorded-guidance session."
+        )
+        recording_intro.setWordWrap(True)
+        recording.addWidget(recording_intro)
+
+        song_row = QHBoxLayout()
+        song_row.addWidget(QLabel("Song:"))
+        song_row.addWidget(self.song_combo, 1)
+        song_row.addWidget(self.song_refresh_btn)
+        song_row.addWidget(self.upload_btn)
+        song_row.addWidget(self.playback_combo)
+        song_row.addWidget(self.trigger_btn)
+        recording.addLayout(song_row)
+
+        recorded_actions = QHBoxLayout()
+        recorded_actions.addWidget(self.record_song_btn)
+        recorded_actions.addStretch(1)
+        recorded_actions.addWidget(self.recording_pause_btn)
+        recorded_actions.addWidget(self.recording_resume_btn)
+        recorded_actions.addWidget(self.recording_stop_btn)
+        recording.addLayout(recorded_actions)
 
         # -- live view -------------------------------------------------
         self.view = ImageView()
@@ -305,24 +325,39 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         events_layout.addWidget(self.table, 1)
         events_layout.addWidget(self.summary_view)
 
+        self.live_guidance_page = QWidget()
+        live_layout = QVBoxLayout(self.live_guidance_page)
+        live_layout.setContentsMargins(6, 6, 6, 6)
+        live_layout.addWidget(live_box)
+        live_layout.addWidget(camera_panel, 1)
+
+        self.recorded_guidance_page = QWidget()
+        recorded_layout = QVBoxLayout(self.recorded_guidance_page)
+        recorded_layout.setContentsMargins(6, 6, 6, 6)
+        recorded_layout.addWidget(recording_box)
+        recorded_layout.addStretch(1)
+
+        self.guidance_tabs = QTabWidget()
+        self.live_tab_index = self.guidance_tabs.addTab(self.live_guidance_page, "Live guidance")
+        self.recorded_tab_index = self.guidance_tabs.addTab(self.recorded_guidance_page, "Recorded guidance")
+        self.guidance_tabs.setCurrentIndex(self.live_tab_index)
+
         # A splitter rather than fixed stretch factors: how much room the
-        # camera needs versus the event table depends on the lesson, and
-        # dragging is quicker than resizing the window.
+        # active guidance page needs versus the event table depends on the
+        # lesson, and dragging is quicker than resizing the window.
         splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(camera_panel)
+        splitter.addWidget(self.guidance_tabs)
         splitter.addWidget(events_panel)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         splitter.setChildrenCollapsible(False)
-        camera_panel.setMinimumHeight(180)
+        self.guidance_tabs.setMinimumHeight(230)
         events_panel.setMinimumHeight(150)
 
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(top)
-        layout.addWidget(live_box)
-        layout.addWidget(recording_box)
         layout.addWidget(splitter, 1)
 
         self._refresh_songs()
@@ -340,10 +375,9 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         _open_detector() simply picks up the new camera and profile."""
         self.cfg = teacher_config(self.base_cfg, self.remote)
         self.chord_check.setChecked(self.remote.teacher.chord_detection)
-        self._refresh_ports()
         self._set_status(
-            f"Settings saved. Camera {self.cfg.camera.index}, profile "
-            f"{self.cfg.active_keyboard_profile!r} - used from the next session.",
+            f"Settings saved. Camera {self.cfg.camera.index}, MIDI {self.cfg.midi.port_name!r}, "
+            f"profile {self.cfg.active_keyboard_profile!r} - used from the next session.",
             "ok",
         )
 
@@ -354,12 +388,13 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def enter_session(self, room: dict) -> None:
         """Reaching the session page opens the WebSocket and nothing
         else. The camera, MediaPipe and the MIDI port wait for Start
-        live session - listing the ports below only reads their names."""
+        live session. The MIDI port comes from this client's Settings."""
         self.room = room
         self.room_label.setText(room_summary(room))
         self.persist_connection(self.remote, room)
-        self._refresh_ports()
         self._connect_websocket(room)
+        self._refresh_songs()
+        self._sync_guidance_controls()
         self.detect_label.setText(
             "Camera and MIDI open when you press Start live session."
         )
@@ -367,12 +402,17 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def leave_session(self) -> None:
         """Hand the camera and the socket back. Going back to the room
         list should not keep a device busy."""
-        if self.session_id and self.bridge is not None:
+        if self.recording_wizard is not None:
+            self.recording_wizard.close()
+            self.recording_wizard = None
+        if self.session_active and self.session_id and self.bridge is not None:
             self._send(TYPE_SESSION_STOP, {"reason": "teacher left the session"})
         if self.bridge is not None:
             self.bridge.stop()
             self.bridge = None
         self._close_detector()
+        self.session_active = False
+        self.session_mode = None
         self.session_id = None
         self.recording_id = None
         self.room = None
@@ -382,9 +422,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.summary_view.clear()
         self.link_label.setText("")
         self.live_btn.setEnabled(True)
-        self.set_settings_enabled(True)
-        for button in (self.pause_btn, self.resume_btn, self.stop_btn, self.trigger_btn):
-            button.setEnabled(False)
+        self._sync_guidance_controls()
 
     # ------------------------------------------------------------------
     # Devices
@@ -409,7 +447,6 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             self._set_status(self.detector.profile_error, "warn")
         else:
             self._set_status(f"Teacher profile {self.cfg.active_keyboard_profile!r} loaded.", "ok")
-        self._refresh_ports()
         return True
 
     def _close_detector(self) -> None:
@@ -421,27 +458,15 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.midi_btn.setText("Connect MIDI")
         self.view.clear()
 
-    def _refresh_ports(self) -> None:
-        """Reads port *names* only - list_input_ports opens nothing, so
-        this is safe before any device has been claimed."""
-        ports = list_input_ports()
-        current = self.port_combo.currentText()
-        self.port_combo.clear()
-        self.port_combo.addItems(ports)
-        if current in ports:
-            self.port_combo.setCurrentText(current)
-        elif self.cfg.midi.port_name in ports:
-            self.port_combo.setCurrentText(self.cfg.midi.port_name)
-
     def _connect_midi(self) -> bool:
-        """Open the selected MIDI port, opening the detector that owns it
-        first if it is not up yet."""
+        """Open the MIDI port saved in this client's Settings, opening
+        the detector that owns it first if it is not up yet."""
         if not self._open_detector() or self.detector is None:
             return False
         if self.detector.midi_connected:
             return True
         try:
-            port = self.detector.connect_midi(self.port_combo.currentText() or None)
+            port = self.detector.connect_midi(self.cfg.midi.port_name or None)
         except RuntimeError as exc:
             QMessageBox.warning(self, "MIDI connection failed", str(exc))
             return False
@@ -461,11 +486,87 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         if self.detector is not None:
             self.detector.chord_detection = checked
 
-    def _refresh_songs(self) -> None:
+    def _refresh_songs(self, preferred_label: Optional[str] = None) -> None:
+        current = preferred_label or self.song_combo.currentData()
         self.song_combo.clear()
         for entry in list_available_songs():
             self.song_combo.addItem(entry.label, entry.label)
-        self.upload_btn.setEnabled(self.song_combo.count() > 0 and self.session_id is not None)
+        if current:
+            index = self.song_combo.findData(current)
+            if index >= 0:
+                self.song_combo.setCurrentIndex(index)
+        self._sync_guidance_controls()
+
+    def _sync_guidance_controls(self) -> None:
+        """Keep the two tabs mutually exclusive when hardware/session state is active."""
+        wizard_open = self.recording_wizard is not None
+        idle = not self.session_active
+        live_active = self.session_active and self.session_mode == "live"
+        recorded_active = self.session_active and self.session_mode == "recording"
+
+        self.change_room_btn.setEnabled(not wizard_open)
+        self.guidance_tabs.setTabEnabled(self.live_tab_index, not wizard_open and (idle or live_active))
+        self.guidance_tabs.setTabEnabled(self.recorded_tab_index, idle or recorded_active or wizard_open)
+
+        self.live_btn.setEnabled(idle and not wizard_open)
+        self.midi_btn.setEnabled(not wizard_open and (idle or live_active))
+        self.chord_check.setEnabled(not wizard_open and (idle or live_active))
+        for button in (self.pause_btn, self.resume_btn, self.stop_btn):
+            button.setEnabled(live_active)
+
+        have_song = self.room is not None and self.song_combo.count() > 0
+        self.record_song_btn.setEnabled(idle and not wizard_open)
+        self.song_combo.setEnabled(idle and not wizard_open)
+        self.song_refresh_btn.setEnabled(idle and not wizard_open)
+        self.upload_btn.setEnabled(have_song and idle and not wizard_open)
+        self.playback_combo.setEnabled(idle and not wizard_open)
+        self.trigger_btn.setEnabled(self.recording_id is not None and idle and not wizard_open)
+        for button in (self.recording_pause_btn, self.recording_resume_btn, self.recording_stop_btn):
+            button.setEnabled(recorded_active)
+
+        if hasattr(self, "settings_btn"):
+            self.set_settings_enabled(idle and not wizard_open)
+
+    def _open_recording_wizard(self) -> None:
+        """Open the platform's existing song wizard from the recorded tab."""
+        if self.room is None or self.session_active:
+            return
+        if self.recording_wizard is not None:
+            self.recording_wizard.raise_()
+            self.recording_wizard.activateWindow()
+            return
+        # Connect MIDI can open the live detector before a session. The
+        # wizard needs exclusive ownership of the same teacher devices.
+        self._close_detector()
+        try:
+            wizard = RecordingWizard(self.cfg)
+        except Exception as exc:  # camera construction can fail before the wizard is shown
+            QMessageBox.warning(self, "Could not open Song Recording Wizard", str(exc))
+            return
+
+        self.recording_wizard = wizard
+        wizard.setParent(self, Qt.WindowType.Window)
+        wizard.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        wizard.resize(1000, 860)
+        wizard.finished.connect(lambda result, opened=wizard: self._on_recording_wizard_finished(opened, result))
+        wizard.show()
+        self._sync_guidance_controls()
+        self._set_status(
+            "Song Recording Wizard opened with the teacher camera, MIDI port and keyboard profile.",
+            "idle",
+        )
+
+    def _on_recording_wizard_finished(self, wizard: RecordingWizard, _result: int) -> None:
+        saved = wizard.review_page.isComplete()
+        song_label = None
+        if saved:
+            song_label = f"music/{sanitize_song_name(wizard.info_page.song_name())}"
+        if self.recording_wizard is wizard:
+            self.recording_wizard = None
+        self._refresh_songs(song_label)
+        self._sync_guidance_controls()
+        if saved:
+            self._set_status("Song saved and selected. Upload it when ready.", "ok")
 
     # ------------------------------------------------------------------
     # Network
@@ -539,25 +640,29 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         send note-only guidance and can still trigger a pre-recorded
         sequence, which is the mode that needs no teacher hardware at
         all."""
-        if not self.room:
+        if not self.room or self.session_active or self.recording_wizard is not None:
             return
         self._open_detector()
         if not self._connect_midi():
             self._set_status(
                 "No MIDI keyboard connected - the session will start, but live cues need one. "
-                "Pick a port and press Connect MIDI.",
+                "Choose a port in Settings, then press Connect MIDI.",
                 "warn",
             )
         self._run_api(
-            lambda: self.api.create_session(
-                self.room["room_id"], {"mode": "live", "guidance_mode": self.guidance_combo.currentData()}
-            ),
+            lambda: self.api.create_session(self.room["room_id"], {"mode": "live"}),
             self._on_session_created,
             "Opening a session...",
         )
 
     def _on_session_created(self, session: dict) -> None:
+        self._activate_session(session, "live")
+        self._set_status("Session running. Play a key to guide the student.", "ok")
+
+    def _activate_session(self, session: dict, mode: str) -> None:
         self.session_id = session["session_id"]
+        self.session_active = True
+        self.session_mode = mode
         if self.bridge is not None:
             self.bridge.session_id = self.session_id
         self.table.setRowCount(0)
@@ -566,19 +671,14 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._send(
             TYPE_SESSION_START,
             {
-                "mode": session.get("mode", "live"),
-                "guidance_mode": session.get("guidance_mode"),
+                "mode": mode,
                 "started_at_unix_ns": wall_ns(),
             },
         )
-        self.live_btn.setEnabled(False)
-        for button in (self.pause_btn, self.resume_btn, self.stop_btn):
-            button.setEnabled(True)
-        # Devices are open now; changing which ones to open is meaningless
-        # until this session ends.
-        self.set_settings_enabled(False)
-        self.upload_btn.setEnabled(self.song_combo.count() > 0)
-        self._set_status("Session running. Play a key to guide the student.", "ok")
+        self.guidance_tabs.setCurrentIndex(
+            self.live_tab_index if mode == "live" else self.recorded_tab_index
+        )
+        self._sync_guidance_controls()
 
     def _pause(self) -> None:
         self._send(TYPE_SESSION_PAUSE, {})
@@ -592,13 +692,12 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def _stop(self) -> None:
         self._send(TYPE_SESSION_STOP, {})
         self._send(TYPE_RECORDING_STOP, {})
-        for button in (self.pause_btn, self.resume_btn, self.stop_btn, self.trigger_btn):
-            button.setEnabled(False)
-        self.live_btn.setEnabled(True)
+        self.session_active = False
+        self.session_mode = None
         # Symmetric with the start: guiding is over, so the camera and
         # the MIDI port go back. Starting again reopens them.
         self._close_detector()
-        self.set_settings_enabled(True)
+        self._sync_guidance_controls()
         self.detect_label.setText("Camera and MIDI released. Start live session opens them again.")
         self._set_status("Stop sent. Waiting for the student's results...", "idle")
 
@@ -624,19 +723,39 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _on_recording_uploaded(self, summary: dict) -> None:
         self.recording_id = summary["recording_id"]
-        self.trigger_btn.setEnabled(True)
+        self._sync_guidance_controls()
         self._set_status(
             f"Uploaded {summary['name']!r}: {summary['event_count']} events. "
-            "Only the note/finger events were sent - no video.",
+            "Only the note/finger events were sent - no video. Press Trigger on student when ready.",
             "ok",
         )
 
     def _trigger_recording(self) -> None:
-        """Remote trigger. The student is given a short-future start
-        moment rather than "now", so both ends can be ready; from then on
-        the student schedules every cue locally."""
-        if not self.recording_id:
+        """Create a recorded-guidance session, then trigger local playback."""
+        if not self.recording_id or not self.room or self.session_active:
             return
+        # Recorded playback runs on the student; no teacher camera/MIDI
+        # should remain claimed from an earlier manual Connect MIDI.
+        self._close_detector()
+        playback_mode = self.playback_combo.currentData() or PLAYBACK_PACED
+        self._run_api(
+            lambda: self.api.create_session(
+                self.room["room_id"],
+                {
+                    "mode": "recording",
+                    "playback_mode": playback_mode,
+                    "recording_id": self.recording_id,
+                },
+            ),
+            self._on_recording_session_created,
+            "Opening a recorded-guidance session...",
+        )
+
+    def _on_recording_session_created(self, session: dict) -> None:
+        self._activate_session(session, "recording")
+        # The student is given a short-future start moment rather than
+        # "now", so both ends can be ready; after download, every cue is
+        # scheduled locally and no individual note waits on the network.
         self._send(
             TYPE_RECORDING_START,
             {
@@ -646,7 +765,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
                 "server_lead_ms": REMOTE_START_LEAD_MS,
             },
         )
-        self._set_status("Playback triggered on the student.", "ok")
+        self._set_status("Recorded guidance triggered on the student.", "ok")
 
     # ------------------------------------------------------------------
     # Live detection -> guidance
@@ -726,7 +845,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         elif msg_type == TYPE_PERFORMANCE_RESPONSE:
             self._on_response(payload)
         elif msg_type == TYPE_SESSION_FINISHED:
-            self._on_finished(payload)
+            self._on_finished(payload, envelope.get("session_id"))
         elif msg_type == TYPE_RECORDING_READY:
             self._set_status(
                 f"Student ready: {payload.get('guidance_mode')} guidance, channels "
@@ -781,9 +900,17 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._set_cell(row, COL_FINGER_OK, _tick_mark(payload.get("finger_correct")))
         self._set_cell(row, COL_STAGE, str(payload.get("stage", "provisional")))
 
-    def _on_finished(self, payload: Dict[str, Any]) -> None:
+    def _on_finished(self, payload: Dict[str, Any], finished_session_id: Optional[str] = None) -> None:
         stage = payload.get("stage", "provisional")
         summary = payload.get("summary") or {}
+        if self.session_active and (finished_session_id is None or finished_session_id == self.session_id):
+            # The student has released its devices and scheduler. Keep
+            # session_id for the stored-summary fetch, but unlock both
+            # guidance tabs so the teacher can prepare the next run.
+            self.session_active = False
+            self.session_mode = None
+            self._close_detector()
+            self._sync_guidance_controls()
         lines = [
             f"Session {stage} results - {payload.get('event_count', 0)} events "
             f"({payload.get('session_name', '')})",

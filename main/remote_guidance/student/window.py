@@ -81,7 +81,7 @@ from app.hand_tracking import HandTracker, draw_hands
 from app.haptic_cue import HapticCueOutput
 from app.keyboard.midi_mapping import MidiMapping, note_name
 from app.keyboard.template import KeyboardTemplate
-from app.midi import MidiEvent, list_input_ports, save_midi_log
+from app.midi import MidiEvent, save_midi_log
 from app.music_recording import RawMidiRecorder, SyncInfo, save_raw_midi_log
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.quiz import (
@@ -173,6 +173,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.bridge: Optional[RemoteClientBridge] = None
         self.session: Optional[StudentSession] = None
         self.scheduler: Optional[LocalRecordingScheduler] = None
+        self._pending_recording_start: Optional[Dict[str, Any]] = None
         self.session_id: Optional[str] = None
         self.session_name = ""
         self.cue = None
@@ -258,10 +259,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.timeout_spin.setSuffix(" s")
         self.timeout_spin.setValue(self.remote.student.default_timeout_s)
 
-        self.port_combo = QComboBox()
-        port_refresh = QPushButton("Refresh")
-        port_refresh.clicked.connect(self._refresh_ports)
-
         self.record_check = QCheckBox("Record video + MIDI (needed for the final finger pass)")
         self.record_check.setChecked(self.remote.student.record_video)
 
@@ -291,9 +288,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         row1.addWidget(self.guidance_combo, 1)
         row1.addWidget(QLabel("Timeout:"))
         row1.addWidget(self.timeout_spin)
-        row1.addWidget(QLabel("MIDI:"))
-        row1.addWidget(self.port_combo, 1)
-        row1.addWidget(port_refresh)
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Name:"))
         row2.addWidget(self.name_edit, 1)
@@ -353,16 +347,15 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         No device is open when this runs - the Settings button is
         disabled for the length of a session - so reloading the profile
-        and the port list is all that is needed; the camera and the LED
-        mapper are built fresh at the next start."""
+        is all that is needed; the configured MIDI port, camera and LED
+        mapper are used fresh at the next start."""
         self.cfg = student_config(self.base_cfg, self.remote)
         self._load_profile()
-        self._refresh_ports()
         if self.template is None:
             return  # _load_profile already said what is wrong with it
         self._set_status(
-            f"Settings saved. Camera {self.cfg.camera.index}, profile "
-            f"{self.cfg.active_keyboard_profile!r} - used from the next session.",
+            f"Settings saved. Camera {self.cfg.camera.index}, MIDI {self.cfg.midi.port_name!r}, "
+            f"profile {self.cfg.active_keyboard_profile!r} - used from the next session.",
             "ok",
         )
 
@@ -400,13 +393,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 "note, but no finger can be scored locally.",
                 "warn",
             )
-
-    def _refresh_ports(self) -> None:
-        ports = list_input_ports()
-        self.port_combo.clear()
-        self.port_combo.addItems(ports)
-        if self.cfg.midi.port_name in ports:
-            self.port_combo.setCurrentText(self.cfg.midi.port_name)
 
     def _connect_led(self) -> Optional[str]:
         """Open the LED strip, or return why it could not be opened.
@@ -461,13 +447,12 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
     def enter_session(self, room: dict) -> None:
         """Reaching the session page opens the WebSocket and nothing
         else. The camera, MediaPipe and the MIDI port are claimed by
-        "Ready for guidance" (see _start_session) - listing the port
-        names below opens no device, and the LED stays on its own manual
+        "Ready for guidance" (see _start_session), using the MIDI port
+        saved in this client's Settings. The LED stays on its own manual
         button."""
         self.room = room
         self.room_label.setText(room_summary(room))
         self.persist_connection(self.remote, room)
-        self._refresh_ports()
 
         self.bridge = RemoteClientBridge(
             ws_url=self.ws_url(room["room_id"]),
@@ -500,6 +485,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self._release_camera()
         self.room = None
         self.session_id = None
+        self._pending_recording_start = None
         self.table.setRowCount(0)
         self.link_label.setText("")
         self.start_btn.setEnabled(False)
@@ -584,7 +570,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             QMessageBox.warning(self, "Could not start the cue", str(exc))
             return
 
-        port_name = self.port_combo.currentText() or None
+        port_name = self.cfg.midi.port_name or None
         try:
             self.midi_recorder = RawMidiRecorder(port_name)
         except RuntimeError as exc:
@@ -618,7 +604,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        for widget in (self.guidance_combo, self.name_edit, self.port_combo, self.timeout_spin, self.record_check):
+        for widget in (self.guidance_combo, self.name_edit, self.timeout_spin, self.record_check):
             widget.setEnabled(False)
         # Devices are open now; changing which ones to open is meaningless
         # until this session ends.
@@ -629,17 +615,33 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             f"Ready - guidance mode {guidance_mode}, channels: {', '.join(self.cue.enabled_channels) or 'none'}.",
             "ok",
         )
-        # Tell the teacher the student is standing by, with what.
+        # Tell the teacher the student is standing by, with what. If the
+        # teacher has not opened the relay session yet this first message
+        # has no session id; _on_remote_session_start announces it again
+        # once the id is known so the relay can attach the student's own
+        # guidance choice to the durable session record.
+        self._announce_ready()
+        self._play_pending_recording_if_ready()
+
+    def _announce_ready(self) -> None:
+        if self.session is None or self.cue is None:
+            return
         self._send(
             TYPE_RECORDING_READY,
             {
-                "guidance_mode": guidance_mode,
+                "guidance_mode": self.guidance_combo.currentData(),
                 "channels": self.cue.enabled_channels,
                 "timeout_s": self.timeout_spin.value(),
                 "recording_video": self.video_writer is not None,
-                "session_name": name,
+                "session_name": self.session_name,
             },
         )
+
+    def _play_pending_recording_if_ready(self) -> None:
+        if self.session is None or self._pending_recording_start is None:
+            return
+        envelope, self._pending_recording_start = self._pending_recording_start, None
+        self._on_recording_start(envelope)
 
     def _build_cue(self, guidance_mode: str):
         cue_style = self.cfg.visual_cue_style if self.cfg.visual_cue_style in CUE_STYLES else DEFAULT_CUE_STYLE
@@ -703,6 +705,10 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             )
             return
         self.session.resume()
+        # The student's selection owns the session's guidance modality.
+        # Repeat the ready message now that session_id is available; the
+        # teacher's session.start deliberately contains no modality.
+        self._announce_ready()
         self._set_status(f"Session started by the teacher ({payload.get('mode', 'live')}).", "ok")
 
     def _on_pause(self) -> None:
@@ -736,8 +742,15 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         payload = envelope.get("payload") or {}
         recording_id = payload.get("recording_id")
         mode = payload.get("playback_mode") or PLAYBACK_PACED
-        if not recording_id or self.session is None:
-            self._set_status("Recording start ignored - no recording id, or the session is not ready.", "warn")
+        if not recording_id:
+            self._set_status("Recording start ignored - no recording id.", "warn")
+            return
+        if self.session is None:
+            self._pending_recording_start = envelope
+            self._set_status(
+                "Recorded guidance is waiting - press \"Ready for guidance\" to download and play it.",
+                "warn",
+            )
             return
 
         try:
@@ -990,7 +1003,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         self.stop_btn.setEnabled(False)
         self.start_btn.setEnabled(True)
-        for widget in (self.guidance_combo, self.name_edit, self.port_combo, self.timeout_spin, self.record_check):
+        for widget in (self.guidance_combo, self.name_edit, self.timeout_spin, self.record_check):
             widget.setEnabled(True)
         self.set_settings_enabled(True)
         self._set_status(f"Session finished ({reason}). {len(results)} events saved.", "ok")
@@ -1028,7 +1041,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             quiz_name=self.session_name,
             song_name=f"remote:{self.session_id or 'live'}",
             keyboard_profile_name=self.cfg.active_keyboard_profile,
-            port_name=self.port_combo.currentText(),
+            port_name=self.cfg.midi.port_name,
             created_at=time.time(),
             timeout_s=self.timeout_spin.value(),
             note_count=len(results),

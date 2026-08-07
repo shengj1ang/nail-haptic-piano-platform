@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server import database as dbm  # noqa: E402
+from server import websocket as ws  # noqa: E402
 from server.app import ServerContext, create_app  # noqa: E402
 from server.auth import AuthError, TOKEN_TYPE_REFRESH, TokenService, hash_password, verify_password  # noqa: E402
 from server.config import ServerConfig  # noqa: E402
@@ -455,6 +456,40 @@ class RecordingAndSessionTests(_ServerCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_teacher_can_open_session_without_choosing_student_guidance(self):
+        response = self.client.post(
+            f"/api/v1/rooms/{self.room['room_id']}/sessions",
+            json={"mode": "live"},
+            headers=self.auth(self.teacher),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.json()["guidance_mode"], "student_choice")
+
+    def test_student_ready_message_sets_the_session_guidance_mode(self):
+        session = self.client.post(
+            f"/api/v1/rooms/{self.room['room_id']}/sessions",
+            json={"mode": "live"},
+            headers=self.auth(self.teacher),
+        ).json()
+        self.app.state.ctx._write_row(
+            "performance",
+            {
+                "id": str(uuid.uuid4()),
+                "session_id": session["session_id"],
+                "room_id": self.room["room_id"],
+                "sender_user_id": self.student["user_id"],
+                "sender_role": "student",
+                "seq": 1,
+                "type": "recording.ready",
+                "payload": {"guidance_mode": "haptic", "channels": ["haptic", "led"]},
+            },
+        )
+
+        stored = self.client.get(
+            f"/api/v1/sessions/{session['session_id']}", headers=self.auth(self.teacher)
+        ).json()
+        self.assertEqual(stored["guidance_mode"], "haptic")
+
     def test_summary_names_the_student_as_the_source(self):
         """The server must never present a number it computed itself as
         the session result."""
@@ -676,6 +711,27 @@ class WebSocketRelayTests(_ServerCase):
         frame = self.drain(tws, "presence")
         roles = {m["role"] for m in frame["payload"]["members"]}
         self.assertEqual(roles, {"teacher", "student"})
+
+    def test_only_session_bound_ready_frame_is_prepared_for_persistence(self):
+        conn = ws.Connection(
+            websocket=None,
+            user_id=self.student["user_id"],
+            username="student1",
+            role="student",
+            room_id=self.room_id,
+        )
+        envelope = make_envelope(
+            "recording.ready",
+            str(uuid.uuid4()),
+            room_id=self.room_id,
+            payload={"guidance_mode": "both"},
+        )
+        self.assertIsNone(ws._persist_row(conn, envelope, "recording.ready", 1, 2))
+
+        envelope["session_id"] = "session-1"
+        kind, row = ws._persist_row(conn, envelope, "recording.ready", 1, 2)
+        self.assertEqual(kind, "performance")
+        self.assertEqual(row["sender_role"], "student")
 
 
 # ---------------------------------------------------------------------------

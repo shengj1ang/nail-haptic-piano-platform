@@ -62,6 +62,7 @@ from .schemas import (
     TYPE_PERFORMANCE_RESPONSE,
     TYPE_PRESENCE,
     TYPE_RECORDING_PAUSE,
+    TYPE_RECORDING_READY,
     TYPE_RECORDING_START,
     TYPE_RECORDING_STOP,
     TYPE_SESSION_FINISHED,
@@ -109,7 +110,7 @@ GUIDANCE_PERSISTED_TYPES = frozenset(
     }
 )
 PERFORMANCE_PERSISTED_TYPES = frozenset(
-    {TYPE_PERFORMANCE_RESPONSE, TYPE_GUIDANCE_RECEIVED, TYPE_GUIDANCE_PRESENTED}
+    {TYPE_PERFORMANCE_RESPONSE, TYPE_GUIDANCE_RECEIVED, TYPE_GUIDANCE_PRESENTED, TYPE_RECORDING_READY}
 )
 
 # How many recent message_ids to remember per room for duplicate
@@ -470,6 +471,11 @@ async def _handle_frame(ctx, conn: Connection, data: Dict[str, Any]) -> None:
 def _persist_row(conn: Connection, envelope: Dict[str, Any], msg_type: str, receive_ns: int, send_ns: int):
     """A (kind, row) pair for the background writer, or None for frames
     that are transport bookkeeping rather than session data."""
+    # A student can become ready before the teacher has created the relay
+    # session. Relay that announcement live, but persist only the repeat
+    # carrying a session id so it can be attached unambiguously.
+    if msg_type == TYPE_RECORDING_READY and not envelope.get("session_id"):
+        return None
     if msg_type in GUIDANCE_PERSISTED_TYPES:
         kind = "guidance"
     elif msg_type in PERFORMANCE_PERSISTED_TYPES:
@@ -483,6 +489,7 @@ def _persist_row(conn: Connection, envelope: Dict[str, Any], msg_type: str, rece
         "session_id": envelope.get("session_id"),
         "room_id": conn.room_id,
         "sender_user_id": conn.user_id,
+        "sender_role": conn.role,
         "seq": envelope.get("seq", 0),
         "type": msg_type,
         "sender_send_wall_ns": envelope.get("sent_at_unix_ns"),

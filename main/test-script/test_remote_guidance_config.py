@@ -1162,6 +1162,131 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             self.assertEqual(dialog.port_combo.currentText(), port)
             self.assertEqual(dialog.profile_combo.currentText(), profile)
 
+    def test_both_roles_offer_the_separate_camera_profile_preview(self):
+        for role in ("student", "teacher"):
+            dialog = self._dialog(role)
+            self.assertTrue(hasattr(dialog, "preview_btn"))
+            self.assertIn("profile preview", dialog.preview_btn.text().lower())
+
+    def test_preview_uses_the_unsaved_values_currently_in_the_form(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        import numpy as np
+
+        remote = self._remote_with_distinct_roles()
+        dialog = self._dialog("teacher", remote)
+        dialog.camera_group.index_edit.setText("8")
+        dialog.camera_group.width_spin.setValue(800)
+        dialog.camera_group.height_spin.setValue(600)
+        dialog.profile_combo.setCurrentText("desk-preview")
+        frame = np.zeros((600, 800, 3), dtype=np.uint8)
+
+        with mock.patch(
+            "remote_guidance.settings_window.capture_profile_preview",
+            return_value=(frame, SimpleNamespace(keys=[object(), object()])),
+        ) as capture, mock.patch(
+            "remote_guidance.settings_window.KeyboardProfilePreviewDialog"
+        ) as preview_dialog:
+            dialog._capture_profile_preview()
+
+        used_camera, used_profile = capture.call_args.args
+        self.assertEqual(used_camera.index, 8)
+        self.assertEqual((used_camera.width, used_camera.height), (800, 600))
+        self.assertEqual(used_profile, "desk-preview")
+        preview_dialog.return_value.exec.assert_called_once_with()
+        # Previewing must not have the side effect of collecting/saving.
+        self.assertEqual(remote.teacher.camera.index, 1)
+        self.assertEqual(remote.teacher.keyboard_profile, "teacher-profile")
+        self.assertIn("Nothing was saved", dialog.status.text())
+
+    def test_capture_renders_the_saved_pixel_mask_and_releases_the_camera(self):
+        import numpy as np
+
+        from app.keyboard.template import KeyBox, KeyboardTemplate
+        from remote_guidance.settings_window import PREVIEW_CAPTURE_READS, capture_profile_preview
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir) / "test-profile"
+            key_map = np.zeros((120, 160), dtype=np.uint8)
+            key_map[30:90, 40:120] = 1
+            KeyboardTemplate(
+                frame_width=160,
+                frame_height=120,
+                keys=[KeyBox(id=0, kind="white")],
+                key_map=key_map,
+            ).save(profile_dir / "keyboard_template.json")
+
+            source = np.full((120, 160, 3), 80, dtype=np.uint8)
+            cameras = []
+
+            class FakeCamera:
+                is_opened = True
+
+                def __init__(self, _config):
+                    self.reads = 0
+                    self.released = False
+                    cameras.append(self)
+
+                def read(self):
+                    self.reads += 1
+                    return source.copy()
+
+                def release(self):
+                    self.released = True
+
+            preview, template = capture_profile_preview(
+                CameraConfig(index=7, width=160, height=120),
+                "test-profile",
+                profile_data_dir=Path(temp_dir),
+                camera_factory=FakeCamera,
+            )
+
+        self.assertEqual(preview.shape, source.shape)
+        self.assertEqual(len(template.keys), 1)
+        self.assertTrue(np.array_equal(preview[0, 0], source[0, 0]), "pixels outside the mask were changed")
+        self.assertFalse(np.array_equal(preview[50, 50], source[50, 50]), "the keyboard mask was not rendered")
+        self.assertEqual(cameras[0].reads, PREVIEW_CAPTURE_READS)
+        self.assertTrue(cameras[0].released)
+
+    def test_capture_refuses_a_resolution_mismatch_instead_of_resizing_the_mask(self):
+        import numpy as np
+
+        from app.keyboard.template import KeyBox, KeyboardTemplate
+        from remote_guidance.settings_window import capture_profile_preview
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir) / "test-profile"
+            KeyboardTemplate(
+                frame_width=160,
+                frame_height=120,
+                keys=[KeyBox(id=0, kind="white")],
+                key_map=np.ones((120, 160), dtype=np.uint8),
+            ).save(profile_dir / "keyboard_template.json")
+
+            class WrongSizeCamera:
+                is_opened = True
+                released = False
+
+                def __init__(self, _config):
+                    pass
+
+                def read(self):
+                    return np.zeros((60, 80, 3), dtype=np.uint8)
+
+                def release(self):
+                    type(self).released = True
+
+            with self.assertRaisesRegex(ValueError, "camera returned 80 × 60.*calibrated at 160 × 120"):
+                capture_profile_preview(
+                    CameraConfig(index=7, width=80, height=60),
+                    "test-profile",
+                    profile_data_dir=Path(temp_dir),
+                    camera_factory=WrongSizeCamera,
+                )
+
+        self.assertTrue(WrongSizeCamera.released)
+
     def test_saving_one_role_leaves_the_other_untouched(self):
         remote = self._remote_with_distinct_roles()
         dialog = self._dialog("student", remote)
@@ -1399,9 +1524,9 @@ class _ClientStageChecks:
         tool. Only pressing start may open a device now."""
         from unittest import mock
 
-        with mock.patch(f"{self.window_module}.RemoteClientBridge"), mock.patch(
-            f"{self.window_module}.list_input_ports", return_value=[]
-        ), mock.patch.object(self.window, "persist_connection"):
+        with mock.patch(f"{self.window_module}.RemoteClientBridge"), mock.patch.object(
+            self.window, "persist_connection"
+        ):
             self.window.api = mock.MagicMock()
             self.window.enter_session({"room_id": "r-1", "name": "test room"})
             self.app.processEvents()
@@ -1439,21 +1564,151 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
     required_widgets = (
         "view", "table", "summary_view", "detect_label", "link_label", "status_label",
         "sign_in_panel", "room_panel", "room_label", "song_combo", "upload_btn", "trigger_btn",
-        "live_btn", "pause_btn", "resume_btn", "stop_btn", "port_combo", "midi_btn",
-        "chord_check", "guidance_combo", "playback_combo", "stages", "stage_label",
+        "live_btn", "pause_btn", "resume_btn", "stop_btn", "midi_btn",
+        "chord_check", "playback_combo", "guidance_tabs", "live_guidance_page",
+        "recorded_guidance_page", "record_song_btn", "recording_pause_btn",
+        "recording_resume_btn", "recording_stop_btn", "song_refresh_btn", "stages", "stage_label",
     )
 
-    def test_listing_midi_ports_claims_no_device(self):
-        """The port dropdown is filled on arriving in a room, so it has
-        to work with no detector open - it used to ask the detector for
-        the list, which is what forced the camera open that early."""
+    def test_live_and_recorded_guidance_are_separate_tabs(self):
+        self.assertEqual(self.window.guidance_tabs.count(), 2)
+        self.assertEqual(
+            [self.window.guidance_tabs.tabText(i) for i in range(2)],
+            ["Live guidance", "Recorded guidance"],
+        )
+        self.assertTrue(self.window.live_guidance_page.isAncestorOf(self.window.live_btn))
+        self.assertTrue(self.window.recorded_guidance_page.isAncestorOf(self.window.song_combo))
+        self.assertTrue(self.window.recorded_guidance_page.isAncestorOf(self.window.record_song_btn))
+
+    def test_recording_wizard_reuses_the_teacher_device_configuration(self):
         from unittest import mock
 
-        self.assertIsNone(self.window.detector)
-        with mock.patch("remote_guidance.teacher.window.list_input_ports", return_value=["Fake Port 1"]):
-            self.window._refresh_ports()
-        self.assertIsNone(self.window.detector, "listing ports must not open the camera")
-        self.assertEqual(self.window.port_combo.currentText(), "Fake Port 1")
+        old_room = self.window.room
+        wizard = mock.MagicMock()
+        wizard.review_page.isComplete.return_value = False
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        try:
+            with mock.patch("remote_guidance.teacher.window.RecordingWizard", return_value=wizard) as wizard_cls, \
+                    mock.patch.object(self.window, "_close_detector") as close_detector:
+                self.window._open_recording_wizard()
+                finished = wizard.finished.connect.call_args.args[0]
+                self.assertFalse(self.window.guidance_tabs.isTabEnabled(self.window.live_tab_index))
+                finished(0)
+        finally:
+            self.window.recording_wizard = None
+            self.window.room = old_room
+            self.window._sync_guidance_controls()
+
+        wizard_cls.assert_called_once_with(self.window.cfg)
+        close_detector.assert_called_once_with()
+        wizard.show.assert_called_once_with()
+        self.assertTrue(self.window.guidance_tabs.isTabEnabled(self.window.live_tab_index))
+
+    def test_recorded_trigger_opens_its_own_session_without_guidance_mode(self):
+        from unittest import mock
+
+        old_api = self.window.api
+        old_room = self.window.room
+        old_recording_id = self.window.recording_id
+        old_active, old_mode = self.window.session_active, self.window.session_mode
+        api = mock.MagicMock()
+        self.window.api = api
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        self.window.recording_id = "rec-1"
+        self.window.session_active = False
+        self.window.session_mode = None
+        try:
+            with mock.patch.object(self.window, "_run_api", side_effect=lambda call, *_args: call()):
+                self.window._trigger_recording()
+        finally:
+            self.window.api = old_api
+            self.window.room = old_room
+            self.window.recording_id = old_recording_id
+            self.window.session_active, self.window.session_mode = old_active, old_mode
+            self.window._sync_guidance_controls()
+
+        request = api.create_session.call_args.args[1]
+        self.assertEqual(request["mode"], "recording")
+        self.assertEqual(request["recording_id"], "rec-1")
+        self.assertNotIn("guidance_mode", request)
+
+    def test_song_upload_no_longer_requires_starting_a_live_session(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        old_room = self.window.room
+        old_active = self.window.session_active
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        self.window.session_active = False
+        try:
+            with mock.patch(
+                "remote_guidance.teacher.window.list_available_songs",
+                return_value=[SimpleNamespace(label="music/new-song")],
+            ):
+                self.window._refresh_songs()
+                self.assertTrue(self.window.upload_btn.isEnabled())
+        finally:
+            self.window.room = old_room
+            self.window.session_active = old_active
+            self.window._refresh_songs()
+
+    def test_recorded_session_start_and_playback_are_sent_in_order(self):
+        from unittest import mock
+
+        old_session_id = self.window.session_id
+        old_active, old_mode = self.window.session_active, self.window.session_mode
+        old_recording_id = self.window.recording_id
+        self.window.recording_id = "rec-1"
+        try:
+            with mock.patch.object(self.window, "_send") as send:
+                self.window._on_recording_session_created({"session_id": "s-recorded", "mode": "recording"})
+        finally:
+            self.window.session_id = old_session_id
+            self.window.session_active, self.window.session_mode = old_active, old_mode
+            self.window.recording_id = old_recording_id
+            self.window._sync_guidance_controls()
+
+        from remote_guidance.protocol import TYPE_RECORDING_START, TYPE_SESSION_START
+
+        self.assertEqual([call.args[0] for call in send.call_args_list], [TYPE_SESSION_START, TYPE_RECORDING_START])
+        self.assertEqual(send.call_args_list[0].args[1]["mode"], "recording")
+        self.assertEqual(send.call_args_list[1].args[1]["recording_id"], "rec-1")
+
+    def test_teacher_has_no_student_guidance_selector(self):
+        """Visual/haptic/both belongs to the student who renders it."""
+        from PySide6.QtWidgets import QLabel
+
+        self.assertFalse(hasattr(self.window, "guidance_combo"))
+        labels = {label.text().strip() for label in self.window.findChildren(QLabel)}
+        self.assertNotIn("Student guidance:", labels)
+
+    def test_session_page_does_not_repeat_the_settings_midi_picker(self):
+        """The saved port has one owner: this client's Settings dialog.
+        The session page keeps only the manual connect action."""
+        self.assertFalse(hasattr(self.window, "port_combo"))
+        self.assertFalse(hasattr(self.window, "_refresh_ports"))
+
+    def test_connect_midi_and_chord_detection_share_the_single_live_row(self):
+        self.assertGreaterEqual(self.window.live_controls_row.indexOf(self.window.midi_btn), 0)
+        self.assertGreaterEqual(self.window.live_controls_row.indexOf(self.window.chord_check), 0)
+
+    def test_connect_midi_uses_the_port_saved_in_settings(self):
+        from unittest import mock
+
+        old_port = self.window.cfg.midi.port_name
+        detector = mock.MagicMock()
+        detector.midi_connected = False
+        detector.connect_midi.return_value = "Configured Teacher MIDI"
+        self.window.cfg.midi.port_name = "Configured Teacher MIDI"
+        self.window.detector = detector
+        try:
+            with mock.patch.object(self.window, "_open_detector", return_value=True):
+                self.assertTrue(self.window._connect_midi())
+        finally:
+            self.window.detector = None
+            self.window.cfg.midi.port_name = old_port
+
+        detector.connect_midi.assert_called_once_with("Configured Teacher MIDI")
 
     def test_starting_a_live_session_opens_the_devices_first(self):
         """Camera and MIDI before the relay call, so a hardware problem
@@ -1474,6 +1729,56 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         finally:
             self.window.room = None
         self.assertEqual(order, ["camera", "midi", "relay"])
+
+    def test_live_session_request_does_not_choose_student_guidance(self):
+        from unittest import mock
+
+        old_api = getattr(self.window, "api", None)
+        api = mock.MagicMock()
+        self.window.api = api
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        try:
+            with mock.patch.object(self.window, "_open_detector", return_value=True), mock.patch.object(
+                self.window, "_connect_midi", return_value=True
+            ), mock.patch.object(
+                self.window, "_run_api", side_effect=lambda call, *_args: call()
+            ):
+                self.window._start_live_session()
+        finally:
+            self.window.room = None
+            self.window.api = old_api
+
+        api.create_session.assert_called_once_with("r-1", {"mode": "live"})
+
+    def test_session_start_frame_contains_control_not_student_modality(self):
+        from unittest import mock
+
+        old_session_id = self.window.session_id
+        old_active, old_mode = self.window.session_active, self.window.session_mode
+        old_states = tuple(
+            button.isEnabled()
+            for button in (self.window.live_btn, self.window.pause_btn, self.window.resume_btn, self.window.stop_btn)
+        )
+        try:
+            with mock.patch.object(self.window, "_send") as send, mock.patch.object(
+                self.window, "set_settings_enabled"
+            ):
+                self.window._on_session_created(
+                    {"session_id": "s-1", "mode": "live", "guidance_mode": "student_choice"}
+                )
+        finally:
+            self.window.session_id = old_session_id
+            self.window.session_active, self.window.session_mode = old_active, old_mode
+            for button, enabled in zip(
+                (self.window.live_btn, self.window.pause_btn, self.window.resume_btn, self.window.stop_btn),
+                old_states,
+            ):
+                button.setEnabled(enabled)
+            self.window._sync_guidance_controls()
+
+        payload = send.call_args.args[1]
+        self.assertEqual(payload["mode"], "live")
+        self.assertNotIn("guidance_mode", payload)
 
     def test_a_missing_midi_keyboard_still_starts_the_session(self):
         """Pre-recorded playback needs no teacher hardware at all, so a
@@ -1516,6 +1821,69 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
     hardware_attributes = ("camera", "tracker")
     window_module = "remote_guidance.student.window"
 
+    def test_session_page_does_not_repeat_the_settings_midi_picker(self):
+        self.assertFalse(hasattr(self.window, "port_combo"))
+        self.assertFalse(hasattr(self.window, "_refresh_ports"))
+
+    def test_session_start_uses_the_port_saved_in_settings(self):
+        from unittest import mock
+
+        old_port = self.window.cfg.midi.port_name
+        self.window.cfg.midi.port_name = "Configured Student MIDI"
+        cue = mock.MagicMock()
+        try:
+            with mock.patch.object(self.window, "_ensure_led"), mock.patch.object(
+                self.window, "_ensure_camera"
+            ), mock.patch.object(self.window, "_build_cue", return_value=cue), mock.patch(
+                "remote_guidance.student.window.RawMidiRecorder", side_effect=RuntimeError("test stop")
+            ) as recorder, mock.patch("remote_guidance.student.window.QMessageBox"):
+                self.window._start_session()
+        finally:
+            self.window.cfg.midi.port_name = old_port
+
+        recorder.assert_called_once_with("Configured Student MIDI")
+        self.assertIsNone(self.window.session)
+
+    def test_ready_message_reports_the_students_guidance_choice(self):
+        from unittest import mock
+
+        old_session, old_cue, old_name = self.window.session, self.window.cue, self.window.session_name
+        self.window.session = mock.MagicMock()
+        self.window.cue = mock.MagicMock(enabled_channels=["visual", "led"])
+        self.window.session_name = "student-owned-mode"
+        try:
+            with mock.patch.object(self.window, "_send") as send:
+                self.window._announce_ready()
+        finally:
+            self.window.session, self.window.cue, self.window.session_name = old_session, old_cue, old_name
+
+        payload = send.call_args.args[1]
+        self.assertEqual(payload["guidance_mode"], self.window.guidance_combo.currentData())
+
+    def test_recorded_trigger_waits_if_student_has_not_pressed_ready(self):
+        from unittest import mock
+
+        old_session = self.window.session
+        old_pending = self.window._pending_recording_start
+        envelope = {
+            "session_id": "s-recorded",
+            "payload": {"recording_id": "rec-1", "playback_mode": "paced"},
+        }
+        self.window.session = None
+        try:
+            self.window._on_recording_start(envelope)
+            self.assertIs(self.window._pending_recording_start, envelope)
+            self.assertIn("Ready for guidance", self.window.status_label.text())
+
+            self.window.session = mock.MagicMock()
+            with mock.patch.object(self.window, "_on_recording_start") as replay:
+                self.window._play_pending_recording_if_ready()
+            replay.assert_called_once_with(envelope)
+            self.assertIsNone(self.window._pending_recording_start)
+        finally:
+            self.window.session = old_session
+            self.window._pending_recording_start = old_pending
+
     def test_the_led_strip_connects_itself_when_a_session_starts(self):
         """There is no LED port to pick anywhere in the UI, so starting a
         session has to be what connects it - and a strip that is not
@@ -1539,7 +1907,7 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
 
     required_widgets = (
         "view", "table", "progress", "link_label", "status_label", "sign_in_panel", "room_panel",
-        "room_label", "guidance_combo", "name_edit", "timeout_spin", "port_combo", "record_check",
+        "room_label", "guidance_combo", "name_edit", "timeout_spin", "record_check",
         "led_btn", "led_status", "start_btn", "stop_btn", "stages", "stage_label",
     )
 
@@ -1566,6 +1934,67 @@ class RelayPortDefaultTests(unittest.TestCase):
     def test_the_example_server_config_uses_the_same_port(self):
         example = json.loads((PROJECT_ROOT / "server" / "server_config.example.json").read_text(encoding="utf-8"))
         self.assertEqual(example["port"], self.expected_port)
+
+
+class RelayServerWindowLayoutTests(unittest.TestCase):
+    """The relay dashboard must stay usable without occupying most of a
+    laptop display. Its complete content lives in one scroll area, while
+    the rooms tree and log retain their own scrolling."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        from server.config import ServerConfig
+        from server.gui import ServerControlPanel
+
+        cls.app = QApplication.instance() or QApplication([])
+        cls.window = ServerControlPanel(ServerConfig())
+        cls.window.show()
+        cls.app.processEvents()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.window.close()
+
+    def test_the_default_window_is_compact(self):
+        from server.gui import DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH
+
+        self.assertEqual(self.window.width(), DEFAULT_WINDOW_WIDTH)
+        self.assertEqual(self.window.height(), DEFAULT_WINDOW_HEIGHT)
+        self.assertEqual(DEFAULT_WINDOW_WIDTH, 440)
+        self.assertEqual(DEFAULT_WINDOW_HEIGHT, 360)
+
+    def test_the_complete_dashboard_is_in_a_resizable_scroll_area(self):
+        from PySide6.QtWidgets import QScrollArea
+
+        self.assertIsInstance(self.window.scroll_area, QScrollArea)
+        self.assertTrue(self.window.scroll_area.widgetResizable())
+        self.assertIs(self.window.scroll_area.widget(), self.window.content_widget)
+        self.assertGreater(
+            self.window.scroll_area.verticalScrollBar().maximum(),
+            0,
+            "the compact default size should scroll instead of hiding or removing dashboard content",
+        )
+
+    def test_no_existing_dashboard_control_was_removed(self):
+        for name in (
+            "host_label",
+            "port_label",
+            "registration_label",
+            "db_label",
+            "http_label",
+            "ws_label",
+            "tls_label",
+            "state_label",
+            "start_btn",
+            "stop_btn",
+            "settings_btn",
+            "clear_log_btn",
+            "rooms_tree",
+            "log_view",
+        ):
+            self.assertTrue(hasattr(self.window, name), f"relay dashboard lost {name}")
 
 
 class LauncherActionTests(unittest.TestCase):

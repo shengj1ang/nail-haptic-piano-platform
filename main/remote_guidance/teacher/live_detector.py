@@ -36,7 +36,7 @@ from app.hand_tracking import Hand, HandTracker, draw_hands
 from app.keyboard.midi_mapping import MidiMapping, note_name
 from app.keyboard.template import KeyboardTemplate
 from app.keyboard.visualize import build_color_luts, draw_labels, overlay_keys
-from app.midi import MidiListener, list_input_ports
+from app.midi import MidiListener
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 
 from ..protocol import GuidanceAction
@@ -119,9 +119,6 @@ class TeacherLiveDetector:
     @property
     def profile_ready(self) -> bool:
         return self.template is not None and self.mapping is not None
-
-    def available_ports(self) -> List[str]:
-        return list_input_ports()
 
     def connect_midi(self, port_name: Optional[str] = None) -> str:
         """Opens the teacher's MIDI port. Raises RuntimeError with the

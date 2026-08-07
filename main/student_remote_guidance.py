@@ -16,9 +16,10 @@ or from the launcher's "8. Tele-training" section, which starts it as its
 own process (this client holds a camera and a MIDI port, so it cannot
 share one with the teacher client).
 
-Configure the student's camera, MIDI port, keyboard profile and the two
-serial ports (LED strip and haptic rig) in the launcher's Remote Guidance
-Settings, or in config.json's remote_guidance.student block.
+Configure the student's camera, MIDI port and keyboard profile from this
+client's own Settings button. The LED strip and haptic rig auto-detect;
+config.json's remote_guidance.student block retains config-only serial
+port overrides for a machine where detection picks the wrong board.
 """
 
 import sys

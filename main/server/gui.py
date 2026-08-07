@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
@@ -58,6 +59,10 @@ from .config import DEFAULT_CONFIG_PATH, ServerConfig
 SERVER_PARENT_DIR = Path(__file__).resolve().parent.parent
 HEALTH_POLL_MS = 2000
 MAX_LOG_BLOCKS = 2000
+DEFAULT_WINDOW_WIDTH = 440
+DEFAULT_WINDOW_HEIGHT = 360
+MINIMUM_WINDOW_WIDTH = 440
+MINIMUM_WINDOW_HEIGHT = 360
 
 # Matches the two lines server/websocket.py logs on connect/disconnect.
 _CONNECT_RE = re.compile(r"ws connect: (?P<user>\S+) \((?P<role>\w+)\) -> room (?P<room>\S+)")
@@ -158,6 +163,11 @@ class ServerControlPanel(QMainWindow):
     def __init__(self, config: ServerConfig, config_path: Optional[Path] = None):
         super().__init__()
         self.setWindowTitle("Remote Guidance - Relay Server")
+        # Keep the control panel compact enough to sit beside the two
+        # clients. The complete dashboard remains available through the
+        # central scroll area below rather than forcing a tall window.
+        self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
         self.config = config
         self.config_path = config_path
         self.process: Optional[QProcess] = None
@@ -174,12 +184,16 @@ class ServerControlPanel(QMainWindow):
 
         self.db_label = QLabel(str(config.database_file))
         self.db_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.db_label.setWordWrap(True)
         self.http_label = QLabel("")
         self.http_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.http_label.setWordWrap(True)
         self.ws_label = QLabel("")
         self.ws_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.ws_label.setWordWrap(True)
         self.tls_label = QLabel("on (https/wss)" if config.tls.enabled else "off (http/ws)")
         self.state_label = QLabel("stopped")
+        self.state_label.setWordWrap(True)
 
         info_box = QGroupBox("Server")
         info_form = QFormLayout(info_box)
@@ -213,6 +227,7 @@ class ServerControlPanel(QMainWindow):
         self.rooms_tree = QTreeWidget()
         self.rooms_tree.setHeaderLabels(["Room / client", "Role"])
         self.rooms_tree.setColumnWidth(0, 340)
+        self.rooms_tree.setMinimumHeight(150)
         rooms_box = QGroupBox("Rooms and connected clients")
         rooms_layout = QVBoxLayout(rooms_box)
         rooms_layout.addWidget(self.rooms_tree)
@@ -220,17 +235,24 @@ class ServerControlPanel(QMainWindow):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(MAX_LOG_BLOCKS)
+        self.log_view.setMinimumHeight(220)
         log_box = QGroupBox("Server log")
         log_layout = QVBoxLayout(log_box)
         log_layout.addWidget(self.log_view)
 
-        central = QWidget()
-        layout = QVBoxLayout(central)
+        # The tree and log keep their own scroll bars. This outer scroll
+        # area covers the whole dashboard, so shrinking the main window
+        # never hides the server details or control buttons.
+        self.content_widget = QWidget()
+        layout = QVBoxLayout(self.content_widget)
         layout.addWidget(info_box)
         layout.addLayout(btn_row)
         layout.addWidget(rooms_box, 1)
         layout.addWidget(log_box, 2)
-        self.setCentralWidget(central)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.content_widget)
+        self.setCentralWidget(self.scroll_area)
 
         self._health_timer = QTimer(self)
         self._health_timer.timeout.connect(self._poll_health)
@@ -423,7 +445,6 @@ def fetch_health(host: str, port: int, scheme: str = "http", timeout: float = 1.
 def run_gui(config: ServerConfig, config_path: Optional[Path] = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     window = ServerControlPanel(config, config_path=config_path)
-    window.resize(900, 720)
     window.show()
     return app.exec()
 

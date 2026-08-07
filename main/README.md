@@ -641,6 +641,11 @@ Each opens as its own process, so all three run side by side. That
 section holds those four buttons and nothing else: every one of the three
 programs carries its own settings.
 
+The relay control panel deliberately opens as a compact 440 × 360 window.
+All server details, controls, connected rooms/clients and log output are
+still present; scroll the dashboard to reach the lower sections when the
+window is small.
+
 Or do it by hand in three terminals:
 
 ```bash
@@ -663,6 +668,14 @@ then **choose a room**, then the session itself:
 2. *Student*: sign in, type that code.
 3. The teacher presses **Start live session**, the student presses
    **Ready for guidance**, and any key the teacher plays cues the student.
+   The order of those first two presses does not matter.
+
+The **Guidance** choice (`Visual`, `Haptic` or `Both`) appears only on
+the student Session page. The teacher does not choose how cues are
+rendered; their live row contains **Connect MIDI**, **Chord detection**
+and the session controls. When the student becomes ready, their client
+reports its choice to the teacher and the relay stores that student-owned
+value on the session.
 
 **The join code is the only room identifier anyone types.** Step 2 is one
 field with no mode to pick, the same on both clients: a code joins (for
@@ -687,6 +700,18 @@ room** and on close. The student's LED strip is the exception - it has
 its own Connect button, because the sync flash is worth checking before
 a session rather than during one.
 
+The teacher Session page has two tabs. **Live guidance** contains the
+live camera/MIDI controls. **Recorded guidance** contains the existing
+song/sequence upload and remote playback controls plus **Record a new
+song...**, which opens the platform's existing Song Recording Wizard
+with the devices from Teacher Settings. Opening that wizard is the other
+explicit action that claims teacher hardware; closing it releases the
+devices and refreshes the song picker. A recorded run creates its own
+`recording` session, so it is not necessary to start Live guidance first.
+If the teacher triggers before the student presses **Ready for
+guidance**, the student holds that one trigger and starts the download as
+soon as it becomes ready.
+
 Account creation, rooms, HTTPS/wss, deployment, SQLite backup and the
 full REST/WebSocket reference are in **[server/README.md](server/README.md)**.
 
@@ -705,6 +730,23 @@ calibration profile; the teacher client's opens the teacher's; the relay
 server's opens its bind address, port, registration and token lifetimes.
 Nothing in the launcher edits any of them, and neither client can see the
 other's devices. The block in full:
+
+The student and teacher Settings dialogs also have **Capture camera +
+profile preview**. It takes one photograph using the camera values
+currently in the form, draws the selected calibration profile's colored
+key masks and key-id labels over it, then opens the result in a separate
+preview window. This does not save the settings or the photograph. If
+the actual camera frame and profile map have different resolutions, the
+preview explains the mismatch instead of stretching the mask.
+
+The MIDI port is selected only here. The two Session pages do not repeat
+the port dropdown or its Refresh button: the student opens its saved port
+when **Ready for guidance** is pressed, while the teacher's **Connect
+MIDI** action opens the teacher port saved in Settings. On the teacher
+page, **Connect MIDI** and **Chord detection** share the same compact row
+as the live guidance controls. That teacher row deliberately has no
+student-guidance selector: `Visual` / `Haptic` / `Both` is chosen on the
+student Session page.
 
 ```json
 "remote_guidance": {
@@ -796,6 +838,14 @@ The teacher's pre-recorded uploads come from the same libraries the local
 tools use - `data/music/<song>/` and `data/sequence/<name>/`, read through
 `app.music_recording.load_playback_events`. Only the note/finger event
 list is uploaded; the video stays on the teacher's machine.
+
+Running teacher and student on the same computer does not overwrite that
+source folder. Every Upload creates a new relay database recording with
+a new id, and the student downloads its event JSON into memory rather
+than writing it back under `data/music/` or `data/sequence/`. Student
+performance output is separate under `data/quiz/<session name>/`; choose
+a new session name if an existing quiz result with that name must be
+preserved.
 
 ### Provisional vs final results
 

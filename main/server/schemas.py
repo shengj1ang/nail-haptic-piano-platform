@@ -228,7 +228,11 @@ class CreateSessionRequest(BaseModel):
     # "live" = teacher plays in real time; "recording" = a stored sequence
     # is scheduled locally on the student's machine.
     mode: str = Field(default="live", pattern="^(live|recording)$")
-    guidance_mode: str = Field(default="visual", pattern="^(visual|haptic|both)$")
+    # The teacher opens the session but does not choose how guidance is
+    # rendered. The neutral value is replaced by the student's own
+    # visual/haptic/both choice when its recording.ready frame arrives.
+    # The concrete values remain accepted for older clients.
+    guidance_mode: str = Field(default="student_choice", pattern="^(student_choice|visual|haptic|both)$")
     playback_mode: Optional[str] = Field(default=None, pattern="^(paced|original_timing)$")
     recording_id: Optional[str] = None
 

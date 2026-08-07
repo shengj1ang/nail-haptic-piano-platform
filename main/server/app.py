@@ -85,6 +85,7 @@ class ServerContext:
             self._apply_session_state(row)
         elif kind == "performance":
             dbm.insert_performance_event(self.db, row)
+            self._apply_student_guidance_mode(row)
 
     def _apply_session_state(self, row: dict) -> None:
         session_id = row.get("session_id")
@@ -102,6 +103,18 @@ class ServerContext:
         }.get(row.get("type"))
         if state and dbm.get_session(self.db, session_id) is not None:
             dbm.set_session_state(self.db, session_id, state)
+
+    def _apply_student_guidance_mode(self, row: dict) -> None:
+        """Store the modality reported by the student, never a teacher default."""
+        if row.get("type") != ws.TYPE_RECORDING_READY or row.get("sender_role") != dbm.ROLE_STUDENT:
+            return
+        guidance_mode = (row.get("payload") or {}).get("guidance_mode")
+        if guidance_mode not in {"visual", "haptic", "both"}:
+            return
+        session_id = row.get("session_id")
+        session = dbm.get_session(self.db, session_id) if session_id else None
+        if session is not None and session["room_id"] == row.get("room_id"):
+            dbm.set_session_guidance_mode(self.db, session_id, guidance_mode)
 
 
 def create_app(config: Optional[ServerConfig] = None, db: Optional[Database] = None) -> FastAPI:

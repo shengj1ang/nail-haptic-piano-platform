@@ -22,8 +22,9 @@ The student has two of them: the keyboard's LED strip and the haptic rig.
 common.serial_utils.auto_detect_port scores candidate ports and, with two
 similar boards attached, can confidently pick the wrong one - and for the
 LED strip vs the vibration controller "wrong" means cueing the wrong
-modality entirely. Both ports are therefore configured explicitly and
-validated to be different.
+modality entirely. Blank ports use auto-detection; explicit config-only
+overrides are available for a two-board rig and are validated to be
+different.
 """
 
 from __future__ import annotations

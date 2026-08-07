@@ -19,6 +19,12 @@ auto-detection picks the wrong board - see remote_guidance/config.py's
 `serial_port_problems()`, which still refuses two identical ports - but
 they are set by hand there, not through a form.
 
+The Camera/Profile Preview button captures one frame with the values
+currently visible in this form, overlays the selected profile's colored
+pixel mask and key ids, and opens the result in a separate dialog. It
+does not save the form or the photograph, and it refuses a resolution
+mismatch rather than resizing a mask into a misleading fit.
+
 Only that role's slice of the `remote_guidance` block is written. The
 top-level `camera`, `midi` and `active_keyboard_profile` that every
 ordinary tool reads are shown here for reference and never touched -
@@ -30,8 +36,10 @@ file.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Optional
+from pathlib import Path
+from typing import Callable, Optional
 
+import numpy as np
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -49,14 +57,107 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.camera import Camera
 from app.config import CameraConfig, Config
-from app.midi import list_input_ports
+from app.gui.image_view import ImageView
+from app.keyboard.template import KeyboardTemplate
+from app.keyboard.visualize import build_color_luts, draw_labels, overlay_keys
+from app.midi import ambiguous_port_names, list_input_ports
+from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.profiles import list_profiles
 
 from .config import ROLE_STUDENT, ROLE_TEACHER, RemoteGuidanceConfig
 from .gui_common import STATUS_STYLES
 
 ROLE_TITLES = {ROLE_STUDENT: "Student", ROLE_TEACHER: "Teacher"}
+PREVIEW_CAPTURE_READS = 3
+
+
+def capture_profile_preview(
+    camera_config: CameraConfig,
+    profile_name: str,
+    profile_data_dir: Path = PROFILE_DATA_DIR,
+    camera_factory: Callable[[CameraConfig], Camera] = Camera,
+) -> tuple[np.ndarray, KeyboardTemplate]:
+    """Capture one frame and paint the selected profile onto it.
+
+    This is deliberately independent of the dialog so it can be checked
+    without a real camera. The profile is never resized to fit a frame:
+    pixel masks are the calibration, so a size mismatch is useful proof
+    that the selected camera setup and profile do not belong together.
+    """
+    name = (profile_name or "").strip()
+    if not name:
+        raise ValueError("Choose a keyboard calibration profile first.")
+
+    template_path = Path(profile_data_dir) / name / "keyboard_template.json"
+    if not template_path.exists():
+        raise FileNotFoundError(f"Profile {name!r} has no keyboard_template.json at {template_path}.")
+    template = KeyboardTemplate.load(template_path)
+
+    camera = camera_factory(camera_config)
+    try:
+        if not camera.is_opened:
+            raise RuntimeError(f"Camera {camera_config.index!r} could not be opened.")
+        frame = None
+        # A newly opened camera often returns a dark or stale first frame;
+        # keep the last of a few immediate reads as the actual snapshot.
+        for _ in range(PREVIEW_CAPTURE_READS):
+            candidate = camera.read()
+            if candidate is not None:
+                frame = candidate
+    finally:
+        camera.release()
+
+    if frame is None:
+        raise RuntimeError(f"Camera {camera_config.index!r} opened but did not return an image.")
+    if template.key_map is None:
+        raise RuntimeError(f"Profile {name!r} has no readable keyboard key map.")
+    if frame.shape[:2] != template.key_map.shape[:2]:
+        frame_h, frame_w = frame.shape[:2]
+        map_h, map_w = template.key_map.shape[:2]
+        raise ValueError(
+            f"Resolution mismatch: camera returned {frame_w} × {frame_h}, but profile {name!r} "
+            f"was calibrated at {map_w} × {map_h}. Choose the matching camera settings/profile or recalibrate."
+        )
+
+    preview = frame.copy()
+    overlay_keys(preview, template.key_map, build_color_luts(len(template.keys)), alpha=0.45)
+    draw_labels(preview, template.key_map, len(template.keys))
+    return preview, template
+
+
+class KeyboardProfilePreviewDialog(QDialog):
+    """One captured frame in its own window, keeping Settings compact."""
+
+    def __init__(
+        self,
+        frame: np.ndarray,
+        profile_name: str,
+        key_count: int,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle(f"Camera + Keyboard Profile Preview — {profile_name}")
+
+        frame_h, frame_w = frame.shape[:2]
+        explanation = QLabel(
+            f"Captured {frame_w} × {frame_h} using profile {profile_name!r} ({key_count} keys). "
+            "The colored regions are the saved pixel masks and the numbers are key ids. "
+            "This preview is not saved."
+        )
+        explanation.setWordWrap(True)
+
+        self.view = ImageView()
+        self.view.set_frame(frame)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(explanation)
+        layout.addWidget(self.view, 0)
+        layout.addWidget(buttons)
 
 
 class CameraGroup(QGroupBox):
@@ -140,8 +241,11 @@ class RemoteSettingsDialog(QDialog):
         # Editable: the port may belong to a keyboard that is not plugged
         # in yet, or to the machine this config will be copied to.
         self.port_combo.setEditable(True)
-        self.port_combo.addItems(list_input_ports())
-        self.port_combo.setCurrentText(role_config.midi.port_name or "")
+        # Two keyboards of the same model report the same name, so the list
+        # can contain "... #1"/"... #2" - see the hint below and app.midi.
+        self.port_hint = QLabel("")
+        self.port_hint.setWordWrap(True)
+        self.port_hint.setStyleSheet(STATUS_STYLES["warn"])
         port_refresh = QPushButton("Refresh")
         port_refresh.clicked.connect(self._refresh_ports)
 
@@ -157,7 +261,15 @@ class RemoteSettingsDialog(QDialog):
         keyboard_box = QGroupBox("Keyboard")
         keyboard_form = QFormLayout(keyboard_box)
         keyboard_form.addRow("MIDI port:", port_row)
+        keyboard_form.addRow("", self.port_hint)
         keyboard_form.addRow("Calibration profile:", self.profile_combo)
+        self.preview_btn = QPushButton("Capture camera + profile preview")
+        self.preview_btn.setToolTip(
+            "Use the camera values currently shown above, take one picture, and overlay this profile's "
+            "keyboard mask in a separate preview window. Nothing is saved."
+        )
+        self.preview_btn.clicked.connect(self._capture_profile_preview)
+        keyboard_form.addRow("", self.preview_btn)
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -195,6 +307,10 @@ class RemoteSettingsDialog(QDialog):
         layout.addWidget(self.status)
         layout.addWidget(buttons)
 
+        # After the layout, so the hint has a parent before it is ever made
+        # visible - a parentless widget shown here becomes its own window.
+        self._populate_ports(role_config.midi.port_name or "")
+
     # ------------------------------------------------------------------
 
     def _note_text(self) -> str:
@@ -209,11 +325,33 @@ class RemoteSettingsDialog(QDialog):
             "with which finger, and sends that. There is nothing else to configure here."
         )
 
-    def _refresh_ports(self) -> None:
-        current = self.port_combo.currentText()
+    def _populate_ports(self, preferred: str) -> None:
+        """Fill the port list and say so when two instruments share a name.
+
+        The "#1"/"#2" suffixes come from the order the OS lists devices, so
+        with two identical keyboards the numbers are the only thing telling
+        them apart - and they can swap over when something is replugged.
+        Saying that here is cheaper than debugging a lesson where the
+        teacher's notes arrive from the student's keyboard."""
         self.port_combo.clear()
         self.port_combo.addItems(list_input_ports())
-        self.port_combo.setCurrentText(current)
+        self.port_combo.setCurrentText(preferred)
+
+        duplicates = ambiguous_port_names()
+        if duplicates:
+            names = ", ".join(repr(name) for name in duplicates)
+            self.port_hint.setText(
+                f"More than one instrument reports {names}. The #1/#2 numbers follow the order this "
+                "machine lists them and can change when a keyboard is replugged - check which is which "
+                "after replugging, or rename the instruments (macOS: Audio MIDI Setup > MIDI Studio) so "
+                "the numbers are not needed."
+            )
+        else:
+            self.port_hint.setText("")
+        self.port_hint.setVisible(bool(duplicates))
+
+    def _refresh_ports(self) -> None:
+        self._populate_ports(self.port_combo.currentText())
 
     def _fill_from_local(self) -> None:
         self.camera_group.set_value(replace(self.cfg.camera))
@@ -223,6 +361,29 @@ class RemoteSettingsDialog(QDialog):
             "Filled in from this machine's current setup. If the other role runs on this same machine, give "
             "them a different camera and MIDI port. Nothing is saved until you press Save.",
             "warn",
+        )
+
+    def _capture_profile_preview(self) -> None:
+        """Preview the unsaved camera/profile values currently on screen."""
+        camera_config = self.camera_group.value()
+        profile_name = self.profile_combo.currentText().strip()
+        self.preview_btn.setEnabled(False)
+        self._set_status("Capturing one frame and rendering the keyboard mask...", "idle")
+        try:
+            frame, template = capture_profile_preview(camera_config, profile_name)
+        except Exception as exc:  # noqa: BLE001 - camera/profile failures are user-facing
+            message = str(exc) or type(exc).__name__
+            self._set_status(f"Preview failed: {message}", "error")
+            QMessageBox.warning(self, "Camera/profile preview failed", message)
+            return
+        finally:
+            self.preview_btn.setEnabled(True)
+
+        dialog = KeyboardProfilePreviewDialog(frame, profile_name, len(template.keys), parent=self)
+        dialog.exec()
+        self._set_status(
+            f"Previewed camera {camera_config.index!r} with profile {profile_name!r}. Nothing was saved.",
+            "ok",
         )
 
     def collect(self) -> RemoteGuidanceConfig:

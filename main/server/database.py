@@ -450,6 +450,13 @@ def set_session_state(db: Database, session_id: str, state: str) -> None:
         db.execute("UPDATE guidance_sessions SET state = ? WHERE id = ?", (state, session_id))
 
 
+def set_session_guidance_mode(db: Database, session_id: str, guidance_mode: str) -> None:
+    db.execute(
+        "UPDATE guidance_sessions SET guidance_mode = ? WHERE id = ?",
+        (guidance_mode, session_id),
+    )
+
+
 def insert_guidance_event(db: Database, row: Dict[str, Any]) -> bool:
     """False if this message_id was already stored (duplicate delivery)."""
     cur = db.execute(
