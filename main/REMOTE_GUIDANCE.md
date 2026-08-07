@@ -93,10 +93,12 @@ starts them with `QProcess.startDetached` (see
 | `qt_bridge.py` | 104 | The only place the network layer meets Qt - turns callbacks into signals |
 | `cue_outputs.py` | 350 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; drives every channel with the whole chord (§4.11) |
 | `gui_common.py` | 571 | `SignInPanel`, `RoomPanel`, `ApiCallWorker`, `StageWindow` mixin |
-| `settings_window.py` | 372 | `RemoteSettingsDialog` - **one role's** camera/MIDI/profile, the snapshot half of the camera/profile mask preview (the drawing and the dialog are `app.gui.profile_preview`), and the warning shown when two instruments report the same MIDI name |
+| `settings_window.py` | 462 | `RemoteSettingsDialog` - **one role's** camera/MIDI/profile, temporary press-a-key MIDI identification with guaranteed release on close, the snapshot half of the camera/profile mask preview, and the duplicate-name warning |
 | `launcher_actions.py` | 116 | `ProcessSpec`s and health check for launcher section 8 |
 | `setup_store.py` | 180 | **The isolation rules.** Profile folders the setup wizard may create and write; no Qt, no config |
-| `setup_wizard.py` | 771 | `RemoteSetupWizard` - camera → calibration → MIDI mapping. Its only output is a profile folder (§4.12) |
+| `setup_wizard.py` | 599 | `RemoteSetupWizard` - click-to-scan camera selection → calibration launcher → MIDI-mapping launcher. It constructs no camera when opened (§4.12) |
+| `calibration_wizard.py` | 456 | Tele-training's copy of Initial Setup's five-page name → capture → boundary → cropped edges → key-fill flow; only its safe save destination differs (§4.12) |
+| `midi_mapping_wizard.py` | 473 | Tele-training's copy of Initial Setup's two-page Middle C check → live camera/key-highlight mapping flow; it lists and writes only marked Tele-training profiles (§4.12) |
 | `student/session.py` | 551 | **The core.** Event model, queueing, all timing rules. No Qt, no hardware |
 | `student/window.py` | 1194 | Student GUI: devices in, Qt signals out; owns the visual/haptic/both choice, announces it when ready, and defers an early recorded trigger until ready |
 | `teacher/live_detector.py` | 218 | Camera → HandTracker → MIDI → finger matching, assembled for the teacher |
@@ -117,16 +119,16 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 2321 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging, tabs/wizard integration, camera/profile preview, the duplicate-keyboard port warning, and that every message type's handler exists and a live cue reaches `accept()` |
+| `test-script/test_remote_guidance_config.py` | 2400 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging, tabs/wizard integration, camera/profile preview, duplicate-keyboard warning + temporary MIDI test/release lifecycle, and that every message handler exists and a live cue reaches `accept()` |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
 | `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
 | `test-script/test_profile_preview.py` | 300 | `app.gui.profile_preview`: the mask is never resized to fit, and the shared button behaves in the quiz windows too. Also platform-wide |
 | `test-script/test_chord_cue.py` | 454 | Cueing a chord on every channel (§4.11), that scoring stays single-note, and that the single-finger path the local quiz and the main study use is untouched |
-| `test-script/test_remote_setup_wizard.py` | 347 | What the setup wizard cannot do (§4.12): write `config.json` at all, or touch a profile it did not create |
+| `test-script/test_remote_setup_wizard.py` | 603 | On-demand camera selection, five-page cropped calibration, both MIDI-mapping images/overlays, and what the setup flows cannot do (§4.12): write `config.json` or touch a profile they did not create |
 
-**230 tests** in the three remote files, **23** in the MIDI port file,
-**16** in the profile preview file, **32** in the chord cue file and **24**
+**233 tests** in the three remote files, **23** in the MIDI port file,
+**16** in the profile preview file, **32** in the chord cue file and **32**
 in the setup wizard file, none of which need hardware or a real network.
 
 ---
@@ -289,7 +291,8 @@ the *formal experiment* runs on, so using them here repoints its devices
 and can destroy the calibration its recorded sessions were scored
 against.
 
-`setup_wizard.py` produces the profile and **nothing else**.
+`setup_wizard.py`, `calibration_wizard.py` and
+`midi_mapping_wizard.py` produce the profile and **nothing else**.
 `setup_store.py` is the whole of the "may I write that?" decision, kept
 GUI-free so the rules are testable without hardware. Two of them:
 
@@ -297,8 +300,8 @@ GUI-free so the rules are testable without hardware. Two of them:
    and not even the `remote_guidance` block. Running the wizard therefore
    cannot change what any tool on this machine does; the new profile takes
    effect only when someone selects it in a client's own Settings dialog,
-   which is where choosing devices already lives. A test greps both
-   modules for `cfg.save()`, `active_keyboard_profile =`,
+   which is where choosing devices already lives. A test greps all four
+   setup modules for `cfg.save()`, `active_keyboard_profile =`,
    `RemoteGuidanceConfig` and `atomic_write_json` - the cheapest way to
    break this is one careless line.
 2. **The wizard may only write into profiles it created.** Every profile
@@ -324,6 +327,47 @@ by a warning nobody reads. Saving the calibration is what creates the
 profile folder, so an abandoned attempt leaves nothing behind. Step 3 has
 its own picker over the wizard's own profiles, which is how "redo only
 the MIDI mapping" works.
+
+**Opening the Tele-training wizard must not touch a camera.** Step 1
+starts empty: only clicking **Scan for cameras** starts a background
+probe, and even a completed scan opens nothing. The user must explicitly
+select one of the detected indices before its live preview is
+constructed; step 2 stays blocked until that selection. This differs
+from the section 1 camera picker, which scans on construction, and is
+intentional for Tele-training.
+
+The calibration itself is deliberately a near-copy of
+`app/gui/calibration_wizard.py`, kept at
+`remote_guidance/calibration_wizard.py` so section 1 is not modified. Its
+five pages and coordinate handling are the same: **profile name → live
+capture → two-corner boundary → edge tuning on the boundary crop →
+white/black key filling on that same crop**. On Finish, the crop-local
+key map is pasted back into a full-frame-sized map before saving, exactly
+as the platform readers require. Only the write actions differ: edge
+slider values are not written to config, the active profile is not
+changed, and the template is saved through
+`setup_store.create_profile()` as a new, marked Tele-training profile.
+
+MIDI mapping follows the same rule. The section 1 implementation in
+`app/gui/midi_mapping_wizard.py` is copied into
+`remote_guidance/midi_mapping_wizard.py`; do not collapse step 3 back to
+a port picker and text counter. It has two image-bearing pages that are
+part of the workflow:
+
+1. **Connect / verify** shows `app/assets/image/MiddleC-Keyboard.png` and
+   a live “last key pressed” readout so middle C can be verified as note
+   60/C4 before mapping.
+2. **Map keys** displays the selected camera continuously with the
+   calibration key map overlaid. The next physical key is yellow,
+   already mapped keys are green, and unreached keys are grey; labels,
+   Undo, Skip and Reset match Initial Setup.
+
+Only profiles carrying `remote_setup.json` appear in that page's picker,
+and Save goes through `writable_profile_dir()` to write only that
+profile's `midi_mapping.json`. It does not save the selected MIDI port to
+config. The live frame and template must have the same resolution; on a
+mismatch the raw camera image remains visible but the mask is never
+resized into a false-looking alignment.
 
 **There is no role anywhere in it, and a profile carries none.** A
 calibration describes a rig - one camera, one keyboard - not a person.
@@ -556,6 +600,17 @@ their camera for their whole lifetime and a second capture on the same
 device fails on most backends. Keep new callers on that shared module
 rather than growing a second overlay.
 
+Both dialogs also put **Connect & test** beside their MIDI port picker.
+It temporarily constructs `MidiListener` for the value currently shown;
+pressing any key updates the dialog with `note N (name)` and the resolved
+port label, matching the verification readout in the MIDI Mapping Wizard.
+This is the normal way to determine which identically named keyboard is
+`#1` or `#2` before saving. The test listener is never handed to a
+session. Changing the selected port, refreshing the list, Save, Cancel
+and window close all stop its timer and call
+`MidiListener.close()` so Settings cannot retain the keyboard and make a
+later **Ready for guidance** / **Connect MIDI** fail.
+
 **Two keyboards of the same model report the same MIDI name.** That is
 the normal tele-training setup, and it used to mean the picker showed one
 port where there were two. `app.midi` now labels duplicates `"SE25 MIDI1
@@ -570,9 +625,9 @@ instrument portably, so this cannot be fixed in code; the warning tells
 the user to re-check after replugging, or to rename the instruments
 (macOS: Audio MIDI Setup → MIDI Studio) so the raw names differ and no
 suffix is needed. `python test-script/MIDI.py` listens on every port at
-once and prints which label a key press came from - that is the way to
-find out which keyboard is which. See §9.8 for why this is not left to
-mido.
+once and prints which label a key press came from; it remains the
+command-line alternative to the Settings test. See §9.8 for why this is
+not left to mido.
 
 The relay's main control panel opens at **440 × 360 px**, which is also
 its minimum size, so it can sit beside the two clients. Its complete

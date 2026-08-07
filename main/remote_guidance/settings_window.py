@@ -25,6 +25,12 @@ pixel mask and key ids, and opens the result in a separate dialog. It
 does not save the form or the photograph, and it refuses a resolution
 mismatch rather than resizing a mask into a misleading fit.
 
+The MIDI picker has a temporary Connect & test action. It opens only the
+currently selected port and shows each note pressed, so two identical
+keyboards can be identified before saving. The listener is never part of
+the client session: changing the selection, saving, cancelling or closing
+this dialog releases it immediately.
+
 Only that role's slice of the `remote_guidance` block is written. The
 top-level `camera`, `midi` and `active_keyboard_profile` that every
 ordinary tool reads are shown here for reference and never touched -
@@ -40,6 +46,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -64,8 +71,9 @@ from app.gui.profile_preview import (
     load_profile_template,
     overlay_template,
 )
+from app.keyboard.midi_mapping import note_name
 from app.keyboard.template import KeyboardTemplate
-from app.midi import ambiguous_port_names, list_input_ports
+from app.midi import MidiListener, ambiguous_port_names, list_input_ports
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.profiles import list_profiles
 
@@ -185,6 +193,9 @@ class RemoteSettingsDialog(QDialog):
         self.cfg = cfg
         self.remote = remote or RemoteGuidanceConfig.load()
         self.saved = False
+        self.midi_test_listener: Optional[MidiListener] = None
+        self._midi_test_timer = QTimer(self)
+        self._midi_test_timer.timeout.connect(self._poll_midi_test)
 
         role_config = getattr(self.remote, role)
 
@@ -201,6 +212,18 @@ class RemoteSettingsDialog(QDialog):
         self.port_hint.setStyleSheet(STATUS_STYLES["warn"])
         port_refresh = QPushButton("Refresh")
         port_refresh.clicked.connect(self._refresh_ports)
+        self.midi_test_btn = QPushButton("Connect & test")
+        self.midi_test_btn.setToolTip(
+            "Temporarily open the selected MIDI input. Press any key and check the note readout below; "
+            "the port is released when Settings closes."
+        )
+        self.midi_test_btn.clicked.connect(self._toggle_midi_test)
+        self.midi_test_output = QLabel("MIDI test: not connected.")
+        self.midi_test_output.setWordWrap(True)
+        test_font = self.midi_test_output.font()
+        test_font.setPointSize(test_font.pointSize() + 2)
+        self.midi_test_output.setFont(test_font)
+        self.port_combo.currentTextChanged.connect(self._on_midi_port_changed)
 
         self.profile_combo = QComboBox()
         self.profile_combo.setEditable(True)
@@ -210,11 +233,13 @@ class RemoteSettingsDialog(QDialog):
         port_row = QHBoxLayout()
         port_row.addWidget(self.port_combo, 1)
         port_row.addWidget(port_refresh)
+        port_row.addWidget(self.midi_test_btn)
 
         keyboard_box = QGroupBox("Keyboard")
         keyboard_form = QFormLayout(keyboard_box)
         keyboard_form.addRow("MIDI port:", port_row)
         keyboard_form.addRow("", self.port_hint)
+        keyboard_form.addRow("", self.midi_test_output)
         keyboard_form.addRow("Calibration profile:", self.profile_combo)
         self.preview_btn = QPushButton("Capture camera + profile preview")
         self.preview_btn.setToolTip(
@@ -306,6 +331,63 @@ class RemoteSettingsDialog(QDialog):
     def _refresh_ports(self) -> None:
         self._populate_ports(self.port_combo.currentText())
 
+    def _on_midi_port_changed(self, _text: str) -> None:
+        # A running listener belongs to the old selection. Keeping it open
+        # would make the readout claim to test a different keyboard and hold
+        # that old device after the user had moved on.
+        if self.midi_test_listener is not None:
+            self._release_midi_test("MIDI selection changed; test connection released.")
+
+    def _toggle_midi_test(self) -> None:
+        if self.midi_test_listener is not None:
+            self._release_midi_test("MIDI test disconnected.")
+            return
+
+        port_name = self.port_combo.currentText().strip() or None
+        try:
+            listener = MidiListener(port_name)
+        except RuntimeError as exc:
+            message = str(exc)
+            self.midi_test_output.setText(f"MIDI test failed: {message}")
+            self._set_status(f"MIDI test failed: {message}", "error")
+            QMessageBox.warning(self, "MIDI connection failed", message)
+            return
+
+        self.midi_test_listener = listener
+        # A legacy bare driver name may resolve to a numbered unique label.
+        # Reflect the port actually opened without triggering the
+        # currentTextChanged release path above.
+        self.port_combo.blockSignals(True)
+        self.port_combo.setCurrentText(listener.port_name)
+        self.port_combo.blockSignals(False)
+        self.midi_test_btn.setText("Disconnect test")
+        self.midi_test_output.setText(
+            f"Connected to {listener.port_name!r}. Press any key on that keyboard."
+        )
+        self._midi_test_timer.start(33)
+        self._set_status(
+            f"Testing MIDI port {listener.port_name!r}. This temporary connection closes with Settings.",
+            "ok",
+        )
+
+    def _poll_midi_test(self) -> None:
+        if self.midi_test_listener is None:
+            return
+        for event in self.midi_test_listener.pop_events():
+            self.midi_test_output.setText(
+                f"Last key pressed: note {event.note} ({note_name(event.note)}) "
+                f"from {self.midi_test_listener.port_name!r}."
+            )
+
+    def _release_midi_test(self, message: str = "MIDI test connection released.") -> None:
+        self._midi_test_timer.stop()
+        listener = self.midi_test_listener
+        self.midi_test_listener = None
+        if listener is not None:
+            listener.close()
+        self.midi_test_btn.setText("Connect & test")
+        self.midi_test_output.setText(message)
+
     def _fill_from_local(self) -> None:
         self.camera_group.set_value(replace(self.cfg.camera))
         self.port_combo.setCurrentText(self.cfg.midi.port_name or "")
@@ -359,6 +441,14 @@ class RemoteSettingsDialog(QDialog):
         remote.save()
         self.saved = True
         self.accept()
+
+    def done(self, result: int) -> None:
+        self._release_midi_test()
+        super().done(result)
+
+    def closeEvent(self, event) -> None:
+        self._release_midi_test()
+        super().closeEvent(event)
 
     def _set_status(self, message: str, level: str = "idle") -> None:
         self.status.setText(message)

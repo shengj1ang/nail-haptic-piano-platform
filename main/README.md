@@ -651,7 +651,7 @@ logic from `common/`.
 | `test_acceleration_metrics.py` | Unit tests for `validation_experiments/acceleration_metrics.py` (both vibration-intensity metrics, unit conversion, the raw-sample round trip) and for the metric switching / old-CSV compatibility of the accelerometer experiments. |
 | `test_haptic_config.py` | Unit tests for `common/haptic_config.py` and everything that reads it: old/partial `config.json` compatibility, range validation, atomic non-destructive saving, the Initial Setup window, the validation windows' defaults and prose, "manual value wins over the config", historical-run rendering, and the haptic quiz cue. |
 | `test_validation_reports.py` | Unit tests for the validation experiments' text statistics (`validation_experiments/report.py` + each experiment's `summary_report()`) and for the saved-run picker in the validation windows. |
-| `test_remote_setup_wizard.py` | Unit tests for the Tele-training Setup Wizard, mostly about what it *cannot* do: reach the top-level `camera`/`midi`/`active_keyboard_profile`, write into a profile it did not create, or overwrite an existing folder. Also that it asks for no role and applies the rig to both clients. Runs against a temp config and temp profile directory - no camera or keyboard. |
+| `test_remote_setup_wizard.py` | Unit tests for the Tele-training Setup Wizard: opening it performs no camera scan/open; scan results require an explicit selection; calibration has Initial Setup's five pages and crop/full-frame coordinate handling; MIDI mapping loads the Middle C reference image and displays the live camera with next/mapped/unmapped key overlays; and neither flow can write config or a non-Tele-training profile. Cameras/MIDI are faked. |
 | `test_chord_cue.py` | Unit tests for cueing a chord (remote guidance only): the haptic bitmask, the dot view's multi-highlight, the hand view's photo cycling, the LED's single flush, and the two guarantees that scope it - scoring stays single-note, and the single-finger path the local quiz and the main user study use is untouched. |
 | `test_profile_preview.py` | Unit tests for `app/gui/profile_preview.py` and the **Preview keyboard profile** button the quiz windows inherit: the mask is drawn without touching the caller's frame, a resolution mismatch is refused rather than resized, the frame already on screen is used instead of a second capture, and every failure is reported rather than raised. No camera or profile on disk is needed. |
 | `test_midi_ports.py` | Unit tests for `app/midi.py`'s port identity: two identically named keyboards both stay visible and are opened by index, older bare port names still resolve, and `MidiListener`/`RawMidiRecorder` end up on the port that was asked for. rtmidi is faked, so no keyboard is needed. |
@@ -797,12 +797,20 @@ Initial Setup - whenever someone new joins a tele-training session.
 Three steps, and the last two can be re-entered from the step bar so one
 part can be redone (remapping MIDI without recalibrating, most of all):
 
-1. **Camera** - scan the indices, preview live, set the flips.
-2. **Calibration** - capture a photo, click the keyboard's two corners,
-   tune the edge sliders, click once inside each key, then name it and
-   save. Saving is what creates the profile folder.
-3. **MIDI mapping** - pick the profile, connect the port, press each key
-   in turn.
+1. **Camera** - opening the Tele-training wizard does not scan or open a
+   camera. Click **Scan for cameras**; the scan runs in the background;
+   then explicitly choose one of the detected indices to start its live
+   preview and set its resolution/flips.
+2. **Calibration** - the same five-page flow as Initial Setup: name the
+   new profile, capture a photo, click the keyboard's two corners, tune
+   edge detection on that cropped keyboard, then mark white/black keys
+   with the same paint-bucket controls. **Finish** creates the profile.
+3. **MIDI mapping** - the same two-page visual flow as Initial Setup.
+   First connect the port and use the displayed Middle C reference image
+   plus live note readout to verify note 60/C4. Then pick the profile and
+   use the live camera image: the next key is highlighted yellow, mapped
+   keys are green and unreached keys grey. Press each highlighted
+   physical key in turn, then save the mapping.
 
 The camera comes first because the calibration is a pixel mask of *that
 camera's* frame: step 2 captures through step 1's settings rather than
@@ -831,8 +839,13 @@ Two more things it will not do:
 
 The wizard is a normal launcher window, so the usual one-tool-at-a-time
 rule applies - it will not run beside a client and fight it for the
-camera. Its rules live in `remote_guidance/setup_store.py`, kept separate
-from the UI so they can be (and are) tested without hardware.
+camera. The Initial Setup calibration and MIDI mapping flows were copied
+into `remote_guidance/calibration_wizard.py` and
+`remote_guidance/midi_mapping_wizard.py` rather than changing section 1:
+their images and interactions stay the same, while their save actions go
+through the Tele-training-only store. Those write rules live in
+`remote_guidance/setup_store.py`, kept separate from the UI so they can
+be (and are) tested without hardware.
 
 ### Configuration
 
@@ -861,6 +874,14 @@ page, **Connect MIDI** and **Chord detection** share the same compact row
 as the live guidance controls. That teacher row deliberately has no
 student-guidance selector: `Visual` / `Haptic` / `Both` is chosen on the
 student Session page.
+
+Beside the MIDI picker, **Connect & test** temporarily opens the currently
+selected input. Press any key on the physical keyboard and the Settings
+dialog shows its note number/name and the exact port label it came from;
+this is the quick way to distinguish `#1` from `#2` before saving. Changing
+the selection or refreshing the list releases the old test connection,
+and Save, Cancel and closing the Settings window all release it as well,
+so the client can claim the selected keyboard later when a session starts.
 
 **Give the two roles different MIDI ports.** Teacher and student normally
 use the same model of keyboard, which reports the same port name twice,

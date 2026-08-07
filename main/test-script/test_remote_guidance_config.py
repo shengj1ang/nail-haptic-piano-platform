@@ -1252,6 +1252,98 @@ class RemoteSettingsDialogTests(unittest.TestCase):
         self.assertEqual(dialog.port_combo.count(), 2)
         self.assertTrue(dialog.port_hint.isVisibleTo(dialog))
 
+    def test_both_roles_can_temporarily_connect_and_see_pressed_notes(self):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        listeners = []
+
+        class FakeMidiListener:
+            def __init__(self, port_name):
+                self.port_name = port_name
+                self.closed = False
+                self.events = [SimpleNamespace(note=64)]
+                listeners.append(self)
+
+            def pop_events(self):
+                events, self.events = self.events, []
+                return events
+
+            def close(self):
+                self.closed = True
+
+        for role in ("student", "teacher"):
+            dialog = self._dialog_with_ports(role, ["SE25 MIDI1 #1", "SE25 MIDI1 #2"])
+            dialog.port_combo.setCurrentText("SE25 MIDI1 #2")
+            with mock.patch("remote_guidance.settings_window.MidiListener", FakeMidiListener):
+                dialog._toggle_midi_test()
+
+            self.assertIs(dialog.midi_test_listener, listeners[-1])
+            self.assertTrue(dialog._midi_test_timer.isActive())
+            self.assertIn("Disconnect", dialog.midi_test_btn.text())
+            dialog._poll_midi_test()
+            output = dialog.midi_test_output.text()
+            self.assertIn("note 64", output)
+            self.assertIn("SE25 MIDI1 #2", output)
+            dialog.reject()
+            self.assertTrue(listeners[-1].closed)
+
+    def test_changing_the_selected_port_releases_the_test_keyboard(self):
+        from unittest import mock
+
+        class FakeMidiListener:
+            def __init__(self, port_name):
+                self.port_name = port_name
+                self.closed = False
+
+            def pop_events(self):
+                return []
+
+            def close(self):
+                self.closed = True
+
+        dialog = self._dialog_with_ports("teacher", ["Keyboard #1", "Keyboard #2"])
+        dialog.port_combo.setCurrentText("Keyboard #1")
+        with mock.patch("remote_guidance.settings_window.MidiListener", FakeMidiListener):
+            dialog._toggle_midi_test()
+        listener = dialog.midi_test_listener
+
+        dialog.port_combo.setCurrentText("Keyboard #2")
+
+        self.assertTrue(listener.closed)
+        self.assertIsNone(dialog.midi_test_listener)
+        self.assertFalse(dialog._midi_test_timer.isActive())
+        self.assertIn("selection changed", dialog.midi_test_output.text())
+
+    def test_accept_cancel_and_window_close_all_release_the_test_keyboard(self):
+        from unittest import mock
+
+        class FakeMidiListener:
+            instances = []
+
+            def __init__(self, port_name):
+                self.port_name = port_name or "Keyboard"
+                self.closed = False
+                type(self).instances.append(self)
+
+            def pop_events(self):
+                return []
+
+            def close(self):
+                self.closed = True
+
+        for finish in (lambda dialog: dialog.accept(), lambda dialog: dialog.reject(), lambda dialog: dialog.close()):
+            dialog = self._dialog_with_ports("student", ["Keyboard"])
+            with mock.patch("remote_guidance.settings_window.MidiListener", FakeMidiListener):
+                dialog._toggle_midi_test()
+            listener = FakeMidiListener.instances[-1]
+
+            finish(dialog)
+
+            self.assertTrue(listener.closed)
+            self.assertIsNone(dialog.midi_test_listener)
+            self.assertFalse(dialog._midi_test_timer.isActive())
+
     def test_both_roles_offer_the_separate_camera_profile_preview(self):
         for role in ("student", "teacher"):
             dialog = self._dialog(role)

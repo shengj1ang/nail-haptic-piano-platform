@@ -49,6 +49,20 @@ from remote_guidance.setup_store import (  # noqa: E402
     sanitize_profile_name,
     writable_profile_dir,
 )
+from remote_guidance.calibration_wizard import (  # noqa: E402
+    PAGE_BOUNDARY,
+    PAGE_CAPTURE,
+    PAGE_EDGES,
+    PAGE_FILL,
+    PAGE_PROFILE,
+    RemoteKeyboardCalibrationWizard,
+)
+from remote_guidance.midi_mapping_wizard import (  # noqa: E402
+    PAGE_CONNECT as MIDI_PAGE_CONNECT,
+    PAGE_MAP as MIDI_PAGE_MAP,
+    HIGHLIGHT_COLOR,
+    RemoteMidiMappingWizard,
+)
 
 EXPERIMENT_PROFILE = "white-city-lab-20260717"
 
@@ -174,8 +188,8 @@ class WritableProfileTests(unittest.TestCase):
 
 
 class WizardWiringTests(unittest.TestCase):
-    """The window over the store. Built headless - no camera is opened
-    until a step that shows one is entered."""
+    """The window over the store. Built headless: opening it performs no
+    scan and constructs no Camera."""
 
     @classmethod
     def setUpClass(cls):
@@ -198,31 +212,79 @@ class WizardWiringTests(unittest.TestCase):
         self.addCleanup(self.wizard.close)
 
     def _calibrate(self, name="remote-desk", keys=3):
-        """Stand in for the clicking: a filled-in calibration ready to save."""
-        from unittest import mock
-
-        import numpy as np
-
-        self.wizard.captured_frame = np.zeros((120, 160, 3), dtype=np.uint8)
-        self.wizard.boundary = (0, 0, 160, 120)
-        self.wizard.fill_wizard = mock.Mock()
-        self.wizard.fill_wizard.keys = [KeyBox(id=i, kind="white") for i in range(keys)]
+        """Stand in for a completed child calibration in parent wiring tests."""
+        directory = create_profile(name, self.root)
         key_map = np.zeros((120, 160), dtype=np.uint8)
         for key_id in range(keys):
             key_map[10:110, 10 + key_id * 30 : 30 + key_id * 30] = key_id + 1
-        self.wizard.fill_wizard.build_key_map.return_value = key_map
-        self.wizard.new_profile_edit.setText(name)
-        self.wizard._save_template()
+        KeyboardTemplate(
+            frame_width=160,
+            frame_height=120,
+            region={"x": 0, "y": 0, "w": 160, "h": 120},
+            keys=[KeyBox(id=i, kind="white") for i in range(keys)],
+            key_map=key_map,
+        ).save(directory / TEMPLATE_FILENAME)
+        self.wizard.profile_name = name
+        self.wizard._sync_step_buttons()
 
     def test_it_opens_on_the_camera_step(self):
         """Step 1 is the camera: the calibration is a pixel mask of that
-        camera's frame, so it cannot be chosen afterwards. The camera is
-        claimed straight away because showing it is the step's whole job -
-        the launcher's one-tool-at-a-time rule keeps that from clashing
-        with a client."""
+        camera's frame, so it cannot be chosen afterwards. Opening the
+        Tele-training wizard itself must not scan or claim anything."""
         self.assertEqual(self.wizard.step_buttons[0].text(), "1. Camera")
         self.assertEqual(self.wizard.stack.currentIndex(), 0)
-        self.assertIsNone(self.wizard.midi, 'no MIDI port is opened until step 3')
+        self.assertIsNone(self.wizard.camera)
+        self.assertIsNone(self.wizard._probe_worker)
+        self.assertFalse(self.wizard._camera_selected)
+        self.assertIsNone(self.wizard.mapping_wizard, 'step 3 has not opened its child wizard')
+
+    def test_constructing_the_window_never_constructs_a_camera(self):
+        from unittest import mock
+
+        from remote_guidance.setup_wizard import RemoteSetupWizard
+
+        with mock.patch("remote_guidance.setup_wizard.Camera") as camera_factory:
+            another = RemoteSetupWizard(Config.load(self.config_path), profile_data_dir=self.root)
+            self.addCleanup(another.close)
+
+        camera_factory.assert_not_called()
+
+    def test_scan_results_do_not_open_a_camera_until_the_user_selects_one(self):
+        from unittest import mock
+
+        class FakeCamera:
+            opened = []
+
+            def __init__(self, cfg):
+                self.cfg = cfg
+                self.is_opened = True
+                self.released = False
+                type(self).opened.append(cfg.index)
+
+            def read(self):
+                return None
+
+            def release(self):
+                self.released = True
+
+        with mock.patch("remote_guidance.setup_wizard.Camera", FakeCamera):
+            self.wizard._on_scan_finished([1, 3])
+            self.assertEqual(FakeCamera.opened, [])
+            self.assertFalse(self.wizard._camera_selected)
+            self.assertEqual(self.wizard.index_combo.currentData(), None)
+
+            self.wizard.index_combo.setCurrentIndex(2)
+
+        self.assertEqual(FakeCamera.opened, [3])
+        self.assertTrue(self.wizard._camera_selected)
+        self.assertEqual(self.wizard.camera_config.index, 3)
+
+    def test_calibration_is_blocked_until_scan_then_selection(self):
+        from remote_guidance.setup_wizard import STEP_CALIBRATION
+
+        self.assertIn("Scan for cameras", self.wizard._blocked_reason(STEP_CALIBRATION))
+        self.wizard._on_scan_finished([2])
+        self.assertIn("select the camera", self.wizard._blocked_reason(STEP_CALIBRATION))
 
     def test_the_three_steps_are_camera_calibration_mapping(self):
         self.assertEqual(
@@ -242,69 +304,22 @@ class WizardWiringTests(unittest.TestCase):
         self._calibrate()
         self.assertEqual(self.wizard._blocked_reason(STEP_MIDI), "")
 
-    def test_saving_a_calibration_creates_and_marks_the_profile(self):
+    def test_a_completed_calibration_enables_mapping(self):
         self._calibrate("remote-desk-20260807")
 
         self.assertEqual(self.wizard.profile_name, "remote-desk-20260807")
         self.assertTrue(is_remote_profile("remote-desk-20260807", self.root))
         self.assertTrue((self.root / "remote-desk-20260807" / TEMPLATE_FILENAME).exists())
 
-    def test_a_second_save_under_the_same_name_is_refused(self):
-        from unittest import mock
-
-        self._calibrate("remote-desk")
-        with mock.patch("remote_guidance.setup_wizard.QMessageBox.warning") as warning:
-            self._calibrate("remote-desk")
-        warning.assert_called_once()
-        self.assertIn("already exists", warning.call_args.args[2])
-
-    def test_the_mapping_picker_only_offers_the_wizard_s_own_profiles(self):
-        write_profile(self.root, EXPERIMENT_PROFILE)
-        create_profile("remote-one", self.root)
-        self.wizard._refresh_profile_choices()
-
-        offered = [self.wizard.profile_combo.itemText(i) for i in range(self.wizard.profile_combo.count())]
-        self.assertEqual(offered, ["remote-one"])
-
-    def test_the_mapping_step_refuses_a_profile_the_wizard_did_not_create(self):
-        from unittest import mock
-
-        write_profile(self.root, EXPERIMENT_PROFILE)
-        self.wizard.profile_combo.blockSignals(True)
-        self.wizard.profile_combo.addItem(EXPERIMENT_PROFILE)
-        self.wizard.profile_combo.setCurrentText(EXPERIMENT_PROFILE)
-        self.wizard.profile_combo.blockSignals(False)
-
-        with mock.patch("remote_guidance.setup_wizard.QMessageBox.warning") as warning:
-            self.wizard._on_profile_selected()
-
-        warning.assert_called_once()
-        self.assertEqual(self.wizard.profile_name, "", "an experiment profile was adopted")
-
-    def test_saving_a_mapping_writes_only_into_the_profile_folder(self):
-        self._calibrate("remote-desk")
-        self.wizard.port_name = "SE25 MIDI1 #1"
-        self.wizard.key_to_note = {0: 60, 1: 62, 2: 64}
-        self.wizard._save_mapping()
-
-        mapping = MidiMapping.load(self.root / "remote-desk" / "midi_mapping.json")
-        self.assertEqual(mapping.key_to_note, {0: 60, 1: 62, 2: 64})
-        self.assertEqual(mapping.port_name, "SE25 MIDI1 #1")
-
     def test_there_is_no_role_anywhere(self):
         """A calibration describes a camera and a keyboard, not a person."""
         self.assertFalse(hasattr(self.wizard, "role"))
         self.assertFalse(hasattr(self.wizard, "role_combo"))
 
-    def test_running_the_whole_wizard_leaves_config_json_byte_identical(self):
-        """The rule the whole feature exists for. Nothing this wizard does
-        may change what any tool on this machine reads."""
+    def test_parent_flow_leaves_config_json_byte_identical(self):
         before = self.config_path.read_bytes()
 
         self._calibrate("remote-desk")
-        self.wizard.port_name = "SE25 MIDI1 #1"
-        self.wizard.key_to_note = {0: 60}
-        self.wizard._save_mapping()
 
         self.assertEqual(self.config_path.read_bytes(), before)
 
@@ -318,13 +333,254 @@ class WizardWiringTests(unittest.TestCase):
         a config, and neither imports the remote config object."""
         import inspect
 
-        from remote_guidance import setup_store, setup_wizard
+        from remote_guidance import calibration_wizard, midi_mapping_wizard, setup_store, setup_wizard
 
-        for module in (setup_wizard, setup_store):
+        for module in (setup_wizard, calibration_wizard, midi_mapping_wizard, setup_store):
             source = inspect.getsource(module)
             for forbidden in ("cfg.save()", "base_cfg.save()", "active_keyboard_profile =",
                               "RemoteGuidanceConfig", "atomic_write_json"):
                 self.assertNotIn(forbidden, source, f"{module.__name__} contains {forbidden!r}")
+
+
+class CalibrationCopyTests(unittest.TestCase):
+    """Tele-training uses Initial Setup's five calibration stages and crop
+    coordinate system, with only the save destination changed."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.root = Path(self._dir.name) / "profiles"
+        self.root.mkdir()
+        self.config_path = Path(self._dir.name) / "config.json"
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(LEGACY_CONFIG, f, indent=2)
+        self.cfg = Config.load(self.config_path)
+
+        class FakeCamera:
+            def __init__(camera_self, camera_cfg):
+                camera_self.cfg = camera_cfg
+                camera_self.released = False
+
+            def read(camera_self):
+                return np.zeros((120, 160, 3), dtype=np.uint8)
+
+            def release(camera_self):
+                camera_self.released = True
+
+        self.wizard = RemoteKeyboardCalibrationWizard(
+            self.cfg,
+            self.cfg.camera,
+            self.root,
+            camera_factory=FakeCamera,
+        )
+        self.addCleanup(self.wizard.close)
+
+    def _ready_fill_page(self, profile_name="remote-desk"):
+        from unittest import mock
+
+        frame = np.zeros((120, 160, 3), dtype=np.uint8)
+        self.wizard.state.update(
+            keyboard_profile_name=profile_name,
+            frame=frame,
+            boundary=(20, 15, 100, 80),
+            crop=frame[15:95, 20:120].copy(),
+            edges=np.zeros((80, 100), dtype=np.uint8),
+        )
+        page = self.wizard.page(PAGE_FILL)
+        page.fill_wizard = mock.Mock()
+        page.fill_wizard.keys = [KeyBox(id=0, kind="white"), KeyBox(id=1, kind="black")]
+        local_map = np.zeros((80, 100), dtype=np.uint8)
+        local_map[5:75, 5:45] = 1
+        local_map[10:50, 55:80] = 2
+        page.fill_wizard.build_key_map.return_value = local_map
+        return page, local_map
+
+    def test_it_has_the_same_five_pages_as_initial_setup(self):
+        self.assertEqual(
+            [self.wizard.page(page_id).title() for page_id in range(5)],
+            [
+                "Step 0 - Name this camera profile",
+                "Step 1 - Capture a photo",
+                "Step 2 - Mark the keyboard boundary",
+                "Step 3 - Tune edge detection",
+                "Step 4 - Mark keys",
+            ],
+        )
+        self.assertIsNotNone(self.wizard.page(PAGE_PROFILE))
+        self.assertIsNotNone(self.wizard.page(PAGE_CAPTURE))
+
+    def test_boundary_edges_and_fill_use_the_same_crop_local_coordinates(self):
+        frame = np.zeros((120, 160, 3), dtype=np.uint8)
+        self.wizard.state["frame"] = frame
+
+        boundary_page = self.wizard.page(PAGE_BOUNDARY)
+        boundary_page.initializePage()
+        boundary_page._on_click(20, 15)
+        boundary_page._on_click(120, 95)
+        self.assertTrue(boundary_page.validatePage())
+
+        edge_page = self.wizard.page(PAGE_EDGES)
+        edge_page.initializePage()
+        self.assertEqual(self.wizard.state["crop"].shape, (80, 100, 3))
+        self.assertEqual(self.wizard.state["edges"].shape, (80, 100))
+
+        fill_page = self.wizard.page(PAGE_FILL)
+        fill_page.initializePage()
+        self.assertEqual(fill_page.fill_wizard.frame.shape, (80, 100, 3))
+        self.assertEqual(fill_page.fill_wizard.boundary, (0, 0, 100, 80))
+        self.assertEqual(
+            fill_page.fill_wizard.max_fill_radius,
+            int(self.cfg.wizard.max_fill_size_ratio * 100),
+        )
+
+    def test_finish_pastes_the_crop_map_into_a_full_frame_profile(self):
+        from unittest import mock
+
+        before = self.config_path.read_bytes()
+        page, local_map = self._ready_fill_page("remote-desk")
+        with mock.patch("remote_guidance.calibration_wizard.QMessageBox.information"):
+            self.assertTrue(page.validatePage())
+
+        template = KeyboardTemplate.load(self.root / "remote-desk" / TEMPLATE_FILENAME)
+        self.assertEqual(template.key_map.shape, (120, 160))
+        np.testing.assert_array_equal(template.key_map[15:95, 20:120], local_map)
+        self.assertFalse(template.key_map[:15].any())
+        self.assertFalse(template.key_map[:, :20].any())
+        self.assertTrue(is_remote_profile("remote-desk", self.root))
+        self.assertEqual(self.config_path.read_bytes(), before)
+
+    def test_finish_refuses_an_existing_profile_instead_of_overwriting_it(self):
+        from unittest import mock
+
+        existing = write_profile(self.root, EXPERIMENT_PROFILE)
+        original = (existing / TEMPLATE_FILENAME).read_bytes()
+        page, _ = self._ready_fill_page(EXPERIMENT_PROFILE)
+
+        with mock.patch("remote_guidance.calibration_wizard.QMessageBox.warning") as warning:
+            self.assertFalse(page.validatePage())
+
+        self.assertIn("already exists", warning.call_args.args[2])
+        self.assertEqual((existing / TEMPLATE_FILENAME).read_bytes(), original)
+        self.assertFalse(is_remote_profile(EXPERIMENT_PROFILE, self.root))
+
+
+class MidiMappingCopyTests(unittest.TestCase):
+    """The Tele-training MIDI step keeps both images from Initial Setup:
+    the Middle C reference and the live camera/profile overlay."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.root = Path(self._dir.name) / "profiles"
+        self.root.mkdir()
+        self.config_path = Path(self._dir.name) / "config.json"
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(LEGACY_CONFIG, f, indent=2)
+        self.cfg = Config.load(self.config_path)
+
+        directory = create_profile("remote-desk", self.root)
+        key_map = np.zeros((120, 160), dtype=np.uint8)
+        key_map[10:110, 10:60] = 1
+        key_map[10:110, 70:120] = 2
+        KeyboardTemplate(
+            frame_width=160,
+            frame_height=120,
+            region={"x": 10, "y": 10, "w": 110, "h": 100},
+            keys=[KeyBox(id=0, kind="white"), KeyBox(id=1, kind="white")],
+            key_map=key_map,
+        ).save(directory / TEMPLATE_FILENAME)
+        write_profile(self.root, EXPERIMENT_PROFILE)
+
+        class FakeCamera:
+            def __init__(camera_self, camera_cfg):
+                camera_self.cfg = camera_cfg
+                camera_self.released = False
+                camera_self.last_frame = None
+
+            def read(camera_self):
+                camera_self.last_frame = np.zeros((120, 160, 3), dtype=np.uint8)
+                return camera_self.last_frame
+
+            def release(camera_self):
+                camera_self.released = True
+
+        self.wizard = RemoteMidiMappingWizard(
+            self.cfg,
+            self.cfg.camera,
+            self.root,
+            preferred_profile_name="remote-desk",
+            preferred_port_name="SE25 MIDI1 #1",
+            camera_factory=FakeCamera,
+        )
+        self.addCleanup(self.wizard.close)
+
+    def test_it_has_initial_setup_s_two_image_pages(self):
+        self.assertEqual(self.wizard.page(MIDI_PAGE_CONNECT).title(), "Step 3a - Connect the MIDI keyboard")
+        self.assertEqual(self.wizard.page(MIDI_PAGE_MAP).title(), "Step 3b - Map keys to MIDI notes")
+
+        reference = self.wizard.connect_page.reference_image_label.pixmap()
+        self.assertIsNotNone(reference)
+        self.assertFalse(reference.isNull(), "the Middle C reference image was not loaded")
+
+    def test_map_page_shows_live_camera_with_the_next_key_highlighted(self):
+        page = self.wizard.map_page
+        page.initializePage()
+        page._tick()
+
+        displayed = page.view.pixmap()
+        self.assertIsNotNone(displayed)
+        self.assertFalse(displayed.isNull(), "the live mapping image was not displayed")
+        self.assertIsNotNone(self.wizard.camera.last_frame)
+        self.assertGreater(
+            int(self.wizard.camera.last_frame[20, 20].sum()),
+            0,
+            f"the current key did not receive the {HIGHLIGHT_COLOR} overlay",
+        )
+        self.assertIn("press key #1 now", page.progress_label.text())
+
+    def test_profile_picker_only_offers_tele_training_profiles(self):
+        page = self.wizard.map_page
+        page._refresh_profiles()
+        offered = [page.profile_combo.itemText(i) for i in range(page.profile_combo.count())]
+        self.assertEqual(offered, ["remote-desk"])
+        self.assertNotIn(EXPERIMENT_PROFILE, offered)
+
+    def test_map_page_refuses_an_injected_experiment_profile(self):
+        page = self.wizard.map_page
+        page._load_profile(EXPERIMENT_PROFILE)
+        self.assertIsNone(page.template)
+        self.assertIn("not created by the tele-training setup", page.status_label.text())
+
+    def test_saving_mapping_writes_only_the_tele_training_profile(self):
+        from unittest import mock
+
+        before = self.config_path.read_bytes()
+        page = self.wizard.map_page
+        page._refresh_profiles()
+        page.mapping = {0: 60, 1: 62}
+        page.pos = 2
+        self.wizard.port_name = "SE25 MIDI1 #1"
+
+        with mock.patch("remote_guidance.midi_mapping_wizard.QMessageBox.information"):
+            page._save()
+
+        mapping = MidiMapping.load(self.root / "remote-desk" / "midi_mapping.json")
+        self.assertEqual(mapping.key_to_note, {0: 60, 1: 62})
+        self.assertEqual(mapping.port_name, "SE25 MIDI1 #1")
+        self.assertEqual(self.config_path.read_bytes(), before)
+        self.assertFalse((self.root / EXPERIMENT_PROFILE / "midi_mapping.json").exists())
 
 
 class LauncherEntryTests(unittest.TestCase):
