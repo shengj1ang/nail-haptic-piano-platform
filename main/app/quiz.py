@@ -24,7 +24,7 @@ import json
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .finger_matching import FINGER_PROBABILITY_THRESHOLD
 from .keyboard.midi_mapping import note_name
@@ -98,6 +98,24 @@ class CueOutput:
 
     def show_target(self, note: int, finger: Optional[str]) -> None:
         raise NotImplementedError
+
+    def show_targets(self, targets: Sequence[Tuple[int, Optional[str]]]) -> None:
+        """Cue several notes at once - a chord the teacher played with more
+        than one finger (remote guidance only; the local quiz's stimuli are
+        one note at a time).
+
+        The default cues the first target and ignores the rest, so every
+        existing CueOutput keeps working unchanged and a channel that
+        genuinely cannot show more than one thing - the hand-photo style's
+        one-photo-per-finger assets - is not forced to pretend. Channels
+        that can do better override this.
+
+        Scoring is deliberately *not* affected: a chord is still judged on
+        its primary note (see REMOTE_GUIDANCE.md §4.11). This is a cue,
+        not a second definition of what counts as correct."""
+        if targets:
+            note, finger = targets[0]
+            self.show_target(note, finger)
 
     def show_message(self, text: str) -> None:
         raise NotImplementedError

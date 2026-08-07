@@ -110,6 +110,32 @@ class HapticCueOutput(CueOutput):
         self.controller.send(f"S {1 << motor} {self.amplitude}")
         self._active_motor = motor
 
+    def show_targets(self, targets) -> None:
+        """Buzz every finger of a chord at once (remote guidance only).
+
+        The rig's own command already takes a *bitmask* of motors - the
+        single-finger case has always sent `S {1 << motor}` - so several
+        fingers are one command and one write, not a burst of them. That
+        matters: the whole set starts together, and the cue's completion
+        stamp stays a single flush (REMOTE_GUIDANCE.md §4.1).
+
+        One target goes through show_target() unchanged."""
+        if len(targets) <= 1:
+            super().show_targets(targets)
+            return
+
+        self.clear()
+        motors = {FINGER_TO_MOTOR[finger] for _, finger in targets if finger in FINGER_TO_MOTOR}
+        if not motors:
+            return  # no finger resolved - nothing to buzz
+        mask = 0
+        for motor in motors:
+            mask |= 1 << motor
+        self.controller.send(f"S {mask} {self.amplitude}")
+        # Any motor being recorded is enough for clear() to stop them all,
+        # which is what stop_all() does regardless of how many are running.
+        self._active_motor = min(motors)
+
     def show_message(self, text: str) -> None:
         pass  # no text channel for haptic feedback
 

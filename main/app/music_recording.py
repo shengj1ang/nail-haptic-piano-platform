@@ -38,7 +38,7 @@ from typing import Dict, List, Optional
 import mido
 
 from .keyboard.midi_mapping import note_name
-from .midi import MidiEvent, list_input_ports
+from .midi import MidiEvent, MidiInputReader
 
 MUSIC_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "music"
 
@@ -99,16 +99,8 @@ class RawMidiRecorder:
     time.time() value, for the raw diagnostic log (see module docstring)."""
 
     def __init__(self, port_name: Optional[str] = None):
-        available = list_input_ports()
-
-        if port_name is None:
-            port_name = available[0] if available else None
-        if port_name is None:
-            raise RuntimeError("No MIDI input ports available.")
-        if port_name not in available:
-            raise RuntimeError(f"MIDI port '{port_name}' not found. Available: {available}")
-
-        self.port_name = port_name
+        self._reader = MidiInputReader(port_name)
+        self.port_name = self._reader.port_name
         self.start_time = time.time()
         self._events: deque = deque()
         self._lock = threading.Lock()
@@ -118,24 +110,23 @@ class RawMidiRecorder:
 
     def _run(self) -> None:
         try:
-            with mido.open_input(self.port_name) as port:
-                while self._running:
-                    for msg in port.iter_pending():
-                        if msg.type not in ("note_on", "note_off"):
-                            continue
-                        velocity = int(getattr(msg, "velocity", 0))
-                        msg_type = "note_on" if (msg.type == "note_on" and velocity > 0) else "note_off"
-                        event = RawMidiEvent(
-                            abs_time=time.time(),
-                            type=msg_type,
-                            note=int(msg.note),
-                            velocity=velocity,
-                        )
-                        with self._lock:
-                            self._events.append(event)
-                    time.sleep(0.001)
+            while self._running:
+                for msg in self._reader.poll():
+                    velocity = int(msg.velocity)
+                    msg_type = "note_on" if (msg.type == "note_on" and velocity > 0) else "note_off"
+                    event = RawMidiEvent(
+                        abs_time=time.time(),
+                        type=msg_type,
+                        note=int(msg.note),
+                        velocity=velocity,
+                    )
+                    with self._lock:
+                        self._events.append(event)
+                time.sleep(0.001)
         except Exception as e:
             print(f"Raw MIDI recorder error on port {self.port_name}: {e}")
+        finally:
+            self._reader.close()
 
     def pop_events(self) -> List[RawMidiEvent]:
         with self._lock:

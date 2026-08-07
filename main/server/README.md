@@ -185,7 +185,10 @@ and display the selected keyboard profile's colored pixel mask over it in
 a separate preview window. It uses the form's current, possibly unsaved
 camera/profile values and saves neither the picture nor the form. A
 resolution mismatch is reported rather than resized into a false-looking
-alignment.
+alignment. It is the same check the platform's quiz windows offer as
+**Preview keyboard profile** (`app/gui/profile_preview.py`), so "is this
+camera still aligned with the calibration?" is answered the same way
+wherever it is asked.
 
 This Settings dialog is also the only MIDI port selector for its role.
 The student and teacher Session pages read the saved port directly and
@@ -195,6 +198,13 @@ live-control row. There is no student-guidance selector on that row:
 `visual` / `haptic` / `both` is selected by the student client on its own
 Session page.
 
+Teacher and student usually run the same model of keyboard, which reports
+the same port name twice. The picker lists those as `... #1` / `... #2`,
+numbered in the order the machine enumerates them, and warns that the
+numbering can change when a keyboard is replugged. Give the two roles
+different ones - identical values silently point both clients at one
+instrument. See [../REMOTE_GUIDANCE.md](../REMOTE_GUIDANCE.md) §9.8.
+
 ```json
 "remote_guidance": {
   "network": {
@@ -203,7 +213,7 @@ Session page.
   },
   "student": {
     "camera": {"index": 0, "width": 1280, "height": 720, "fps": 30},
-    "midi": {"port_name": "SE25 MIDI1"},
+    "midi": {"port_name": "SE25 MIDI1 #1"},
     "keyboard_profile": "white-city-lab-20260717",
     "led": {"port": "/dev/tty.usbmodem1101"},
     "haptic": {"port": "/dev/tty.usbmodem2201"},
@@ -211,7 +221,7 @@ Session page.
   },
   "teacher": {
     "camera": {"index": 1},
-    "midi": {"port_name": "Teacher Keyboard"},
+    "midi": {"port_name": "SE25 MIDI1 #2"},
     "keyboard_profile": "teacher-desk-20260801"
   }
 }

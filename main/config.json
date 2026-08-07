@@ -1,6 +1,6 @@
 {
   "camera": {
-    "index": 0,
+    "index": 1,
     "width": 1280,
     "height": 720,
     "fps": 30,
@@ -22,7 +22,7 @@
     "max_fill_size_ratio": 0.35
   },
   "midi": {
-    "port_name": "SE25 MIDI1"
+    "port_name": "SE25 MIDI1 #1"
   },
   "accelerometer": {
     "sensor_id": 0
@@ -52,9 +52,9 @@
     "schema_version": 1,
     "network": {
       "server_url": "http://127.0.0.1:18765",
-      "username": "demoteacher",
-      "room_id": "a0d67fbc-9706-4d60-a92a-cb7379e647ce",
-      "join_code": "G8KK5X",
+      "username": "demostudent",
+      "room_id": "beb92a3c-7a2f-409b-84db-0f5bbe4d1562",
+      "join_code": "2BZAWT",
       "verify_tls": true,
       "heartbeat_interval_s": 10.0,
       "reconnect_initial_delay_s": 1.0,
@@ -63,7 +63,7 @@
     },
     "student": {
       "camera": {
-        "index": 0,
+        "index": 1,
         "width": 1280,
         "height": 720,
         "fps": 30,
@@ -71,7 +71,7 @@
         "flip_horizontal": true
       },
       "midi": {
-        "port_name": "SE25 MIDI1"
+        "port_name": "SE25 MIDI1 #2"
       },
       "keyboard_profile": "white-city-lab-20260717",
       "led": {
@@ -96,7 +96,7 @@
       "midi": {
         "port_name": "SE25 MIDI1"
       },
-      "keyboard_profile": "white-city-lab-20260717",
+      "keyboard_profile": "white-city-lab-teacher",
       "chord_detection": true
     },
     "local_server": {

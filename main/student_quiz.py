@@ -48,6 +48,7 @@ from app.config import Config
 from app.gui.cue_window import CUE_STYLES, DEFAULT_CUE_STYLE, ScreenCueOutput
 from app.haptic_cue import HapticCueOutput
 from app.gui.image_view import ImageView
+from app.gui.profile_preview import KeyboardProfilePreviewDialog, overlay_profile_mask
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.keyboard.midi_mapping import MidiMapping
 from app.midi import MidiEvent, list_input_ports, save_midi_log
@@ -109,6 +110,11 @@ class QuizWindow(QMainWindow):
             cue_style = cfg.visual_cue_style if cfg.visual_cue_style in CUE_STYLES else DEFAULT_CUE_STYLE
 
         self.camera = Camera(cfg.camera)
+        # The most recent frame _tick() put on screen, so "Preview keyboard
+        # profile" can annotate exactly what the operator is looking at
+        # rather than opening a second capture on a camera this window
+        # already holds (which fails on most backends).
+        self._last_frame = None
 
         # The cue is shown through this interface only - this is the one
         # place that knows whether "which finger" is conveyed on screen or
@@ -172,6 +178,14 @@ class QuizWindow(QMainWindow):
         self.led_connect_btn.clicked.connect(self._toggle_led)
         self.led_status = QLabel("LED: not connected (required to start)")
 
+        self.preview_profile_btn = QPushButton("Preview keyboard profile")
+        self.preview_profile_btn.setToolTip(
+            "Draw the active calibration profile's key masks over the current camera image, in a separate "
+            "window. Worth a look before recording: the whole finger judgement depends on the camera still "
+            "seeing the keyboard the way it was calibrated. Nothing is saved."
+        )
+        self.preview_profile_btn.clicked.connect(self._preview_profile)
+
         self.timbre_combo = QComboBox()
         for key, timbre in TIMBRES.items():
             self.timbre_combo.addItem(timbre.name, key)
@@ -209,6 +223,7 @@ class QuizWindow(QMainWindow):
         port_row.addWidget(self.led_connect_btn)
         port_row.addWidget(QLabel("Timbre:"))
         port_row.addWidget(self.timbre_combo)
+        port_row.addWidget(self.preview_profile_btn)
 
         btn_row = QHBoxLayout()
         btn_row.addWidget(self.start_btn)
@@ -297,6 +312,32 @@ class QuizWindow(QMainWindow):
         self.port_combo.clear()
         self.port_combo.addItems(ports)
         self.port_combo.blockSignals(False)
+
+    def _preview_profile(self) -> None:
+        """Show the active calibration profile drawn over the live image.
+
+        The profile is config.json's active_keyboard_profile - the same one
+        _load_song() reports and the same one the finger judgement will use,
+        so this is a check of the setup that is actually about to run, not
+        of some other profile the operator picked in a dialog."""
+        profile_name = self.cfg.active_keyboard_profile
+        if self._last_frame is None:
+            QMessageBox.warning(
+                self,
+                "No camera image yet",
+                f"Camera {self.cfg.camera.index!r} has not produced a frame. Check it is connected and not "
+                "in use by another tool, then try again.",
+            )
+            return
+
+        try:
+            preview, template = overlay_profile_mask(self._last_frame, profile_name)
+        except Exception as exc:  # noqa: BLE001 - profile/camera problems are user-facing
+            QMessageBox.warning(self, "Keyboard profile preview failed", str(exc) or type(exc).__name__)
+            return
+
+        dialog = KeyboardProfilePreviewDialog(preview, profile_name, len(template.keys), parent=self)
+        dialog.exec()
 
     def _toggle_led(self) -> None:
         if self.led_connected:
@@ -398,7 +439,10 @@ class QuizWindow(QMainWindow):
         self.results_label.setText("")
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
-        for w_ in (self.song_combo, self.quiz_name_edit, self.port_combo, self.timeout_spin):
+        # The preview locks with the rest: it is a setup check, and its
+        # modal window has no business over a trial that is being recorded.
+        for w_ in (self.song_combo, self.quiz_name_edit, self.port_combo, self.timeout_spin,
+                   self.preview_profile_btn):
             w_.setEnabled(False)
 
         if self.led_connected:
@@ -515,6 +559,7 @@ class QuizWindow(QMainWindow):
     def _tick(self) -> None:
         frame = self.camera.read()
         if frame is not None:
+            self._last_frame = frame
             self.view.set_frame(frame)
             if self.video_writer is not None:
                 self._write_video_frame(frame)
@@ -583,7 +628,8 @@ class QuizWindow(QMainWindow):
     def _unlock_inputs(self) -> None:
         self.start_btn.setEnabled(self.led_connected)
         self.cancel_btn.setEnabled(False)
-        for w_ in (self.song_combo, self.quiz_name_edit, self.port_combo, self.timeout_spin):
+        for w_ in (self.song_combo, self.quiz_name_edit, self.port_combo, self.timeout_spin,
+                   self.preview_profile_btn):
             w_.setEnabled(True)
 
     def _cancel_quiz(self) -> None:

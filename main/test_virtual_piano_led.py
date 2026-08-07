@@ -22,8 +22,9 @@ directly instead of this one.
 """
 
 import sys
+import threading
+import time
 
-import mido
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -41,7 +42,7 @@ from PySide6.QtWidgets import (
 import profile_led_mapper
 from app.config import Config
 from app.keyboard.midi_mapping import MidiMapping
-from app.midi import list_input_ports
+from app.midi import MidiInputReader, list_input_ports
 from app.profiles import DATA_DIR, list_profiles
 from common.led_controller import LEDArrayController
 from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
@@ -240,10 +241,10 @@ class PianoWidget(QWidget):
 
 class MidiBridge(QObject):
     """
-    Relays note on/off events from mido's background listener thread to the
-    Qt main thread. mido's callback runs off-thread, and Qt widgets may only
-    be touched from the thread that owns them - emitting a signal here is
-    thread-safe and gets auto-queued onto the main thread's event loop.
+    Relays note on/off events from the MIDI polling thread to the Qt main
+    thread. That loop runs off-thread, and Qt widgets may only be touched
+    from the thread that owns them - emitting a signal here is thread-safe
+    and gets auto-queued onto the main thread's event loop.
     """
 
     note_event = Signal(int, bool)  # (midi_note, is_on)
@@ -271,7 +272,9 @@ class PianoWindow(QMainWindow):
             print(f"Could not open an audio output device: {exc}")
             audio_status_text = f"Audio: not available ({exc})"
 
-        self.midi_port = None
+        self.midi_reader: MidiInputReader | None = None
+        self._midi_thread: threading.Thread | None = None
+        self._midi_running = False
         self.piano: PianoWidget | None = None
         self.mapper: NoteLEDMapper | None = None
 
@@ -388,9 +391,8 @@ class PianoWindow(QMainWindow):
         self.midi_port_combo.blockSignals(False)
 
     def _toggle_midi(self) -> None:
-        if self.midi_port is not None:
-            self.midi_port.close()
-            self.midi_port = None
+        if self.midi_reader is not None:
+            self._stop_midi()
             self.midi_status.setText("MIDI: not connected")
             self.midi_connect_btn.setText("Connect MIDI")
             return
@@ -401,15 +403,27 @@ class PianoWindow(QMainWindow):
             return
 
         try:
-            self.midi_port = mido.open_input(port_name, callback=self._midi_callback)
+            self.midi_reader = MidiInputReader(port_name)
         except Exception as exc:
             print(f"Could not open MIDI port {port_name!r}: {exc}")
-            print(f"Available MIDI inputs: {mido.get_input_names()}")
+            print(f"Available MIDI inputs: {list_input_ports()}")
             self.midi_status.setText(f"MIDI: not connected ({exc})")
             return
 
-        self.midi_status.setText(f"MIDI: listening on {port_name}")
+        self._midi_running = True
+        self._midi_thread = threading.Thread(target=self._midi_loop, daemon=True)
+        self._midi_thread.start()
+        self.midi_status.setText(f"MIDI: listening on {self.midi_reader.port_name}")
         self.midi_connect_btn.setText("Disconnect MIDI")
+
+    def _stop_midi(self) -> None:
+        self._midi_running = False
+        if self._midi_thread is not None:
+            self._midi_thread.join(timeout=0.5)
+            self._midi_thread = None
+        if self.midi_reader is not None:
+            self.midi_reader.close()
+            self.midi_reader = None
 
     def _refresh_profiles(self) -> None:
         profiles = list_profiles(DATA_DIR)
@@ -458,13 +472,16 @@ class PianoWindow(QMainWindow):
         if mapping.port_name and mapping.port_name in available_ports:
             self.midi_port_combo.setCurrentText(mapping.port_name)
 
-    def _midi_callback(self, msg):
-        """Runs on mido's background listener thread - do nothing here except
-        hand off to the Qt main thread via the signal."""
-        if msg.type == "note_on":
-            self.midi_bridge.note_event.emit(msg.note, msg.velocity > 0)
-        elif msg.type == "note_off":
-            self.midi_bridge.note_event.emit(msg.note, False)
+    def _midi_loop(self) -> None:
+        """Runs on its own thread - do nothing here except hand off to the
+        Qt main thread via the signal."""
+        while self._midi_running and self.midi_reader is not None:
+            for msg in self.midi_reader.poll():
+                if msg.type == "note_on":
+                    self.midi_bridge.note_event.emit(msg.note, msg.velocity > 0)
+                else:
+                    self.midi_bridge.note_event.emit(msg.note, False)
+            time.sleep(0.001)
 
     def _on_midi_note(self, note: int, is_on: bool):
         if self.piano is None:
@@ -476,8 +493,7 @@ class PianoWindow(QMainWindow):
         key.set_midi_active(is_on)
 
     def closeEvent(self, event):
-        if self.midi_port is not None:
-            self.midi_port.close()
+        self._stop_midi()
         if self.mapper is not None:
             try:
                 self.mapper.clear_all()

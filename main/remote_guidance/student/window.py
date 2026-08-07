@@ -775,6 +775,25 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             f"Playing {detail.get('name')!r} locally: {len(self.scheduler.events)} events, {mode} mode.", "ok"
         )
 
+    def _on_guidance(self, envelope: Dict[str, Any]) -> None:
+        """One live cue from the teacher.
+
+        Handing the envelope straight to StudentSession is the whole job.
+        accept() stamps arrival on this machine's clock, acknowledges with
+        guidance.received *before* any cue work, and queues; the timer's
+        session.tick() presents it. Nothing here may show the cue itself -
+        both the live and the recorded path go through that one path so
+        every event's timings are produced identically (§4.1, §4.9)."""
+        if self.session is None:
+            # Not ready yet, so there is nothing to present it with and no
+            # event to refuse with. Say so rather than dropping it in
+            # silence - the teacher is watching a cue that went nowhere.
+            self._set_status(
+                "The teacher sent guidance before this client was ready - press Ready for guidance.", "warn"
+            )
+            return
+        self.session.accept(envelope)
+
     def _release_scheduled_event(self, event: Dict[str, Any]) -> None:
         """Feed a locally scheduled event through the same path a live
         one takes, so its timings are recorded identically. It carries no
@@ -803,10 +822,15 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
     # ------------------------------------------------------------------
 
     def _present_event(self, event: RemoteEvent):
-        target = event.target
-        if target is None or self.cue is None:
+        """Cue everything the teacher played at once.
+
+        A chord arrives as several actions in one envelope and is cued as
+        a set - all its keys lit, all its motors buzzing, every dot on.
+        Scoring still judges the primary note only (§4.11): this is the
+        cue widening, not a second definition of correct."""
+        if not event.actions or self.cue is None:
             return None
-        return self.cue.show_target(target.note, target.finger)
+        return self.cue.show_targets([(a.note, a.finger) for a in event.actions])
 
     def _clear_cue(self) -> None:
         if self.cue is not None:

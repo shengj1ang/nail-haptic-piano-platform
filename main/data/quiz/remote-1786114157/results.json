@@ -1,0 +1,241 @@
+[
+  {
+    "index": 0,
+    "target_note": 62,
+    "target_note_name": "D4",
+    "target_key_id": 8,
+    "target_finger": "L1",
+    "cue_onset_time": 1786114174.3962479,
+    "timed_out": false,
+    "actual_note": 62,
+    "actual_key_id": 8,
+    "keypress_time": 1786114176.303575,
+    "timing_error_s": 1.931921917,
+    "note_correct": true,
+    "actual_finger": "R1",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "R1": 0.931015943403754,
+      "R2": 0.06266291887222325,
+      "R3": 0.0031520869022240356,
+      "R4": 0.0020087714582577255,
+      "R5": 0.0011602793635411023
+    },
+    "target_finger_probability": 0.0,
+    "actual_finger_point": [
+      642,
+      289
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 1,
+    "target_note": 53,
+    "target_note_name": "F3",
+    "target_key_id": 3,
+    "target_finger": "L3",
+    "cue_onset_time": 1786114178.635255,
+    "timed_out": true,
+    "actual_note": null,
+    "actual_key_id": null,
+    "keypress_time": null,
+    "timing_error_s": null,
+    "note_correct": false,
+    "actual_finger": null,
+    "finger_correct": null,
+    "finger_probabilities": null,
+    "target_finger_probability": null,
+    "actual_finger_point": null,
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 2,
+    "target_note": 64,
+    "target_note_name": "E4",
+    "target_key_id": 9,
+    "target_finger": "R5",
+    "cue_onset_time": 1786114192.1755102,
+    "timed_out": false,
+    "actual_note": 64,
+    "actual_key_id": 9,
+    "keypress_time": 1786114194.103949,
+    "timing_error_s": 1.931764917,
+    "note_correct": true,
+    "actual_finger": "L5",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 5.144484403660968e-06,
+      "L2": 0.001051449693272508,
+      "L3": 0.0159613451682346,
+      "L4": 0.07595718848757325,
+      "L5": 0.9070248721665161
+    },
+    "target_finger_probability": 0.0,
+    "actual_finger_point": [
+      671,
+      229
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 3,
+    "target_note": 63,
+    "target_note_name": "D#4",
+    "target_key_id": 21,
+    "target_finger": "L2",
+    "cue_onset_time": 1786114197.2799444,
+    "timed_out": false,
+    "actual_note": 63,
+    "actual_key_id": 21,
+    "keypress_time": 1786114198.913413,
+    "timing_error_s": 1.664522833,
+    "note_correct": true,
+    "actual_finger": "L2",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.006322625241617161,
+      "L2": 0.8349083795518741,
+      "L3": 0.13259799987552864,
+      "L4": 0.024703313789090207,
+      "L5": 0.001467681541889861
+    },
+    "target_finger_probability": 0.8349083795518741,
+    "actual_finger_point": [
+      693,
+      145
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 4,
+    "target_note": 67,
+    "target_note_name": "G4",
+    "target_key_id": 11,
+    "target_finger": "L1",
+    "cue_onset_time": 1786114202.3821945,
+    "timed_out": false,
+    "actual_note": 67,
+    "actual_key_id": 11,
+    "keypress_time": 1786114206.496537,
+    "timing_error_s": 4.133086917,
+    "note_correct": true,
+    "actual_finger": "L3",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 1.1479170655184599e-05,
+      "L2": 0.4607146480871141,
+      "L3": 0.4795167695573229,
+      "L4": 0.05964555032507833,
+      "L5": 0.00011155285982959655
+    },
+    "target_finger_probability": 1.1479170655184599e-05,
+    "actual_finger_point": [
+      769,
+      252
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 5,
+    "target_note": 62,
+    "target_note_name": "D4",
+    "target_key_id": 8,
+    "target_finger": "L2",
+    "cue_onset_time": 1786114206.5185518,
+    "timed_out": false,
+    "actual_note": 57,
+    "actual_key_id": 5,
+    "keypress_time": 1786114206.5164711,
+    "timing_error_s": 0.031130417,
+    "note_correct": false,
+    "actual_finger": "L1",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.9990597726548694,
+      "L2": 6.246271934731248e-05,
+      "L3": 3.0289506740635738e-05,
+      "L4": 6.233381111329388e-05,
+      "L5": 0.0007851413079291181
+    },
+    "target_finger_probability": 6.246271934731248e-05,
+    "actual_finger_point": [
+      486,
+      221
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 6,
+    "target_note": 67,
+    "target_note_name": "G4",
+    "target_key_id": 11,
+    "target_finger": "L1",
+    "cue_onset_time": 1786114208.1862848,
+    "timed_out": false,
+    "actual_note": 67,
+    "actual_key_id": 11,
+    "keypress_time": 1786114213.1593542,
+    "timing_error_s": 5.002830375,
+    "note_correct": true,
+    "actual_finger": "L3",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "L1": 0.00011745563716646497,
+      "L2": 0.2754222645072582,
+      "L3": 0.5658366471544566,
+      "L4": 0.15115494360095005,
+      "L5": 0.007468689100168776
+    },
+    "target_finger_probability": 0.00011745563716646497,
+    "actual_finger_point": [
+      768,
+      238
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 7,
+    "target_note": 57,
+    "target_note_name": "A3",
+    "target_key_id": 5,
+    "target_finger": "L4",
+    "cue_onset_time": 1786114213.1924398,
+    "timed_out": false,
+    "actual_note": 62,
+    "actual_key_id": 8,
+    "keypress_time": 1786114217.79497,
+    "timing_error_s": 4.631856708,
+    "note_correct": false,
+    "actual_finger": "R2",
+    "finger_correct": false,
+    "finger_probabilities": {
+      "R1": 0.0012656727133814759,
+      "R2": 0.8923837300900068,
+      "R3": 0.10291426168502775,
+      "R4": 0.0032999134166795344,
+      "R5": 0.0001364220949043503
+    },
+    "target_finger_probability": 0.0,
+    "actual_finger_point": [
+      632,
+      231
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  }
+]

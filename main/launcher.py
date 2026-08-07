@@ -92,6 +92,7 @@ from remote_guidance.launcher_actions import (
     server_spec,
 )
 from remote_guidance.config import RemoteGuidanceConfig
+from remote_guidance.setup_wizard import RemoteSetupWizard
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
@@ -155,6 +156,7 @@ SECTIONS = [
             ("Camera Selection Wizard", CameraSelectionWindow),
             ("Keyboard Calibration Wizard", KeyboardCalibrationWizard),
             ("MIDI Mapping Wizard", MidiMappingWizard),
+            ("Keyboard Profile Selection, Region Preview", KeyPreviewWindow),
             ("Visual Guidance Cue Selection", CueSelectionWindow),
             # Which actuator the rig drives (LRA/ERM) and each type's
             # default frequency/amp - the whole project's haptic
@@ -165,7 +167,6 @@ SECTIONS = [
     (
         "2. Feature Testing",
         [
-            ("Keyboard Region Preview", KeyPreviewWindow),
             ("Live Finger Detection", FingerDetectorWindow),
             ("Virtual Piano + LED Test", PianoWindow),
             ("Haptic Vibrator Test", HapticTestWindow),
@@ -223,6 +224,13 @@ SECTIONS = [
         # person was looking mostly at settings that were not theirs.
         "8. Tele-training",
         [
+            # An ordinary sub-window, not a ProcessEntry: it claims the
+            # camera and the MIDI keyboard, so the launcher's usual
+            # one-tool-at-a-time rule is exactly what should apply to it.
+            # It is setup, not settings - it writes only the
+            # remote_guidance block and its own profile folder, and never
+            # the values the formal experiment reads.
+            ("Tele-training Setup Wizard", RemoteSetupWizard),
             ("Relay Server", ProcessEntry("launch_server")),
             ("Student Client", ProcessEntry("launch_student")),
             ("Teacher Client", ProcessEntry("launch_teacher")), 

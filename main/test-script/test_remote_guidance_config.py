@@ -990,6 +990,41 @@ class ApiWorkerLifecycleTests(unittest.TestCase):
         for name in ("_analyze_running", "_release_analyze_worker"):
             self.assertTrue(hasattr(StudentRemoteWindow, name), f"StudentRemoteWindow is missing {name}")
 
+    def test_every_message_type_has_a_handler_that_exists(self):
+        """_on_message dispatches by message type, so a handler that was
+        never written (or was renamed) is only found when that type
+        actually arrives - on the WebSocket thread, mid-lesson.
+
+        This shipped once: guidance.live called self._on_guidance(), which
+        did not exist, so every live cue raised AttributeError inside the
+        student's dispatcher. The teacher detected notes and sent them
+        happily, the relay forwarded them, and the student sat on
+        "Waiting for the teacher..." with nothing on screen to say why."""
+        import ast
+        import inspect
+        import textwrap
+
+        from remote_guidance.student.window import StudentRemoteWindow
+        from remote_guidance.teacher.window import TeacherRemoteWindow
+
+        for cls in (StudentRemoteWindow, TeacherRemoteWindow):
+            source = textwrap.dedent(inspect.getsource(cls._on_message))
+            tree = ast.parse(source)
+            called = {
+                node.func.attr
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "self"
+            }
+            self.assertTrue(called, f"{cls.__name__}._on_message dispatches to nothing - did it move?")
+            for name in sorted(called):
+                self.assertTrue(
+                    hasattr(cls, name),
+                    f"{cls.__name__}._on_message calls self.{name}(), which does not exist",
+                )
+
 
 class JoinCodeTests(unittest.TestCase):
     """The join code is the only room identifier a person ever types, so
@@ -1141,6 +1176,17 @@ class RemoteSettingsDialogTests(unittest.TestCase):
         self.addCleanup(dialog.deleteLater)
         return dialog
 
+    def _dialog_with_ports(self, role, labels, ambiguous=(), remote=None):
+        """Build the dialog against a made-up MIDI port list - no keyboard
+        has to be plugged in, and the machine running the tests may well
+        have its own."""
+        from unittest import mock
+
+        with mock.patch("remote_guidance.settings_window.list_input_ports", return_value=list(labels)), mock.patch(
+            "remote_guidance.settings_window.ambiguous_port_names", return_value=list(ambiguous)
+        ):
+            return self._dialog(role, remote)
+
     def _remote_with_distinct_roles(self):
         remote = rgc.RemoteGuidanceConfig()
         remote.student.camera = CameraConfig(index=0, width=1280, height=720, fps=30)
@@ -1161,6 +1207,50 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             self.assertEqual(dialog.camera_group.index_edit.text(), index)
             self.assertEqual(dialog.port_combo.currentText(), port)
             self.assertEqual(dialog.profile_combo.currentText(), profile)
+
+    def test_two_identical_keyboards_are_both_offered(self):
+        """Teacher and student normally use the same model of keyboard, so
+        the picker has to show both. mido's own port list showed one."""
+        labels = ["SE25 MIDI1 #1", "SE25 MIDI2 #1", "SE25 MIDI1 #2", "SE25 MIDI2 #2"]
+        dialog = self._dialog_with_ports("teacher", labels, ambiguous=["SE25 MIDI1", "SE25 MIDI2"])
+        offered = [dialog.port_combo.itemText(i) for i in range(dialog.port_combo.count())]
+        self.assertEqual(offered, labels)
+
+    def test_a_shared_keyboard_name_is_called_out_in_the_dialog(self):
+        """The #1/#2 numbering is enumeration order, not an identity, so
+        picking the wrong one is easy and silent - say so before it costs
+        someone a lesson."""
+        dialog = self._dialog_with_ports(
+            "student",
+            ["SE25 MIDI1 #1", "SE25 MIDI1 #2"],
+            ambiguous=["SE25 MIDI1"],
+        )
+        self.assertTrue(dialog.port_hint.isVisibleTo(dialog))
+        hint = dialog.port_hint.text()
+        self.assertIn("SE25 MIDI1", hint)
+        self.assertIn("replug", hint.lower())
+
+    def test_one_keyboard_gets_no_warning_and_no_suffix(self):
+        dialog = self._dialog_with_ports("student", ["SE25 MIDI1", "SE25 MIDI2"])
+        self.assertFalse(dialog.port_hint.isVisibleTo(dialog))
+        self.assertEqual(dialog.port_hint.text(), "")
+
+    def test_refresh_re_reads_the_ports_and_keeps_the_current_choice(self):
+        from unittest import mock
+
+        dialog = self._dialog_with_ports("teacher", ["SE25 MIDI1"])
+        dialog.port_combo.setCurrentText("SE25 MIDI1")
+        with mock.patch(
+            "remote_guidance.settings_window.list_input_ports",
+            return_value=["SE25 MIDI1 #1", "SE25 MIDI1 #2"],
+        ), mock.patch(
+            "remote_guidance.settings_window.ambiguous_port_names", return_value=["SE25 MIDI1"]
+        ):
+            dialog._refresh_ports()
+
+        self.assertEqual(dialog.port_combo.currentText(), "SE25 MIDI1")
+        self.assertEqual(dialog.port_combo.count(), 2)
+        self.assertTrue(dialog.port_hint.isVisibleTo(dialog))
 
     def test_both_roles_offer_the_separate_camera_profile_preview(self):
         for role in ("student", "teacher"):
@@ -1825,6 +1915,48 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         self.assertFalse(hasattr(self.window, "port_combo"))
         self.assertFalse(hasattr(self.window, "_refresh_ports"))
 
+    def test_a_live_cue_reaches_the_session_through_accept(self):
+        """The dispatcher's whole job for guidance.live: hand the envelope
+        to StudentSession. It must not present the cue itself - accept()
+        is what stamps arrival and acknowledges before any cue work, and
+        the recorded path relies on going through the same door."""
+        from unittest import mock
+
+        from remote_guidance.protocol import TYPE_GUIDANCE_LIVE
+
+        envelope = make_envelope(
+            TYPE_GUIDANCE_LIVE,
+            payload=guidance_payload([GuidanceAction(note=60, finger="R1")], timeout_s=4.0),
+        )
+        session = mock.MagicMock()
+        old_session = self.window.session
+        self.window.session = session
+        try:
+            self.window._on_message(envelope)
+        finally:
+            self.window.session = old_session
+
+        session.accept.assert_called_once_with(envelope)
+
+    def test_a_cue_arriving_before_ready_is_reported_not_dropped(self):
+        from unittest import mock
+
+        from remote_guidance.protocol import TYPE_GUIDANCE_LIVE
+
+        envelope = make_envelope(
+            TYPE_GUIDANCE_LIVE, payload=guidance_payload([GuidanceAction(note=60, finger="R1")])
+        )
+        old_session = self.window.session
+        self.window.session = None
+        try:
+            with mock.patch.object(self.window, "_set_status") as status:
+                self.window._on_message(envelope)  # must not raise
+        finally:
+            self.window.session = old_session
+
+        status.assert_called_once()
+        self.assertIn("ready", status.call_args.args[0].lower())
+
     def test_session_start_uses_the_port_saved_in_settings(self):
         from unittest import mock
 
@@ -2055,18 +2187,31 @@ class LauncherActionTests(unittest.TestCase):
                 f"{label!r} names a missing action {entry.action!r}",
             )
 
-    def test_section_eight_is_four_processes_and_nothing_else(self):
-        """No settings window in the launcher: each of the three
+    def test_section_eight_is_four_processes_plus_the_setup_wizard(self):
+        """No *settings* window in the launcher: each of the three
         endpoints owns its settings and has its own Settings button, so a
         launcher entry showing all three roles' devices at once is
-        exactly what was removed."""
+        exactly what was removed.
+
+        The setup wizard is not that and is deliberately here instead of
+        in a client: calibrating claims the camera, and a client may be
+        holding it. It is an ordinary sub-window, so the launcher's
+        one-tool-at-a-time rule keeps the two apart."""
         import launcher as launcher_module
+
+        from remote_guidance.setup_wizard import RemoteSetupWizard
 
         section = next(s for s in launcher_module.SECTIONS if s[0].startswith("8."))
         labels = [label for label, _ in section[1]]
-        self.assertTrue(
-            all(isinstance(entry, launcher_module.ProcessEntry) for _, entry in section[1]),
-            f"section 8 has a non-process entry: {labels}",
+        non_process = [
+            (label, entry)
+            for label, entry in section[1]
+            if not isinstance(entry, launcher_module.ProcessEntry)
+        ]
+        self.assertEqual(
+            non_process,
+            [("Tele-training Setup Wizard", RemoteSetupWizard)],
+            f"section 8 gained an unexpected non-process entry: {labels}",
         )
         self.assertFalse(
             any("setting" in label.lower() for label in labels),

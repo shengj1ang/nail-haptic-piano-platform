@@ -26,9 +26,9 @@ student_quiz.py's quiz-running logic needs to change.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Sequence
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QMainWindow, QWidget
 
@@ -58,6 +58,13 @@ CUE_STYLES = {
 }
 DEFAULT_CUE_STYLE = "dot"
 
+# How long each finger's photo is held when the "hand" style is cueing a
+# chord. That style has one photo per finger and no combined assets, so
+# the fingers are shown in turn; ~5 Hz reads as "all of these" without
+# tipping into flicker. Only ever reached through set_targets() with more
+# than one finger - a single-finger cue never starts the timer.
+HAND_CYCLE_MS = 200
+
 IMAGE_DIR = Path(__file__).resolve().parent.parent / "assets" / "image"
 # One highlighted-hand photo per finger, plus a no-finger idle photo -
 # filenames match FINGER_ORDER's finger ids exactly.
@@ -83,16 +90,74 @@ class FingerCueWidget(QWidget):
     def __init__(self, style: str = DEFAULT_CUE_STYLE):
         super().__init__()
         self.active_finger: Optional[str] = None
+        # The full set, for a chord. Single-finger cues leave this at
+        # [finger] and behave exactly as they always have - see
+        # set_targets() for why that guarantee matters.
+        self.active_fingers: List[str] = []
         self.message = "Waiting..."
         self.style = style
         self.status_only = False
+        self._cycle_timer: Optional[QTimer] = None
+        self._cycle_index = 0
         self.setMinimumSize(320, 160)
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
+        """One finger. Unchanged: this is what the local quiz and the main
+        study's cue screen call, and neither can reach the chord path."""
         self.active_finger = finger
+        self.active_fingers = [finger] if finger else []
         self.message = message
         self.status_only = False
+        self._stop_cycle()
         self.update()
+
+    def set_targets(self, fingers: Sequence[str], message: str = "") -> None:
+        """Several fingers at once - a chord, from remote guidance only.
+
+        The dot style simply highlights all of them. The hand style has
+        one photo per finger and no combined assets, so it cycles through
+        them instead: at HAND_CYCLE_MS each, the fingers of a chord read
+        as a set rather than as one instruction.
+
+        With one finger this is identical to set_target() - no timer is
+        started and the paint is the same - so nothing that cues single
+        notes can be changed by this method existing."""
+        fingers = [f for f in fingers if f]
+        self.active_fingers = list(fingers)
+        self.active_finger = fingers[0] if fingers else None
+        self.message = message
+        self.status_only = False
+        self._cycle_index = 0
+        if self.style == "hand" and len(fingers) > 1:
+            self._start_cycle()
+        else:
+            self._stop_cycle()
+        self.update()
+
+    # -- hand-photo cycling ---------------------------------------------
+
+    def _start_cycle(self) -> None:
+        if self._cycle_timer is None:
+            self._cycle_timer = QTimer(self)
+            self._cycle_timer.timeout.connect(self._advance_cycle)
+        if not self._cycle_timer.isActive():
+            self._cycle_timer.start(HAND_CYCLE_MS)
+
+    def _stop_cycle(self) -> None:
+        if self._cycle_timer is not None and self._cycle_timer.isActive():
+            self._cycle_timer.stop()
+        self._cycle_index = 0
+
+    def _advance_cycle(self) -> None:
+        if len(self.active_fingers) < 2:
+            self._stop_cycle()
+            return
+        self._cycle_index = (self._cycle_index + 1) % len(self.active_fingers)
+        self.update()
+
+    @property
+    def cycling(self) -> bool:
+        return self._cycle_timer is not None and self._cycle_timer.isActive()
 
     def set_status(self, message: str) -> None:
         """Status-only mode: the whole surface becomes one centered
@@ -101,14 +166,22 @@ class FingerCueWidget(QWidget):
         trials, where drawing the dots/hand photos would leak a visual cue
         into a condition that must not have one."""
         self.active_finger = None
+        self.active_fingers = []
         self.message = message
         self.status_only = True
+        self._stop_cycle()
         self.update()
 
     def set_style(self, style: str) -> None:
         if style not in CUE_STYLES:
             raise ValueError(f"Unknown cue style {style!r}, expected one of {list(CUE_STYLES)}")
         self.style = style
+        # Cycling only exists for the hand style; switching away from it
+        # mid-chord must not leave a timer repainting nothing.
+        if style == "hand" and len(self.active_fingers) > 1 and not self.status_only:
+            self._start_cycle()
+        else:
+            self._stop_cycle()
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -154,8 +227,15 @@ class FingerCueWidget(QWidget):
             self._paint_circles(painter, w, h)
 
     def _paint_image(self, painter: QPainter, w: int, h: int) -> None:
-        if self.active_finger in FINGER_IMAGE_FILENAMES:
-            pixmap = _load_pixmap(self.active_finger, FINGER_IMAGE_FILENAMES[self.active_finger])
+        # For a chord this is whichever finger the cycle is currently on;
+        # for one finger (every local quiz and main-study trial) the list
+        # holds exactly that finger and the index stays 0.
+        shown = None
+        if self.active_fingers:
+            shown = self.active_fingers[self._cycle_index % len(self.active_fingers)]
+
+        if shown in FINGER_IMAGE_FILENAMES:
+            pixmap = _load_pixmap(shown, FINGER_IMAGE_FILENAMES[shown])
         else:
             pixmap = _load_pixmap("_idle", IDLE_IMAGE_FILENAME)
         if pixmap.isNull():
@@ -190,7 +270,9 @@ class FingerCueWidget(QWidget):
 
         x = margin + gap
         for finger_id in FINGER_ORDER:
-            active = finger_id == self.active_finger
+            # Every finger of a chord lights at once - ten dots can show a
+            # set, unlike the one-photo-per-finger hand style.
+            active = finger_id in self.active_fingers
             painter.setBrush(ACTIVE_COLOR if active else IDLE_COLOR)
             painter.setPen(QPen(QColor(10, 10, 10), max(dot_d * 0.02, 1.0)))
             painter.drawEllipse(int(x), int(y), int(dot_d), int(dot_d))
@@ -213,6 +295,9 @@ class CueWindow(QMainWindow):
 
     def set_target(self, finger: Optional[str], message: str = "") -> None:
         self.widget.set_target(finger, message)
+
+    def set_targets(self, fingers: Sequence[str], message: str = "") -> None:
+        self.widget.set_targets(fingers, message)
 
     def set_status(self, message: str) -> None:
         self.widget.set_status(message)
@@ -241,6 +326,26 @@ class ScreenCueOutput(CueOutput):
         else:
             label += "  -  finger unknown"
         self.window.set_target(finger, label)
+
+    def show_targets(self, targets) -> None:
+        """A chord: every note in the label, every finger on the canvas.
+
+        One target falls straight through to show_target(), so this cannot
+        change what a single-note cue looks like."""
+        from ..keyboard.midi_mapping import note_name
+
+        if len(targets) <= 1:
+            super().show_targets(targets)
+            return
+
+        notes = " + ".join(note_name(note) for note, _ in targets)
+        fingers = [finger for _, finger in targets if finger]
+        # Named in full even on the hand style, where the photos can only
+        # be shown one at a time - the text is what makes the chord
+        # unambiguous while the pictures cycle.
+        label = f"Press: {notes}"
+        label += f"  -  fingers {' + '.join(fingers)}" if fingers else "  -  fingers unknown"
+        self.window.set_targets(fingers, label)
 
     def show_message(self, text: str) -> None:
         self.window.set_target(None, text)

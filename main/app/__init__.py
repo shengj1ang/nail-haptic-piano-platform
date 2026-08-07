@@ -22,7 +22,18 @@ from .finger_matching import (
 )
 from .hand_tracking import Hand, HandTracker
 from .keyboard import KeyBox, KeyboardTemplate, MidiMapping, note_name
-from .midi import MidiEvent, MidiListener, list_input_ports, load_midi_log, save_midi_log
+from .midi import (
+    MidiEvent,
+    MidiInputPort,
+    MidiInputReader,
+    MidiListener,
+    ambiguous_port_names,
+    list_input_port_details,
+    list_input_ports,
+    load_midi_log,
+    resolve_input_port,
+    save_midi_log,
+)
 from .offline import analyze_recording
 
 __all__ = [
@@ -39,7 +50,12 @@ __all__ = [
     "softmax_probabilities",
     "MidiListener",
     "MidiEvent",
+    "MidiInputPort",
+    "MidiInputReader",
     "list_input_ports",
+    "list_input_port_details",
+    "resolve_input_port",
+    "ambiguous_port_names",
     "save_midi_log",
     "load_midi_log",
     "KeyboardTemplate",

@@ -59,9 +59,12 @@ from PySide6.QtWidgets import (
 
 from app.camera import Camera
 from app.config import CameraConfig, Config
-from app.gui.image_view import ImageView
+from app.gui.profile_preview import (
+    KeyboardProfilePreviewDialog,
+    load_profile_template,
+    overlay_template,
+)
 from app.keyboard.template import KeyboardTemplate
-from app.keyboard.visualize import build_color_luts, draw_labels, overlay_keys
 from app.midi import ambiguous_port_names, list_input_ports
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.profiles import list_profiles
@@ -86,14 +89,9 @@ def capture_profile_preview(
     pixel masks are the calibration, so a size mismatch is useful proof
     that the selected camera setup and profile do not belong together.
     """
-    name = (profile_name or "").strip()
-    if not name:
-        raise ValueError("Choose a keyboard calibration profile first.")
-
-    template_path = Path(profile_data_dir) / name / "keyboard_template.json"
-    if not template_path.exists():
-        raise FileNotFoundError(f"Profile {name!r} has no keyboard_template.json at {template_path}.")
-    template = KeyboardTemplate.load(template_path)
+    # Loaded before the camera is opened: an unusable profile should not
+    # cost the user a camera claim to find out about.
+    template = load_profile_template(profile_name, profile_data_dir)
 
     camera = camera_factory(camera_config)
     try:
@@ -111,53 +109,8 @@ def capture_profile_preview(
 
     if frame is None:
         raise RuntimeError(f"Camera {camera_config.index!r} opened but did not return an image.")
-    if template.key_map is None:
-        raise RuntimeError(f"Profile {name!r} has no readable keyboard key map.")
-    if frame.shape[:2] != template.key_map.shape[:2]:
-        frame_h, frame_w = frame.shape[:2]
-        map_h, map_w = template.key_map.shape[:2]
-        raise ValueError(
-            f"Resolution mismatch: camera returned {frame_w} × {frame_h}, but profile {name!r} "
-            f"was calibrated at {map_w} × {map_h}. Choose the matching camera settings/profile or recalibrate."
-        )
 
-    preview = frame.copy()
-    overlay_keys(preview, template.key_map, build_color_luts(len(template.keys)), alpha=0.45)
-    draw_labels(preview, template.key_map, len(template.keys))
-    return preview, template
-
-
-class KeyboardProfilePreviewDialog(QDialog):
-    """One captured frame in its own window, keeping Settings compact."""
-
-    def __init__(
-        self,
-        frame: np.ndarray,
-        profile_name: str,
-        key_count: int,
-        parent: Optional[QWidget] = None,
-    ):
-        super().__init__(parent)
-        self.setWindowTitle(f"Camera + Keyboard Profile Preview — {profile_name}")
-
-        frame_h, frame_w = frame.shape[:2]
-        explanation = QLabel(
-            f"Captured {frame_w} × {frame_h} using profile {profile_name!r} ({key_count} keys). "
-            "The colored regions are the saved pixel masks and the numbers are key ids. "
-            "This preview is not saved."
-        )
-        explanation.setWordWrap(True)
-
-        self.view = ImageView()
-        self.view.set_frame(frame)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(explanation)
-        layout.addWidget(self.view, 0)
-        layout.addWidget(buttons)
+    return overlay_template(frame, template, profile_name), template
 
 
 class CameraGroup(QGroupBox):

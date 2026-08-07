@@ -30,8 +30,9 @@ docstrings keep saying so on purpose.
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from app.quiz import CueOutput
 
@@ -79,32 +80,61 @@ class LedKeyCue:
 
     def __init__(self, mapper: Optional[KeyCue]):
         self.mapper = mapper
-        self._lit_note: Optional[int] = None
+        self._lit_notes: List[int] = []
+
+    @property
+    def _lit_note(self) -> Optional[int]:
+        """The primary lit key. Kept because a chord lights several and
+        most callers only care that something is lit."""
+        return self._lit_notes[0] if self._lit_notes else None
 
     def light(self, note: int) -> Optional[int]:
         """Returns the monotonic ns when the command finished, or None if
         there is no LED mapping for this note (or no strip at all)."""
+        return self.light_many([note])
+
+    def light_many(self, notes: Sequence[int]) -> Optional[int]:
+        """Light every key of a chord, flushed once.
+
+        The strip's own batch() holds the refresh until all the pixels are
+        set, so a three-note chord costs one `U` rather than three - the
+        keys come up together and the stamp below describes one flush
+        instead of the last of several."""
         if self.mapper is None:
             return None
         self.clear()
+
+        # The strip is reachable through the mapper in a real session; a
+        # test stub is just the two-method KeyCue protocol, which is why
+        # this is optional rather than assumed.
+        batch = getattr(getattr(self.mapper, "led", None), "batch", None)
+        context = batch() if callable(batch) else nullcontext()
+
+        lit: List[int] = []
         try:
-            if not self.mapper.light_key(note):
-                return None
+            with context:
+                for note in notes:
+                    if self.mapper.light_key(note):
+                        lit.append(note)
         except Exception as exc:  # noqa: BLE001 - a dead strip must not end the session
-            log.warning("LED cue failed for note %s: %s", note, exc)
+            log.warning("LED cue failed for notes %s: %s", list(notes), exc)
+            self._lit_notes = lit
             raise
-        self._lit_note = note
+        if not lit:
+            return None
+        self._lit_notes = lit
         return mono_ns()
 
     def clear(self) -> None:
-        if self.mapper is None or self._lit_note is None:
+        if self.mapper is None or not self._lit_notes:
             return
         try:
-            self.mapper.clear_key(self._lit_note)
+            for note in self._lit_notes:
+                self.mapper.clear_key(note)
         except Exception as exc:  # noqa: BLE001
-            log.warning("could not clear LED for note %s: %s", self._lit_note, exc)
+            log.warning("could not clear LED for notes %s: %s", self._lit_notes, exc)
         finally:
-            self._lit_note = None
+            self._lit_notes = []
 
 
 class CompositeCueOutput(CueOutput):
@@ -141,6 +171,9 @@ class CompositeCueOutput(CueOutput):
     # -- CueOutput -----------------------------------------------------
 
     def show_target(self, note: int, finger: Optional[str]) -> CueDispatch:
+        return self.show_targets([(note, finger)])
+
+    def show_targets(self, targets: Sequence[Tuple[int, Optional[str]]]) -> CueDispatch:
         """Fire every enabled channel and stamp each completion.
 
         Channels are driven in the order LED, haptic, visual: the two
@@ -148,18 +181,25 @@ class CompositeCueOutput(CueOutput):
         repaint, and the screen - the slowest and the one whose completion
         is hardest to pin down - is stamped last. cue_ready is the maximum
         regardless of order, so this only affects how early each channel
-        starts, not the recorded result."""
+        starts, not the recorded result.
+
+        A chord is one cue event, not several: each channel is told the
+        whole set once, so all of it becomes ready together and there is
+        still exactly one cue_ready to measure a reaction against (§4.1).
+        Channels that cannot show a set fall back to the primary target on
+        their own (app.quiz.CueOutput.show_targets)."""
         dispatch = CueDispatch(dispatch_start_monotonic_ns=self._clock())
+        targets = list(targets)
 
         if self.led is not None:
             try:
-                dispatch.led_command_complete_monotonic_ns = self.led.light(note)
+                dispatch.led_command_complete_monotonic_ns = self.led.light_many([note for note, _ in targets])
             except Exception as exc:  # noqa: BLE001
                 dispatch.errors.append(f"led: {exc}")
 
         if self.haptic is not None:
             try:
-                self.haptic.show_target(note, finger)
+                self.haptic.show_targets(targets)
                 _flush(self.haptic)
                 dispatch.haptic_command_complete_monotonic_ns = self._clock()
             except Exception as exc:  # noqa: BLE001
@@ -167,7 +207,7 @@ class CompositeCueOutput(CueOutput):
 
         if self.visual is not None:
             try:
-                self.visual.show_target(note, finger)
+                self.visual.show_targets(targets)
                 # Forces the repaint, so the stamp is after the frame was
                 # drawn rather than after it was merely scheduled.
                 _flush(self.visual)

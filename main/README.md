@@ -207,7 +207,7 @@ Run these from inside `main/`.
 | `music_recording_wizard.py` | PyQt wizard - records a song (video+MIDI), flashes the LEDs for sync, and saves a fingering-annotated score under `data/music/<song>/`. |
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
 | `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
-| `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. |
+| `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. **Preview keyboard profile** draws the active calibration profile over the live camera image before recording - see [Checking the camera against the profile](#checking-the-camera-against-the-profile). |
 | `quiz_analysis.py` | Batch offline analysis of saved quiz sessions: a checkable multi-quiz table with the report's full per-trial outcome measures, LED-anchored video/MIDI sync alignment (auto + manual), per-trial detail / per-event review-and-correction windows (including the carry-over validity review), and one-click per-participant CSV export - see [Data analysis](#data-analysis-launcher-section-7). |
 | launcher section 6 (no standalone scripts) | The main user study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Main user study](#main-user-study-launcher-section-6). |
 | launcher section 7, Participant Analysis (no standalone script) | Cross-trial single-participant analysis (`app/gui/participant_analysis_window.py`): condition/difficulty/learning charts, speed-accuracy trade-off, event-level error breakdown, finger confusion matrices, per-finger profiles - with 300 dpi figure + tidy CSV export. |
@@ -227,6 +227,55 @@ Each script's docstring has more detail; `config.json` (auto-created on
 first run) holds the camera index/flip settings, Canny thresholds, the
 MIDI port, and which profile is "active" (used by default when a script
 doesn't ask you to pick one).
+
+**These wizards configure the machine the experiment runs on.** They
+write the top-level `camera`, `midi.port_name` and
+`active_keyboard_profile`, and the calibration wizard saves over
+`data/keyboard-profile/<name>/`. That is what they are for - and it means
+they are the wrong tool for onboarding a tele-training partner, because
+each of those keys is what the quiz and the Formal Experiment Session
+read, and a recorded session's scoring is only reproducible while its
+profile folder stays as it was. For a remote student or teacher, use
+**Tele-training Setup Wizard** (section 8) instead: the same calibration
+work, saved into its own new profile folder and touching no config key.
+
+### Checking the camera against the profile
+
+The finger judgement is only ever as good as the camera still seeing the
+keyboard the way it was calibrated - nudge the tripod and every key id
+shifts, silently, and the first sign of it is a trial's finger accuracy.
+
+**Preview keyboard profile** answers that in one click. It draws the
+active profile's colored key masks and key ids over the camera image and
+opens the result in its own window; nothing is saved. It is on:
+
+- **Quiz - Visual Guidance** and **Quiz - Haptic Guidance** (section 5),
+- the main study's **Trial runner** (section 6), which inherits it,
+- both remote clients' Settings dialogs (section 8), where it opens the
+  camera for one snapshot because those windows hold no camera yet.
+
+In the three quiz windows it annotates the frame already on screen rather
+than opening a second capture, since those windows hold the camera for
+their whole lifetime. It uses `active_keyboard_profile` - the same
+profile that trial is about to be scored with, not a separate choice -
+and it is disabled while a quiz is recording. If the camera resolution
+and the profile's mask disagree, it says so instead of stretching the
+mask, because a stretched mask makes a wrong calibration look aligned.
+
+The shared implementation is `app/gui/profile_preview.py`.
+
+**Two keyboards of the same model report the same MIDI port name.** Every
+port picker here lists them as `SE25 MIDI1 #1` and `SE25 MIDI1 #2`,
+numbered in the order this machine enumerates them; a name that is
+reported only once keeps exactly the name the driver gives it, so a
+single-keyboard setup and any older `config.json` are unaffected. The
+numbering is not a device identity - it can change when something is
+replugged. `python test-script/MIDI.py` listens on every port at once and
+prints which label a key press arrived on, which is the quickest way to
+tell two identical instruments apart; `python test-script/midi_probe.py
+"SE25 MIDI1 #2"` does the same for one port. On macOS, renaming the
+instruments in Audio MIDI Setup → MIDI Studio makes the raw names differ
+and the suffixes disappear.
 
 ### Main user study (launcher section 6)
 
@@ -254,7 +303,9 @@ from `launcher.py`, section "6. Main User Study":
      progress and resumes from the first non-completed trial.
    - **Trial runner** (`app/gui/experiment_runner_window.py`) - the quiz
      window re-purposed for scheduled trials: connect the LED strip and
-     pick the MIDI port/timbre/timeout here once. Every trial records an
+     pick the MIDI port/timbre/timeout here once, and use **Preview
+     keyboard profile** to confirm the camera still matches the
+     calibration before the first trial. Every trial records an
      ordinary quiz under `data/quiz/`, named
      `<participant>-T<index>-<condition><level>` (a rerun appends `-r2`,
      `-r3`, ... so no attempt's data is overwritten), which means the
@@ -391,7 +442,8 @@ template = KeyboardTemplate.load(f"data/keyboard-profile/{cfg.active_keyboard_pr
 mapping = MidiMapping.load(f"data/keyboard-profile/{cfg.active_keyboard_profile}/midi_mapping.json")
 
 tracker = HandTracker()
-midi = MidiListener()          # picks the first available port if none given
+midi = MidiListener()          # picks the first available port if none given;
+                               # pass a name from list_input_ports() to choose one
 
 with Camera(cfg.camera) as cam:
     while True:
@@ -447,7 +499,10 @@ app/
   camera.py                    # Camera - cv2.VideoCapture wrapper (index or video file)
   config.py                    # Config / *Config dataclasses, JSON load/save
   hand_tracking.py             # HandTracker, Hand - MediaPipe wrapper, L1-L5/R1-R5 fingertips
-  midi.py                      # MidiListener, MidiEvent, list_input_ports, save/load_midi_log
+  midi.py                      # MidiListener, MidiEvent, save/load_midi_log, and the port
+                               #   layer every tool enumerates/opens through:
+                               #   list_input_ports / resolve_input_port / MidiInputReader
+                               #   (rtmidi by index - mido cannot address two identical keyboards)
                                #   (all event times are absolute epoch timestamps)
   finger_matching.py           # match_note_to_finger, FingerMatch - the core matching logic
   offline.py                   # analyze_recording - recorded video + MIDI log -> matches,
@@ -488,6 +543,8 @@ app/
     detector.py                 # Canny edge detection used by the calibration wizard
   gui/                          # PyQt windows/pages for the scripts above (incl. the sequence
                                 #   generator window, metrics viewer, validation dialog, cue window,
+                                #   profile_preview.py - the shared "camera vs calibration" check
+                                #   used by both quizzes, the trial runner and the remote clients;
                                 #   the pilot-study windows: participant schedule, formal-session
                                 #   controller, trial runner, participant-facing experiment cue
                                 #   screen; and the analysis windows: quiz_analysis_window,
@@ -587,13 +644,17 @@ logic from `common/`.
 | `measure_latency.py` | Single-motor latency measurement - triggers a motor, detects the acoustic onset, estimates end-to-end latency. |
 | `measure_latency_multi_motor.py` | Multi-motor latency measurement - random motor selection, multiple runs, per-motor comparison, automatic plotting into `latency_results/`. |
 | `test_led_array.py` | Manual LED test script - lights specific pixels on specific strips to sanity-check wiring/colors. |
-| `midi_probe.py` | Ground-truth calibration probe - prints the MIDI note number for each physical key as you press it, left to right. |
-| `MIDI.py` | Minimal listener that prints every incoming MIDI message on two ports. |
+| `midi_probe.py` | Ground-truth calibration probe - prints the MIDI note number for each physical key as you press it, left to right. Takes an optional port name, so it can also check one specific instrument out of several. |
+| `MIDI.py` | Minimal listener that prints every incoming note with the port label it arrived on, listening on **every** input at once - the quickest way to tell two identically named keyboards apart. |
 | `plot_acc_from_ACC_stream_autostart.py` | Live-plots `ACC,x,y,z` accelerometer lines streamed over serial, sending the start/stop stream commands automatically. |
 | `test_participant_analysis.py` | Unit tests for `app/participant_analysis.py` (the GUI-free cross-trial computation layer). |
 | `test_acceleration_metrics.py` | Unit tests for `validation_experiments/acceleration_metrics.py` (both vibration-intensity metrics, unit conversion, the raw-sample round trip) and for the metric switching / old-CSV compatibility of the accelerometer experiments. |
 | `test_haptic_config.py` | Unit tests for `common/haptic_config.py` and everything that reads it: old/partial `config.json` compatibility, range validation, atomic non-destructive saving, the Initial Setup window, the validation windows' defaults and prose, "manual value wins over the config", historical-run rendering, and the haptic quiz cue. |
 | `test_validation_reports.py` | Unit tests for the validation experiments' text statistics (`validation_experiments/report.py` + each experiment's `summary_report()`) and for the saved-run picker in the validation windows. |
+| `test_remote_setup_wizard.py` | Unit tests for the Tele-training Setup Wizard, mostly about what it *cannot* do: reach the top-level `camera`/`midi`/`active_keyboard_profile`, write into a profile it did not create, or overwrite an existing folder. Also that it asks for no role and applies the rig to both clients. Runs against a temp config and temp profile directory - no camera or keyboard. |
+| `test_chord_cue.py` | Unit tests for cueing a chord (remote guidance only): the haptic bitmask, the dot view's multi-highlight, the hand view's photo cycling, the LED's single flush, and the two guarantees that scope it - scoring stays single-note, and the single-finger path the local quiz and the main user study use is untouched. |
+| `test_profile_preview.py` | Unit tests for `app/gui/profile_preview.py` and the **Preview keyboard profile** button the quiz windows inherit: the mask is drawn without touching the caller's frame, a resolution mismatch is refused rather than resized, the frame already on screen is used instead of a second capture, and every failure is reported rather than raised. No camera or profile on disk is needed. |
+| `test_midi_ports.py` | Unit tests for `app/midi.py`'s port identity: two identically named keyboards both stay visible and are opened by index, older bare port names still resolve, and `MidiListener`/`RawMidiRecorder` end up on the port that was asked for. rtmidi is faked, so no keyboard is needed. |
 
 `latency_results/` holds the plots/summary generated by the latency scripts;
 `video_demo/` holds recorded demo videos of the latency tests.
@@ -621,6 +682,12 @@ imports no camera, MIDI, MediaPipe, LED or haptic module; it routes small
 JSON events and stores them. No video is ever sent over the WebSocket or
 into the relay's database - "the teacher sees the student's performance
 live" means events and metrics, not a video feed.
+
+A fourth entry, **Tele-training Setup Wizard**, is a normal window rather
+than a process: it builds a keyboard profile (camera → calibration → MIDI
+mapping) and writes no config.json key at all. Run it once per
+new participant - see [Setting up a new remote student or
+teacher](#setting-up-a-new-remote-student-or-teacher).
 
 ### Getting started on one machine
 
@@ -720,6 +787,53 @@ rests on, the traps found while building it, and what is still missing or
 unverified - are in **[REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md)**. Read
 that before changing anything here.
 
+### Setting up a new remote student or teacher
+
+**Tele-training Setup Wizard** (section 8) builds a **keyboard profile**
+for this machine: the camera, the calibration of that camera's view of the
+keyboard, and that keyboard's key→note mapping. Use it - not section 1's
+Initial Setup - whenever someone new joins a tele-training session.
+
+Three steps, and the last two can be re-entered from the step bar so one
+part can be redone (remapping MIDI without recalibrating, most of all):
+
+1. **Camera** - scan the indices, preview live, set the flips.
+2. **Calibration** - capture a photo, click the keyboard's two corners,
+   tune the edge sliders, click once inside each key, then name it and
+   save. Saving is what creates the profile folder.
+3. **MIDI mapping** - pick the profile, connect the port, press each key
+   in turn.
+
+The camera comes first because the calibration is a pixel mask of *that
+camera's* frame: step 2 captures through step 1's settings rather than
+asking again, so the two cannot disagree.
+
+**Its only output is the profile folder.** It writes no `config.json` key
+at all - not the top-level `camera`, `midi.port_name` or
+`active_keyboard_profile`, and not the `remote_guidance` block either - so
+running it cannot change what any tool on this machine does. To use the
+new profile, select it in the Student or Teacher Client's own **Settings**,
+which is where choosing devices already lives.
+
+There is also **no student/teacher choice** in it. A calibration describes
+a camera looking at a keyboard, not a person; student and teacher normally
+need one each only because they normally sit at different setups, and if
+they share a setup they can share the profile.
+
+Two more things it will not do:
+
+- it saves only into profile folders **it created**, each marked with a
+  `remote_setup.json` file, and refuses to write into any folder without
+  that marker - so section 1's profiles, and any profile a recorded
+  session was scored against, are unreachable from it;
+- it never overwrites an existing folder at all, not even one of its own:
+  a new calibration always means a new name.
+
+The wizard is a normal launcher window, so the usual one-tool-at-a-time
+rule applies - it will not run beside a client and fight it for the
+camera. Its rules live in `remote_guidance/setup_store.py`, kept separate
+from the UI so they can be (and are) tested without hardware.
+
 ### Configuration
 
 Everything lives in `config.json` under a new `remote_guidance` key.
@@ -748,6 +862,14 @@ as the live guidance controls. That teacher row deliberately has no
 student-guidance selector: `Visual` / `Haptic` / `Both` is chosen on the
 student Session page.
 
+**Give the two roles different MIDI ports.** Teacher and student normally
+use the same model of keyboard, which reports the same port name twice,
+so both dialogs list `... #1` and `... #2` and warn that the numbering
+follows this machine's enumeration order. Setting both roles to the same
+name is not an error anyone gets told about at runtime - it just points
+both clients at one keyboard, and the teacher starts receiving the
+student's notes.
+
 ```json
 "remote_guidance": {
   "schema_version": 1,
@@ -755,7 +877,7 @@ student Session page.
   "student": {
     "camera": {"index": 0, "width": 1280, "height": 720, "fps": 30,
                "flip_vertical": true, "flip_horizontal": true},
-    "midi": {"port_name": "SE25 MIDI1"},
+    "midi": {"port_name": "SE25 MIDI1 #1"},
     "keyboard_profile": "white-city-lab-20260717",
     "led": {"port": "/dev/tty.usbmodem1101"},
     "haptic": {"port": "/dev/tty.usbmodem2201"},
@@ -764,7 +886,7 @@ student Session page.
   },
   "teacher": {
     "camera": {"index": 1},
-    "midi": {"port_name": "Teacher Keyboard"},
+    "midi": {"port_name": "SE25 MIDI1 #2"},
     "keyboard_profile": "teacher-desk-20260801"
   },
   "local_server": {"host": "127.0.0.1", "port": 18765, "use_gui": true}
@@ -807,6 +929,27 @@ The student picks one before the session starts:
 | `visual` | yes | on-screen cue window (`app/gui/cue_window.py`) |
 | `haptic` | yes | nail actuator (`app/haptic_cue.py`) |
 | `both` | yes | both together |
+
+**Chords are cued in full.** With **Chord detection** on, the teacher's
+matcher returns every finger of a simultaneous press and the student cues
+all of them: every key lit, every motor buzzing (the rig's command is a
+bitmask, so it is one write), and every dot on the cue window. The
+hand-photo style is the one channel that cannot show a set - there is one
+photo per finger and no combined assets - so it cycles through the
+chord's photos instead, ~5 per second, with the full chord named in the
+text line. It stays **one cue event with one cue-ready moment**, so a
+reaction time still has a single origin.
+
+Scoring deliberately does not follow: a chord is judged on its primary
+note, so pressing a different note of the same chord counts as wrong.
+Widening the cue is free; widening the verdict would mean a second
+definition of "correct" in a pipeline shared with the local quiz and an
+already-run study. See [REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md) §4.11.
+
+**None of this reaches the local quiz or the main user study.** They call
+the single-finger cue API, which is unchanged - in particular a one-finger
+cue never starts the photo-cycling timer, so condition B's stimulus is
+exactly what it always was. There are tests for that.
 
 The **key LED is present in all three** - the modes name only how the
 *finger* is conveyed. All three are driven through one
@@ -948,11 +1091,12 @@ can be attributed to the teacher→server hop or the server→student one.
 ### Tests
 
 ```bash
-python -m pytest test-script/test_remote_guidance_config.py test-script/test_remote_guidance_server.py test-script/test_remote_guidance_e2e.py
+python -m pytest test-script/test_remote_guidance_config.py test-script/test_remote_guidance_server.py test-script/test_remote_guidance_e2e.py test-script/test_midi_ports.py
 ```
 
 Covers old-config compatibility, remote saves not touching shared
 settings, student/teacher config isolation, the LED/haptic port clash,
+two identically named keyboards staying separately addressable,
 the composite cue in all three modes, JWT issue/expiry/refresh/revoke,
 room ownership and membership authorization, cross-room isolation,
 duplicate-message idempotency, sequence ordering, survival of a relay

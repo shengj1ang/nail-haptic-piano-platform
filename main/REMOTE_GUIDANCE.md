@@ -35,7 +35,8 @@ Two people, two machines, one relay in between.
 
 - **Synchronous live cueing** - the teacher plays a key on their own
   keyboard; the platform's existing camera pipeline works out *which
-  finger* they used; that key/finger pair is sent to the student, whose
+  finger* they used; that key/finger pair - or the whole set of them,
+  when the teacher plays a chord - is sent to the student, whose
   keyboard LED lights the key and whose screen and/or nail-mounted
   actuator cues the finger.
 - **Asynchronous recorded sequences** - the teacher uploads a fingering
@@ -90,12 +91,14 @@ starts them with `QProcess.startDetached` (see
 | `timing.py` | 393 | Wall vs monotonic clocks, `DispatchTimings`, `ClockOffsetEstimator`, `LatencyStats`, `one_way_estimate` |
 | `network_client.py` | 479 | `RemoteApiClient` (stdlib urllib REST) + `RemoteWebSocketClient` (threaded, `websocket-client`). **No Qt** |
 | `qt_bridge.py` | 104 | The only place the network layer meets Qt - turns callbacks into signals |
-| `cue_outputs.py` | 310 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue` |
+| `cue_outputs.py` | 350 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; drives every channel with the whole chord (§4.11) |
 | `gui_common.py` | 571 | `SignInPanel`, `RoomPanel`, `ApiCallWorker`, `StageWindow` mixin |
-| `settings_window.py` | 389 | `RemoteSettingsDialog` - **one role's** camera/MIDI/profile, plus a one-shot camera/profile mask preview opened in its own dialog |
+| `settings_window.py` | 372 | `RemoteSettingsDialog` - **one role's** camera/MIDI/profile, the snapshot half of the camera/profile mask preview (the drawing and the dialog are `app.gui.profile_preview`), and the warning shown when two instruments report the same MIDI name |
 | `launcher_actions.py` | 116 | `ProcessSpec`s and health check for launcher section 8 |
+| `setup_store.py` | 180 | **The isolation rules.** Profile folders the setup wizard may create and write; no Qt, no config |
+| `setup_wizard.py` | 771 | `RemoteSetupWizard` - camera → calibration → MIDI mapping. Its only output is a profile folder (§4.12) |
 | `student/session.py` | 551 | **The core.** Event model, queueing, all timing rules. No Qt, no hardware |
-| `student/window.py` | 1170 | Student GUI: devices in, Qt signals out; owns the visual/haptic/both choice, announces it when ready, and defers an early recorded trigger until ready |
+| `student/window.py` | 1194 | Student GUI: devices in, Qt signals out; owns the visual/haptic/both choice, announces it when ready, and defers an early recorded trigger until ready |
 | `teacher/live_detector.py` | 218 | Camera → HandTracker → MIDI → finger matching, assembled for the teacher |
 | `teacher/recording_import.py` | 160 | `data/music`/`data/sequence` → uploadable recording |
 | `teacher/window.py` | 980 | Teacher GUI; separate live/recorded tabs, integrated Song Recording Wizard, and session control without choosing the student's rendering mode |
@@ -114,11 +117,17 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 2163 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging, tabs/wizard integration and camera/profile preview |
+| `test-script/test_remote_guidance_config.py` | 2321 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging, tabs/wizard integration, camera/profile preview, the duplicate-keyboard port warning, and that every message type's handler exists and a live cue reaches `accept()` |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
+| `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
+| `test-script/test_profile_preview.py` | 300 | `app.gui.profile_preview`: the mask is never resized to fit, and the shared button behaves in the quiz windows too. Also platform-wide |
+| `test-script/test_chord_cue.py` | 454 | Cueing a chord on every channel (§4.11), that scoring stays single-note, and that the single-finger path the local quiz and the main study use is untouched |
+| `test-script/test_remote_setup_wizard.py` | 347 | What the setup wizard cannot do (§4.12): write `config.json` at all, or touch a profile it did not create |
 
-**223 tests**, none of which need hardware or a real network.
+**230 tests** in the three remote files, **23** in the MIDI port file,
+**16** in the profile preview file, **32** in the chord cue file and **24**
+in the setup wizard file, none of which need hardware or a real network.
 
 ---
 
@@ -229,17 +238,101 @@ nor reaction time.
 | Concern | Module it comes from |
 |---|---|
 | Teacher key→finger detection | `app.camera`, `app.hand_tracking`, `app.midi`, `app.finger_matching` (incl. `match_notes_to_fingers` for chords) |
+| MIDI port identity and opening | `app.midi.list_input_ports` / `resolve_input_port` / `MidiInputReader` - never `mido.get_input_names()` or `mido.open_input()`, which cannot address two identical keyboards (§9.8) |
 | Student cue channels | `app.gui.cue_window.ScreenCueOutput`, `app.haptic_cue.HapticCueOutput`, `profile_led_mapper` + `note_led_map` |
 | Recording + LED sync mark | `app.music_recording` (`RawMidiRecorder`, `SyncInfo`) |
 | Correctness / summary | `app.finger_matching.is_finger_correct`, `app.quiz.summarize` |
 | Storage format | `app.quiz.QuizResult` / `save_quiz_results` / `QuizMeta` |
 | Offline finger pass | `app.offline.analyze_recording` via `app.gui.analyze_worker.AnalyzeWorker` |
 | Post-session review | `app.gui.quiz_analysis_window.QuizAnalysisWindow` |
+| Camera-vs-profile preview | `app.gui.profile_preview` (`load_profile_template`, `overlay_template`, `KeyboardProfilePreviewDialog`) - shared with both quizzes and the main study's trial runner. Only the *snapshot* is local, because these windows hold no camera until a session starts |
 
 A remote session therefore lands in `data/quiz/<name>/` in the **standard
 layout**, and every existing analysis tool reads it unchanged.
 `QuizMeta.guidance_type` is `remote-visual` / `remote-haptic` /
 `remote-both`.
+
+---
+
+### 4.11 A chord widens the cue, never the scoring
+
+The teacher's chord detection sends several `GuidanceAction`s in one
+envelope, and the student cues **all** of them: every key lit, every
+motor buzzing, every dot on. It is still **one cue event with one
+`cue_ready`**, so there is exactly one origin to measure a reaction
+against (§4.1).
+
+Scoring is deliberately untouched. `RemoteEvent.target` is still
+`actions[0]`, `on_note()` still finishes the event on the first press,
+and `note_correct` / `finger_correct` still judge that press against the
+primary note. Pressing a different note *of the same chord* scores as
+wrong, and there is a test saying so.
+
+That asymmetry is a decision, not an oversight. "Correct" has exactly one
+definition and it lives in `app.finger_matching` / `app.quiz` (§4.4),
+shared with the local quiz and every analysis tool downstream of it -
+including a completed study's data. Widening the cue costs nothing there;
+widening the verdict would mean a second definition of correct, a change
+to `QuizResult`/`summarize`, and a change to what the report's outcome
+measures mean. If chord scoring is ever wanted, that is the work, and it
+starts in `app.quiz` rather than here.
+
+### 4.12 Tele-training setup writes a profile and nothing else
+
+Onboarding a new partner needs a calibration: a pixel mask of their
+camera's view of their keyboard, plus that keyboard's key→note mapping.
+The launcher's **Initial Setup** wizards produce exactly that - and also
+write `config.json`'s top-level `camera`, `midi.port_name` and
+`active_keyboard_profile`, and save over an existing
+`data/keyboard-profile/<name>/`. Those side effects configure the machine
+the *formal experiment* runs on, so using them here repoints its devices
+and can destroy the calibration its recorded sessions were scored
+against.
+
+`setup_wizard.py` produces the profile and **nothing else**.
+`setup_store.py` is the whole of the "may I write that?" decision, kept
+GUI-free so the rules are testable without hardware. Two of them:
+
+1. **`config.json` is never written - at all.** Not the top-level keys,
+   and not even the `remote_guidance` block. Running the wizard therefore
+   cannot change what any tool on this machine does; the new profile takes
+   effect only when someone selects it in a client's own Settings dialog,
+   which is where choosing devices already lives. A test greps both
+   modules for `cfg.save()`, `active_keyboard_profile =`,
+   `RemoteGuidanceConfig` and `atomic_write_json` - the cheapest way to
+   break this is one careless line.
+2. **The wizard may only write into profiles it created.** Every profile
+   it makes carries a `remote_setup.json` marker; writing into an
+   existing directory is refused unless the marker is there, and creating
+   one is refused if the directory exists at all. There is deliberately
+   **no overwrite path**, not even for its own earlier profiles - a
+   remote session may have been recorded against one.
+
+Profiles live in the shared `data/keyboard-profile/`, on purpose. A
+session records its profile by *name* in `QuizMeta`, and the offline
+finger pass, the quiz analysis window, the video sync window and
+`profile_led_mapper` all resolve that name against that one directory. A
+separate remote directory would isolate the files and break every one of
+those readers; the marker gives the same protection without moving
+anything.
+
+Three steps - **camera → calibration → MIDI mapping** - and the order is
+load-bearing. The calibration is a pixel mask of *that* camera's frame,
+so step 2 captures through step 1's settings instead of asking again, and
+"the camera has to be the right one" is enforced by the flow rather than
+by a warning nobody reads. Saving the calibration is what creates the
+profile folder, so an abandoned attempt leaves nothing behind. Step 3 has
+its own picker over the wizard's own profiles, which is how "redo only
+the MIDI mapping" works.
+
+**There is no role anywhere in it, and a profile carries none.** A
+calibration describes a rig - one camera, one keyboard - not a person.
+Student and teacher normally need one each only because they normally sit
+at two different rigs; sharing a rig means sharing the profile. An
+earlier version asked for a role and stamped it into the marker: it
+enforced nothing, since nothing ever read it back, while implying a
+constraint that does not exist - and it carried the profile across a role
+switch, which handed the teacher the student's calibration.
 
 ---
 
@@ -255,7 +348,7 @@ TEACHER                          RELAY                    STUDENT
                     │                                      ├─ guidance.received ──►
   RTT ends here ◄───┴──────────────────────────────────────┘   (BEFORE any cue work)
                                                            tick() → present_next()
-                                                           CompositeCueOutput.show_target()
+                                                           CompositeCueOutput.show_targets()
                                                              LED write → flush   ─┐
                                                              haptic write → flush ─┼─ max = cue_ready
                                                              screen paint (repaint)┘
@@ -445,13 +538,41 @@ see only its own settings:
 Both client settings dialogs include **Capture camera + profile
 preview**. It uses the camera values and calibration profile currently
 shown in the form, including unsaved edits; opens that camera only long
-enough to take a snapshot; overlays the existing
-`app.keyboard.visualize` colored pixel mask and key-id labels; releases
-the camera; and shows the result in a separate dialog so Settings stays
-small. Neither the settings nor the photograph are saved. A camera frame
-whose actual dimensions differ from the profile key map is refused with
-both resolutions in the error - never resize the mask, because that can
-make a wrong calibration look plausibly aligned.
+enough to take a snapshot; overlays the colored pixel mask and key-id
+labels; releases the camera; and shows the result in a separate dialog so
+Settings stays small. Neither the settings nor the photograph are saved.
+A camera frame whose actual dimensions differ from the profile key map is
+refused with both resolutions in the error - never resize the mask,
+because that can make a wrong calibration look plausibly aligned.
+
+Only the snapshot is local. The profile loading, the drawing and the
+dialog are `app.gui.profile_preview`, shared with the same button on the
+two quizzes and the main study's trial runner (README § "Checking the
+camera against the profile"). The split matters in both directions:
+`capture_profile_preview()` loads the template **before** opening the
+camera, so a bad profile does not cost a camera claim to discover; and
+the quiz windows pass in the frame they already have, because they hold
+their camera for their whole lifetime and a second capture on the same
+device fails on most backends. Keep new callers on that shared module
+rather than growing a second overlay.
+
+**Two keyboards of the same model report the same MIDI name.** That is
+the normal tele-training setup, and it used to mean the picker showed one
+port where there were two. `app.midi` now labels duplicates `"SE25 MIDI1
+#1"`, `"SE25 MIDI1 #2"` in OS enumeration order, and the client Settings
+dialog says so in a warning under the port row whenever
+`ambiguous_port_names()` is non-empty. A name the OS reports only once is
+still its own label, unchanged.
+
+The numbering is **enumeration order, not a device identity** - replug a
+keyboard and #1 and #2 can swap. Nothing in MIDI identifies a physical
+instrument portably, so this cannot be fixed in code; the warning tells
+the user to re-check after replugging, or to rename the instruments
+(macOS: Audio MIDI Setup → MIDI Studio) so the raw names differ and no
+suffix is needed. `python test-script/MIDI.py` listens on every port at
+once and prints which label a key press came from - that is the way to
+find out which keyboard is which. See §9.8 for why this is not left to
+mido.
 
 The relay's main control panel opens at **440 × 360 px**, which is also
 its minimum size, so it can sit beside the two clients. Its complete
@@ -484,10 +605,23 @@ machine.
 
 ### Launcher section 8
 
-Four `ProcessEntry` buttons and **nothing else**: Student Client,
-Teacher Client, Relay Server, Network Latency Benchmark. Two things
-tests assert stay gone - a "Launch Local Stack" button (removed on
-request) and any settings entry.
+Four `ProcessEntry` buttons - Student Client, Teacher Client, Relay
+Server, Network Latency Benchmark - plus **Tele-training Setup Wizard**,
+which is an ordinary sub-window rather than a process.
+
+That difference is the point: the wizard claims the camera and the MIDI
+keyboard to calibrate, and a client may be holding them. As a sub-window
+it falls under the launcher's usual one-tool-at-a-time rule, which keeps
+the two apart; as a `ProcessEntry` it could run beside a client and fight
+it for the camera.
+
+It is **setup, not settings**, and the two do not overlap: the wizard
+*makes* a profile and writes no config key, while the clients' Settings
+dialogs *choose* which profile and devices to use. Two things tests still
+assert stay gone - a "Launch Local Stack" button (removed on request) and
+any *settings* entry, because each endpoint owns its own settings and
+shows only its own (§6 "Settings: one button per program"). See §4.12 for
+what the wizard is and is not allowed to touch.
 
 ---
 
@@ -519,6 +653,15 @@ device, pin `student.led.port` and `student.haptic.port` by hand in
 config.json.** Identical ports are still rejected
 (`serial_port_problems()`), and the student client still refuses to
 start a haptic session while they clash.
+
+**`midi.port_name` stores a port *label*, not necessarily the driver's
+name.** With one keyboard of a given name they are the same string, which
+is why nothing had to be migrated. With two, the label carries the
+`" #1"` / `" #2"` suffix from §6, and **both roles must be given
+different ones** - a config where student and teacher hold the same name
+sends both clients to the same physical keyboard, silently. A bare
+driver name (what every config written before this existed holds) still
+resolves, to the first port with that name, exactly as mido did.
 
 Guidance modes: `visual` / `haptic` / `both` name only how the **finger**
 is conveyed. The key LED is present in all three.
@@ -576,7 +719,13 @@ python remote_latency_benchmark.py --server http://127.0.0.1:18765 --username te
 Tests:
 
 ```bash
-python -m pytest test-script/test_remote_guidance_config.py test-script/test_remote_guidance_server.py test-script/test_remote_guidance_e2e.py -q
+python -m pytest test-script/test_remote_guidance_config.py test-script/test_remote_guidance_server.py test-script/test_remote_guidance_e2e.py test-script/test_midi_ports.py test-script/test_profile_preview.py -q
+```
+
+Which physical keyboard is which, when both report the same name:
+
+```bash
+python test-script/MIDI.py
 ```
 
 Whole platform (`test_led_array.py` prompts on stdin when a serial board
@@ -627,6 +776,51 @@ Each of these cost real debugging time. They all have tests now.
    the visual timestamp is taken *after* the frame is drawn. Without it
    the "visual painted" time is a lie.
 
+8. **mido cannot see or open the second of two identical keyboards.**
+   Which is precisely this module's setup. Two failures, both silent:
+   `mido.backends.rtmidi.get_devices()` de-duplicates ports **by name
+   string**, so with two Nektar SE25s macOS's four inputs (`SE25 MIDI1`,
+   `SE25 MIDI2`, twice) came back as two; and `mido.open_input(name)`
+   resolves the name with `list.index()`, which always returns the
+   **first** port of that name - so even a complete list could not reach
+   the second instrument. Nothing raises. The teacher just receives the
+   student's notes.
+
+   `app/midi.py` therefore enumerates and opens through **python-rtmidi
+   directly, by index** (`MidiInputPort`, `resolve_input_port`,
+   `MidiInputReader`); mido is still used for `MidiFile` writing, where
+   it is fine. `MidiListener` and `RawMidiRecorder` sit on top and are
+   unchanged from the outside apart from opening their port in
+   `__init__` (so a failure raises where callers already catch
+   `RuntimeError`, instead of being printed on a worker thread and
+   leaving a listener that receives nothing forever). Do not "simplify"
+   any of this back to `mido.get_input_names()` / `mido.open_input()` -
+   there is a test file for it, `test-script/test_midi_ports.py`.
+
+9. **A missing `_on_message` handler is invisible until that message
+   type arrives.** `guidance.live` dispatched to `self._on_guidance()`,
+   which was never written, so **every live cue** raised
+   `AttributeError` inside the student's dispatcher - on the WebSocket
+   thread, mid-lesson. What it looked like from the outside: the teacher
+   detected notes correctly and reported them sent, the relay forwarded
+   them, and the student sat on "Waiting for the teacher..." forever,
+   with nothing on its own screen saying why. Only the *recorded* path
+   worked, because that one goes `recording.start` → scheduler →
+   `_release_scheduled_event` → `accept()` and never touches the live
+   handler.
+
+   Nothing caught it: the e2e tests drive a *fake* student, and no test
+   put a real envelope through `StudentRemoteWindow._on_message`. There
+   are now three - two behavioural, plus a structural one that parses
+   both windows' `_on_message` and asserts every `self.<handler>()` it
+   dispatches to actually exists. Add a message type, and that test
+   covers the new branch for free.
+
+   The handler itself must stay a one-liner onto `session.accept()`. It
+   is what stamps arrival and acknowledges before any cue work, and the
+   recorded path deliberately enters through the same door so both kinds
+   of event produce identical timings (§4.1).
+
 ---
 
 ## 10. Known gaps and what is not verified
@@ -656,6 +850,42 @@ moved under this module:
   must not go through this WebSocket.
 - **Physical onset measurement is a stub.** `physical_led_onset_ns` /
   `physical_haptic_onset_ns` columns exist and are always empty.
+- **Neither the keyboards nor the cameras have a stable identity, and
+  adding one was investigated and rejected.** Both device APIs address
+  hardware by position: `cv2.VideoCapture(index)` and rtmidi's port
+  index. Two identical keyboards are told apart only by the `#1`/`#2`
+  suffix `app.midi` assigns in enumeration order (§6), and two identical
+  webcams only by `camera.index` - both of which can change when
+  something is replugged.
+
+  macOS *can* do better, and this was built and confirmed working before
+  being taken out again: CoreMIDI gives every endpoint a `uniqueID` and
+  persists it in `~/Library/Preferences/ByHost/com.apple.MIDI.*.plist`
+  against the device's `USBLocationID`, and AVFoundation's camera
+  `uniqueID` for a UVC device *is* the USB location
+  (`0x1400005802e705` = location `0x00140000`, vendor `0x5802`, product
+  `0xe705`). Both are readable from pure Python through ctypes, in the
+  same order rtmidi and OpenCV enumerate, with no new dependency.
+
+  **Windows cannot**, and Windows is a deployment target here
+  (`launcher.bat`, `runtime/Python311-init.7z`). WinMM's `MIDIINCAPS`
+  carries manufacturer id, product id, driver version and name - all four
+  identical for two keyboards of the same model, with no serial and no
+  port path. WinRT's `Windows.Devices.Midi` does expose a stable id, but
+  python-rtmidi uses WinMM and there is no reliable way to correlate the
+  two enumerations. The camera side has the same shape: MSMF/DirectShow
+  symbolic links carry VID/PID and an instance path, but reaching them
+  needs `comtypes`/`pywin32` *and* an assumption about OpenCV's index
+  order that cannot be checked from the other platform.
+
+  A device identity that works on the development Mac and silently falls
+  back to enumeration order on the deployed Windows machine is worse than
+  no identity at all, so there is none. What to do instead: keep each
+  instrument in its own USB port, and on macOS rename them in Audio MIDI
+  Setup → MIDI Studio so even the names stop being ambiguous. Revisit
+  only if Windows support stops mattering, or if hardware with real USB
+  serial numbers replaces this rig - neither of these keyboards nor
+  either webcam reports one (the two webcams even share `SN00010`).
 - **Reconnect replay is untested under real loss.** Duplicate suppression
   works (there is a test), but no test drops a connection mid-session.
 - **No token refresh in the clients.** They log in and use the access
