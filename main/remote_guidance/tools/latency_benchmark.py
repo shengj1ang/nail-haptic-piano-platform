@@ -2,7 +2,7 @@
 
 Defaults follow the report's `System Transmission Performance
 Benchmarking`: 1000 simulated key/finger commands at 500 ms intervals
-over one already-established WebSocket, with warm-up samples recorded
+over one persistent WebSocket per endpoint, with warm-up samples recorded
 separately and excluded from the statistics. Every probe carries a unique
 sequence number and message id.
 
@@ -33,13 +33,19 @@ moving lag that, and measuring them needs a photodiode on the key and an
 accelerometer on the actuator sampled on one acquisition clock. The CSV
 keeps columns free for those; this tool does not fill them in.
 
+By default the tool is self-contained: it logs in once as a teacher and
+once as a student, creates a temporary benchmark room, opens both
+WebSockets and makes the built-in student endpoint answer probes. Only
+the relay and this process need to be running. Pass ``--external-student``
+with ``--room-id`` only when the real Student Client must participate.
+
 Usage from main/:
 
     python remote_latency_benchmark.py --server http://127.0.0.1:18765 \\
-        --username teacher1 --room-id <room id>
+        --username teacher1 --student-username student1
 
-The student client (or --self-test) must be connected to the same room
-and answering probes.
+The built-in student measures the network/relay path but deliberately
+does not pretend to be the real Student UI, LED or haptic hardware.
 """
 
 from __future__ import annotations
@@ -49,6 +55,7 @@ import csv
 import getpass
 import json
 import logging
+import signal
 import sys
 import threading
 import time
@@ -163,6 +170,7 @@ class BenchmarkConfig:
     ack_timeout_s: float = DEFAULT_TIMEOUT_S
     trigger_cue: bool = False
     clocks_synced: bool = False
+    built_in_student: bool = False
     note: int = 60
     finger: str = "R1"
 
@@ -170,13 +178,44 @@ class BenchmarkConfig:
         return asdict(self)
 
 
+class SimulatedStudentResponder:
+    """Internal student endpoint for a self-contained network run.
+
+    It sends the same immediate transport acknowledgement as the real
+    Student Client using the same WebSocket implementation, but owns no
+    Qt UI or hardware. That boundary prevents simulated network timing
+    from being mistaken for physical cue latency.
+    """
+
+    def __init__(self, client: RemoteWebSocketClient):
+        self.client = client
+
+    def on_message(self, envelope: Dict[str, Any]) -> None:
+        if envelope.get("type") != TYPE_LATENCY_PROBE:
+            return
+        payload = envelope.get("payload") or {}
+        probe_id = payload.get("probe_id")
+        if not probe_id:
+            return
+        receive_mono, receive_wall = mono_ns(), wall_ns()
+        self.client.send(
+            TYPE_LATENCY_RECEIVED,
+            {
+                "probe_id": probe_id,
+                "probe_message_id": envelope.get("message_id"),
+                "student_receive_wall_ns": receive_wall,
+                "student_receive_monotonic_ns": receive_mono,
+                "responder": "built_in_simulated_student",
+            },
+        )
+
+
 class LatencyBenchmark:
     """Drives the probes over an already-connected WebSocket client.
 
     Takes a client rather than making one, so a test can hand it a stub
-    and so a real run reuses the *same* connection a session would - the
-    report's benchmark measures one established WebSocket, not repeated
-    connection setup."""
+    and so a real run reuses the *same* Teacher connection a session
+    would rather than measuring repeated connection setup."""
 
     def __init__(self, client: RemoteWebSocketClient, config: Optional[BenchmarkConfig] = None):
         self.client = client
@@ -283,11 +322,23 @@ class LatencyBenchmark:
         rtts = [s.rtt_ns for s in measured if s.rtt_ns is not None]
 
         offset = self.offsets.estimate(synchronised=self.config.clocks_synced)
-        one_way = one_way_estimate(
-            rtts,
-            clock_offset=offset,
-            receive_deltas=[s.wall_delta_ns for s in measured if s.wall_delta_ns is not None],
-        )
+        receive_deltas = [s.wall_delta_ns for s in measured if s.wall_delta_ns is not None]
+        if self.config.built_in_student:
+            one_way = summarize_latency(
+                receive_deltas,
+                label="one_way_shared_host_clock",
+                caveat=(
+                    "Built-in teacher and student endpoints share one host clock, so this is the measured "
+                    "teacher-send -> simulated-student-receive duration through the relay. It does not "
+                    "include a real Student UI or hardware."
+                ),
+            )
+        else:
+            one_way = one_way_estimate(
+                rtts,
+                clock_offset=offset,
+                receive_deltas=receive_deltas,
+            )
 
         presented = [s.presented_rtt_ns for s in measured if s.presented_rtt_ns is not None]
         metrics: Dict[str, LatencyStats] = {
@@ -302,7 +353,9 @@ class LatencyBenchmark:
                 label="teacher_to_server_ack",
                 caveat="Round trip to the relay only - isolates the teacher->server hop.",
             ),
-            "cue_presented_rtt": summarize_latency(
+        }
+        if not self.config.built_in_student:
+            metrics["cue_presented_rtt"] = summarize_latency(
                 presented,
                 lost=len(measured) - len(presented) if self.config.trigger_cue else 0,
                 label="cue_presented_rtt",
@@ -310,17 +363,16 @@ class LatencyBenchmark:
                     "Includes the student's local cue dispatch. Software dispatch/render timing - "
                     "NOT physical LED or actuator onset."
                 ),
-            ),
-            "student_local_dispatch": summarize_latency(
+            )
+            metrics["student_local_dispatch"] = summarize_latency(
                 [s.student_dispatch_ns for s in measured if s.student_dispatch_ns is not None],
                 label="student_local_dispatch",
                 caveat=(
                     "Measured on the student's own monotonic clock and reported back as a duration. "
                     "Software dispatch/render timing, not physical cue onset."
                 ),
-            ),
-            "one_way": one_way,
-        }
+            )
+        metrics["one_way"] = one_way
 
         return {
             "config": self.config.as_dict(),
@@ -424,10 +476,16 @@ def format_summary(summary: Dict[str, Any]) -> str:
     )
     offset = summary.get("clock_offset")
     if offset:
+        if (summary.get("config") or {}).get("built_in_student"):
+            clock_label = "shared-host client clock"
+        elif offset["synchronised"]:
+            clock_label = "NTP-synced asserted"
+        else:
+            clock_label = "synchronisation NOT confirmed"
         lines.append(
             f"clock offset estimate: {offset['offset_ms']:+.3f} ms "
             f"+/-{offset['uncertainty_ms']:.3f} ms over {offset['samples']} exchanges "
-            f"({'NTP-synced asserted' if offset['synchronised'] else 'synchronisation NOT confirmed'})"
+            f"({clock_label})"
         )
     lines.append("")
     header = f"{'metric':<24}{'n':>6}{'mean':>10}{'sd':>10}{'median':>10}{'p95':>10}{'p99':>10}{'max':>10}"
@@ -463,9 +521,29 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--server", default=remote.network.server_url, help="relay base URL")
-    p.add_argument("--username", default=remote.network.username, help="teacher account")
-    p.add_argument("--password", default=None, help="prompted for if omitted (never stored)")
-    p.add_argument("--room-id", default=remote.network.room_id, help="room to probe in")
+    p.add_argument(
+        "--username", "--teacher-username", dest="teacher_username",
+        # network.username is shared and may contain the Student Client's
+        # most recent login, so it is not a safe role default here.
+        default="demoteacher", help="teacher account",
+    )
+    p.add_argument(
+        "--password", "--teacher-password", dest="teacher_password",
+        default=None, help="teacher password; prompted for if omitted (never stored)",
+    )
+    p.add_argument("--student-username", default="demostudent", help="built-in student account")
+    p.add_argument(
+        "--student-password", default=None,
+        help="built-in student password; prompted for if omitted (never stored)",
+    )
+    p.add_argument(
+        "--external-student", action="store_true",
+        help="use a real Student Client instead of the built-in simulated student",
+    )
+    p.add_argument(
+        "--room-id", default="",
+        help="existing room used only with --external-student; built-in mode creates its own room",
+    )
     p.add_argument("--count", type=int, default=DEFAULT_COUNT, help="measured probes")
     p.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_S, help="seconds between probes")
     p.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="probes recorded but excluded from stats")
@@ -489,70 +567,160 @@ def main(argv: Optional[List[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-7s %(message)s")
     args = build_parser().parse_args(argv)
 
-    if not args.room_id:
-        print("error: --room-id is required (create or join a room in the teacher client first)", file=sys.stderr)
+    if args.external_student and not args.room_id:
+        print("error: --room-id is required with --external-student", file=sys.stderr)
+        return 2
+    if not args.external_student and args.room_id:
+        print("error: --room-id is only used with --external-student", file=sys.stderr)
+        return 2
+    if not args.external_student and args.trigger_cue:
+        print(
+            "error: --trigger-cue requires --external-student because the built-in student owns no UI or hardware",
+            file=sys.stderr,
+        )
         return 2
 
-    api = RemoteApiClient(args.server, verify_tls=not args.no_verify_tls)
-    password = args.password or getpass.getpass(f"password for {args.username}: ")
+    verify_tls = not args.no_verify_tls
+    teacher_api = RemoteApiClient(args.server, verify_tls=verify_tls)
+    student_api: Optional[RemoteApiClient] = None
+    teacher_client: Optional[RemoteWebSocketClient] = None
+    student_client: Optional[RemoteWebSocketClient] = None
+    created_room_id: Optional[str] = None
+    benchmark: Optional[LatencyBenchmark] = None
+    summary: Optional[Dict[str, Any]] = None
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def interrupt_run(_signum, _frame) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt_run)
+
     try:
-        session = api.login(args.username, password)
-    except RemoteApiError as exc:
-        print(f"error: could not sign in: {exc}", file=sys.stderr)
-        return 1
-    finally:
-        password = ""  # not kept around after the one call that needs it
-
-    ws_url = _ws_url(args.server, args.room_id)
-    config = BenchmarkConfig(
-        count=args.count,
-        interval_s=args.interval,
-        warmup=args.warmup,
-        ack_timeout_s=args.timeout,
-        trigger_cue=args.trigger_cue,
-        clocks_synced=args.clocks_synced,
-    )
-
-    client = RemoteWebSocketClient(
-        ws_url=ws_url,
-        access_token=session.access_token,
-        room_id=args.room_id,
-        verify_tls=not args.no_verify_tls,
-        auto_reconnect=False,  # a reconnect mid-run would invalidate the sample
-    )
-    benchmark = LatencyBenchmark(client, config)
-    client.callbacks = ClientCallbacks(on_message=benchmark.on_message)
-    client.start()
-
-    if not client.wait_until_connected(timeout=20.0):
-        print("error: could not connect to the room's WebSocket", file=sys.stderr)
-        client.stop()
-        return 1
-
-    total = config.warmup + config.count
-    print(
-        f"probing: {config.count} measured + {config.warmup} warm-up at {config.interval_s * 1000:.0f} ms "
-        f"intervals over one established WebSocket (~{total * config.interval_s / 60:.1f} min)"
-    )
-    if not args.clocks_synced:
-        print(
-            "note: clock synchronisation not asserted - one-way latency will be shown as RTT/2, "
-            "a symmetry-based estimate. Check both hosts (e.g. time.is or `chronyc tracking`) and pass "
-            "--clocks-synced to get a clock-corrected figure instead."
+        teacher_password = args.teacher_password or getpass.getpass(
+            f"password for {args.teacher_username}: "
         )
+        try:
+            teacher_session = teacher_api.login(args.teacher_username, teacher_password)
+        finally:
+            teacher_password = ""
+        if teacher_session.role != "teacher":
+            raise RemoteApiError(
+                f"{args.teacher_username!r} is a {teacher_session.role!r} account, not a teacher"
+            )
 
-    def progress(done: int, total_probes: int) -> None:
-        if done % 50 == 0 or done == total_probes:
-            print(f"  {done}/{total_probes}", flush=True)
+        room_id = args.room_id
+        if args.external_student:
+            print("mode: external Student Client (real Student software/hardware path)")
+        else:
+            student_api = RemoteApiClient(args.server, verify_tls=verify_tls)
+            student_password = args.student_password or getpass.getpass(
+                f"password for {args.student_username}: "
+            )
+            try:
+                student_session = student_api.login(args.student_username, student_password)
+            finally:
+                student_password = ""
+            if student_session.role != "student":
+                raise RemoteApiError(
+                    f"{args.student_username!r} is a {student_session.role!r} account, not a student"
+                )
 
-    try:
-        summary = benchmark.run(progress=progress)
-    except KeyboardInterrupt:
-        print("\ninterrupted - summarising what was collected so far")
-        summary = benchmark.summarize()
+            room = teacher_api.create_room(
+                f"Network latency benchmark {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            room_id = str(room["room_id"])
+            created_room_id = room_id
+            student_api.join_room(str(room["join_code"]))
+            print(f"mode: built-in simulated student; created temporary room {room_id}")
+
+            student_client = RemoteWebSocketClient(
+                ws_url=_ws_url(args.server, room_id),
+                access_token=student_session.access_token,
+                room_id=room_id,
+                verify_tls=verify_tls,
+                auto_reconnect=False,
+            )
+            responder = SimulatedStudentResponder(student_client)
+            student_client.callbacks = ClientCallbacks(on_message=responder.on_message)
+            student_client.start()
+            if not student_client.wait_until_connected(timeout=20.0):
+                print("error: built-in student could not connect to the room's WebSocket", file=sys.stderr)
+                return 1
+
+        config = BenchmarkConfig(
+            count=args.count,
+            interval_s=args.interval,
+            warmup=args.warmup,
+            ack_timeout_s=args.timeout,
+            trigger_cue=args.trigger_cue,
+            # Built-in teacher and student endpoints run in this process,
+            # so they share one host clock rather than merely being NTP-close.
+            clocks_synced=args.clocks_synced or not args.external_student,
+            built_in_student=not args.external_student,
+        )
+        teacher_client = RemoteWebSocketClient(
+            ws_url=_ws_url(args.server, room_id),
+            access_token=teacher_session.access_token,
+            room_id=room_id,
+            verify_tls=verify_tls,
+            auto_reconnect=False,  # a reconnect mid-run would invalidate the sample
+        )
+        benchmark = LatencyBenchmark(teacher_client, config)
+        teacher_client.callbacks = ClientCallbacks(on_message=benchmark.on_message)
+        teacher_client.start()
+
+        if not teacher_client.wait_until_connected(timeout=20.0):
+            print("error: benchmark teacher could not connect to the room's WebSocket", file=sys.stderr)
+            return 1
+
+        total = config.warmup + config.count
+        print(
+            f"probing: {config.count} measured + {config.warmup} warm-up at {config.interval_s * 1000:.0f} ms "
+            f"intervals over persistent WebSockets (~{total * config.interval_s / 60:.1f} min)"
+        )
+        if not args.external_student:
+            print(
+                "note: teacher and simulated student share this process's host clock; this run measures the "
+                "network/relay path, not Student UI, LED, haptic or physical onset."
+            )
+        elif not args.clocks_synced:
+            print(
+                "note: clock synchronisation not asserted - one-way latency will be shown as RTT/2, "
+                "a symmetry-based estimate. Check both hosts (e.g. time.is or `chronyc tracking`) and pass "
+                "--clocks-synced to get a clock-corrected figure instead."
+            )
+
+        def progress(done: int, total_probes: int) -> None:
+            if done % 50 == 0 or done == total_probes:
+                print(f"  {done}/{total_probes}", flush=True)
+
+        try:
+            summary = benchmark.run(progress=progress)
+        except KeyboardInterrupt:
+            print("\ninterrupted - summarising what was collected so far")
+            summary = benchmark.summarize()
+    except RemoteApiError as exc:
+        print(f"error: benchmark setup failed: {exc}", file=sys.stderr)
+        return 1
     finally:
-        client.stop()
+        if teacher_client is not None:
+            teacher_client.stop()
+        if student_client is not None:
+            student_client.stop()
+        if created_room_id is not None:
+            try:
+                teacher_api.close_room(created_room_id)
+                print(f"closed temporary benchmark room {created_room_id}")
+            except RemoteApiError as exc:
+                print(f"warning: could not close temporary benchmark room: {exc}", file=sys.stderr)
+        if student_api is not None and student_api.session.authenticated:
+            student_api.logout()
+        if teacher_api.session.authenticated:
+            teacher_api.logout()
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
+    if benchmark is None or summary is None:
+        return 1
     directory = save_run(benchmark.all_samples(), summary, run_id=args.run_id, base_dir=args.out_dir)
     print(format_summary(summary))
     print(f"saved to {directory}")

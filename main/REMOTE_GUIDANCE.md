@@ -90,12 +90,12 @@ starts them with `QProcess.startDetached` (see
 | `config.py` | 320 | The `remote_guidance` block of `config.json`; per-role `Config` views; serial-port validation |
 | `protocol.py` | 210 | Versioned message envelope, message-type constants, `GuidanceAction`. **Client half of a matched pair with `server/schemas.py`** |
 | `timing.py` | 393 | Wall vs monotonic clocks, `DispatchTimings`, `ClockOffsetEstimator`, `LatencyStats`, `one_way_estimate` |
-| `network_client.py` | 479 | `RemoteApiClient` (stdlib urllib REST) + `RemoteWebSocketClient` (threaded, `websocket-client`). **No Qt** |
+| `network_client.py` | 483 | `RemoteApiClient` (stdlib urllib REST) + `RemoteWebSocketClient` (threaded, `websocket-client`), including quiet expected socket-close handling. **No Qt** |
 | `qt_bridge.py` | 104 | The only place the network layer meets Qt - turns callbacks into signals |
 | `cue_outputs.py` | 349 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; paints visual first so serial cannot hold it hostage, while cue-ready remains the last enabled channel (§4.1, §4.11) |
 | `gui_common.py` | 571 | `SignInPanel`, `RoomPanel`, `ApiCallWorker`, `StageWindow` mixin |
-| `client_styles.py` | 295 | Tele-training-only launcher-style QSS; warm Teacher and cool Student palettes shared by each role's main window and Settings, including compact role bars, cards, tabs, inputs, MIDI monitor and result tables |
-| `settings_window.py` | 511 | `RemoteSettingsDialog` - role-themed two-column Camera / Keyboard+MIDI workspace; temporary press-a-key MIDI identification with guaranteed release on close, the snapshot half of the camera/profile mask preview, and the duplicate-name warning |
+| `client_styles.py` | 355 | Tele-training-only launcher-style QSS; warm Teacher and cool Student palettes shared by each role's main window and Settings, including explicit role-colored dropdown/spin arrows and checked-state ticks from `assets/` |
+| `settings_window.py` | 559 | `RemoteSettingsDialog` - role-themed two-column Camera / Keyboard+MIDI workspace; non-editable detected-port dropdown with saved-offline preservation, temporary press-a-key MIDI identification/release, profile preview, and duplicate-name warning |
 | `launcher_actions.py` | 116 | `ProcessSpec`s and health check for launcher section 8 |
 | `setup_store.py` | 180 | **The isolation rules.** Profile folders the setup wizard may create and write; no Qt, no config |
 | `setup_wizard.py` | 599 | `RemoteSetupWizard` - click-to-scan camera selection → calibration launcher → MIDI-mapping launcher. It constructs no camera when opened (§4.12) |
@@ -108,8 +108,8 @@ starts them with `QProcess.startDetached` (see
 | `teacher/recording_import.py` | 160 | `data/music`/`data/sequence` → uploadable recording |
 | `teacher/recording_wizard.py` | 635 | Tele-training-private three-page Teacher recording flow; fixed Teacher Settings devices, amber UI, section 3-compatible capture/fingering/save pipeline, and complete close-time release |
 | `teacher/window.py` | 1115 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
-| `tools/latency_benchmark.py` | 572 | The benchmark CLI |
-| `tools/benchmark_window.py` | 251 | GUI wrapper around that CLI (runs it as a QProcess) |
+| `tools/latency_benchmark.py` | 740 | Self-contained two-login/two-WebSocket benchmark CLI with built-in Student responder, automatic temporary room lifecycle, plus explicit external-Student mode |
+| `tools/benchmark_window.py` | 302 | GUI wrapper around that CLI (runs it as a QProcess); defaults to Relay + Benchmark only and feeds both passwords over stdin |
 
 ### `server/` - the relay
 
@@ -123,7 +123,7 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 2865 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats, launcher actions, GUI staging plus main-window/Settings role themes and workspace separation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, duplicate-keyboard warning + temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, and that every message handler exists and a live cue reaches `accept()` |
+| `test-script/test_remote_guidance_config.py` | 3028 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats and self-contained two-role benchmark controls/responder, launcher actions, GUI staging plus main-window/Settings role themes, visible spin/tick controls and workspace separation, MIDI dropdown/empty-scan preservation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, and message handling |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
 | `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
@@ -131,7 +131,7 @@ certificate generation).
 | `test-script/test_chord_cue.py` | 454 | Cueing a chord on every channel (§4.11), that scoring stays single-note, and that the single-finger path the local quiz and the main study use is untouched |
 | `test-script/test_remote_setup_wizard.py` | 603 | On-demand camera selection, five-page cropped calibration, both MIDI-mapping images/overlays, and what the setup flows cannot do (§4.12): write `config.json` or touch a profile they did not create |
 
-**253 tests** in the three remote files, **23** in the MIDI port file,
+**261 tests** in the three remote files, **23** in the MIDI port file,
 **16** in the profile preview file, **32** in the chord cue file and **32**
 in the setup wizard file, none of which need hardware or a real network.
 
@@ -437,6 +437,12 @@ one 30 px status strip. Long messages are kept in the label tooltip and
 must not expand the minimum window width. The styles live only in
 `client_styles.py`: Teacher uses amber/brown, Student uses cyan/navy, so
 two clients running beside one another are recognisable immediately.
+That sheet also owns the only custom checkbox indicator in section 8:
+the checked state paints a role-specific SVG tick over the accent fill,
+never a colour-only square. Setup, calibration, benchmark and relay
+checkboxes keep Qt's native checked indicator. A regression test scans
+both `remote_guidance/` and `server/` so a later custom indicator cannot
+silently remove the tick again.
 
 The Session page does not stack every large widget vertically:
 
@@ -689,6 +695,12 @@ accented monitor card. At 1040 × 650 the whole dialog is visible, and its
 minimum-size hint remains about 956 × 496 rather than growing with long
 status text (the full text is kept in a tooltip).
 
+Camera resolution and FPS remain ordinary editable `QSpinBox` values:
+the user may type an exact number, or use the two wide buttons on the
+right. `client_styles.py` supplies separate, high-contrast amber/cyan SVG
+up/down arrows and a visible divider/hover state; do not replace these
+with the tiny low-contrast platform glyphs.
+
 Both client settings dialogs include **Capture camera + profile
 preview**. It uses the camera values and calibration profile currently
 shown in the form, including unsaved edits; opens that camera only long
@@ -720,6 +732,16 @@ session. Changing the selected port, refreshing the list, Save, Cancel
 and window close all stop its timer and call
 `MidiListener.close()` so Settings cannot retain the keyboard and make a
 later **Ready for guidance** / **Connect MIDI** fail.
+
+The MIDI port control is a **non-editable `QComboBox`**, not a line edit.
+Refresh replaces its choices with `list_input_ports()`. If the saved or
+currently selected port is not detected (including the normal case where
+no keyboard is plugged in), that exact saved label is inserted as the
+first/only option and marked by a tooltip as offline; it is never erased.
+With neither detected inputs nor a saved value the combo has zero items,
+shows `No MIDI inputs detected`, and disables Connect and test. The
+role-colored SVG arrow in `remote_guidance/assets/` must remain visible so
+the control cannot again look like a text field.
 
 **Two keyboards of the same model report the same MIDI name.** That is
 the normal tele-training setup, and it used to mean the picker showed one
@@ -877,11 +899,21 @@ page; the choices are the same as Student Quiz. For the recorded path, the
 teacher's explicit **Record a new song...** action opens the private
 Teacher wizard and claims its devices until the wizard closes.
 
-Benchmark (needs a student connected and answering):
+Benchmark (default needs only the relay; it supplies both client roles):
 
 ```bash
-python remote_latency_benchmark.py --server http://127.0.0.1:18765 --username teacher1 --room-id <room id>
+python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
+  --username teacher1 --student-username student1
 ```
+
+`latency_benchmark.main()` logs in both accounts, creates a temporary
+room, joins the built-in Student, opens both real
+`RemoteWebSocketClient`s, and closes (never deletes) the room during
+cleanup. The built-in responder sends `latency.received` immediately and
+owns no Qt/hardware. `--external-student --room-id ...` is the explicit
+legacy/physical path for measuring the real Student UI/LED/haptic
+dispatch; `--trigger-cue` is refused in built-in mode so a simulated
+reply cannot be mislabelled as hardware timing.
 
 Tests:
 

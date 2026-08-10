@@ -943,6 +943,96 @@ class LatencyStatsTests(unittest.TestCase):
         self.assertEqual(summarize_latency([5]).sd_ns, 0.0)
 
 
+class SelfContainedLatencyBenchmarkTests(unittest.TestCase):
+    def test_built_in_student_answers_only_valid_latency_probes(self):
+        from remote_guidance.protocol import TYPE_LATENCY_RECEIVED
+        from remote_guidance.tools.latency_benchmark import SimulatedStudentResponder
+
+        class FakeClient:
+            def __init__(self):
+                self.sent = []
+
+            def send(self, type_, payload):
+                self.sent.append((type_, payload))
+
+        client = FakeClient()
+        responder = SimulatedStudentResponder(client)
+        responder.on_message({"type": "presence", "payload": {}})
+        responder.on_message({"type": "latency.probe", "message_id": "m1", "payload": {}})
+        self.assertEqual(client.sent, [])
+
+        responder.on_message(
+            {"type": "latency.probe", "message_id": "m2", "payload": {"probe_id": "probe-2"}}
+        )
+        self.assertEqual(len(client.sent), 1)
+        message_type, payload = client.sent[0]
+        self.assertEqual(message_type, TYPE_LATENCY_RECEIVED)
+        self.assertEqual(payload["probe_id"], "probe-2")
+        self.assertEqual(payload["probe_message_id"], "m2")
+        self.assertEqual(payload["responder"], "built_in_simulated_student")
+        self.assertGreater(payload["student_receive_wall_ns"], 0)
+        self.assertGreater(payload["student_receive_monotonic_ns"], 0)
+
+    def test_cli_defaults_to_two_internal_roles_and_no_existing_room(self):
+        from remote_guidance.tools.latency_benchmark import build_parser
+
+        args = build_parser().parse_args([])
+        self.assertFalse(args.external_student)
+        self.assertEqual(args.room_id, "")
+        self.assertTrue(args.teacher_username)
+        self.assertEqual(args.student_username, "demostudent")
+
+    def test_expected_socket_close_is_not_reported_as_a_connection_failure(self):
+        from remote_guidance.network_client import ClientCallbacks, RemoteWebSocketClient
+
+        errors = []
+        client = RemoteWebSocketClient(
+            "ws://example.test/ws", "token", "room",
+            callbacks=ClientCallbacks(on_error=errors.append), auto_reconnect=False,
+        )
+
+        def close_then_wake_receiver():
+            client._stop.set()
+            raise OSError(9, "Bad file descriptor")
+
+        client._connect_once = close_then_wake_receiver
+        client._run()
+        self.assertEqual(errors, [])
+
+    def test_gui_defaults_to_relay_plus_benchmark_only(self):
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
+
+        app = QApplication.instance() or QApplication([])
+        remote = rgc.RemoteGuidanceConfig()
+        remote.network.username = "demostudent"  # last normal client on this machine
+        window = LatencyBenchmarkWindow(remote=remote)
+        self.addCleanup(window.deleteLater)
+
+        args = window.build_arguments()
+        self.assertEqual(window.username_edit.text(), "demoteacher")
+        self.assertNotIn("--external-student", args)
+        self.assertNotIn("--room-id", args)
+        self.assertIn("--student-username", args)
+        self.assertFalse(window.room_edit.isEnabled())
+        self.assertTrue(window.student_username_edit.isEnabled())
+        self.assertFalse(window.trigger_check.isEnabled())
+        self.assertTrue(window.synced_check.isChecked())
+        self.assertFalse(window.synced_check.isEnabled())
+        self.assertIn("share this computer", window.synced_check.text())
+
+        window.external_check.setChecked(True)
+        args = window.build_arguments()
+        self.assertIn("--external-student", args)
+        self.assertIn("--room-id", args)
+        self.assertTrue(window.room_edit.isEnabled())
+        self.assertFalse(window.student_username_edit.isEnabled())
+        self.assertTrue(window.trigger_check.isEnabled())
+        self.assertFalse(window.synced_check.isChecked())
+        self.assertIn("NTP", window.synced_check.text())
+
+
 class OneWayEstimateTests(unittest.TestCase):
     """RTT and one-way must never be quoted as the same kind of number."""
 
@@ -1322,7 +1412,46 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             dialog = self._dialog(role, remote)
             self.assertEqual(dialog.camera_group.index_edit.text(), index)
             self.assertEqual(dialog.port_combo.currentText(), port)
+            self.assertFalse(dialog.port_combo.isEditable())
             self.assertEqual(dialog.profile_combo.currentText(), profile)
+
+    def test_midi_port_is_a_dropdown_not_a_text_field(self):
+        dialog = self._dialog_with_ports("teacher", ["Keyboard A", "Keyboard B"])
+        self.assertFalse(dialog.port_combo.isEditable())
+        self.assertEqual(
+            [dialog.port_combo.itemText(i) for i in range(dialog.port_combo.count())],
+            ["Keyboard A", "Keyboard B"],
+        )
+        dialog.port_combo.setCurrentIndex(1)
+        self.assertEqual(dialog.port_combo.currentText(), "Keyboard B")
+
+    def test_empty_midi_scan_keeps_the_saved_port_as_the_only_option(self):
+        from PySide6.QtCore import Qt
+
+        remote = rgc.RemoteGuidanceConfig()
+        remote.teacher.midi.port_name = "Saved Teacher Keyboard"
+        dialog = self._dialog_with_ports("teacher", [], remote=remote)
+        self.assertEqual(dialog.port_combo.count(), 1)
+        self.assertEqual(dialog.port_combo.currentText(), "Saved Teacher Keyboard")
+        self.assertIn(
+            "not currently detected",
+            dialog.port_combo.itemData(0, Qt.ItemDataRole.ToolTipRole),
+        )
+
+    def test_empty_midi_scan_without_a_saved_port_stays_empty(self):
+        from unittest import mock
+
+        remote = rgc.RemoteGuidanceConfig()
+        remote.student.midi.port_name = None
+        dialog = self._dialog_with_ports("student", [], remote=remote)
+        self.assertEqual(dialog.port_combo.count(), 0)
+        self.assertEqual(dialog.port_combo.currentIndex(), -1)
+        self.assertEqual(dialog.port_combo.placeholderText(), "No MIDI inputs detected")
+        self.assertFalse(dialog.midi_test_btn.isEnabled())
+        with mock.patch("remote_guidance.settings_window.MidiListener") as listener:
+            dialog._toggle_midi_test()
+        listener.assert_not_called()
+        self.assertIn("plug in", dialog.midi_test_output.text().lower())
 
     def test_settings_use_role_themes_and_a_two_column_device_workspace(self):
         dialogs = []
@@ -1338,10 +1467,39 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             self.assertEqual(dialog.midi_test_output.objectName(), "midiMonitor")
             self.assertEqual(dialog.save_btn.property("role"), "primary")
             self.assertEqual(dialog.preview_btn.property("role"), "primary")
+            # A selected box must carry an actual tick, not merely swap
+            # from a dark square to an accent-coloured square. Likewise,
+            # spin boxes keep direct text entry but expose large, themed
+            # up/down button subcontrols instead of the tiny native glyphs.
+            self.assertIn(f"checkbox_tick_{role}.svg", dialog.styleSheet())
+            self.assertIn(f"spin_up_{role}.svg", dialog.styleSheet())
+            self.assertIn(f"spin_down_{role}.svg", dialog.styleSheet())
+            self.assertIn("QSpinBox::up-button", dialog.styleSheet())
+            self.assertIn("QSpinBox::down-button", dialog.styleSheet())
+            spin = dialog.camera_group.width_spin
+            self.assertFalse(spin.isReadOnly())
+            spin.lineEdit().setText("1440")
+            spin.interpretText()
+            self.assertEqual(spin.value(), 1440)
+            spin.stepUp()
+            self.assertEqual(spin.value(), 1441)
             self.assertLess(dialog.minimumSizeHint().height(), 700)
             self.assertLess(dialog.minimumSizeHint().width(), 1100)
 
         self.assertNotEqual(dialogs[0].styleSheet(), dialogs[1].styleSheet())
+
+    def test_no_tele_training_checkbox_style_replaces_the_native_tick_with_only_colour(self):
+        custom_indicator_files = []
+        for folder in (PROJECT_ROOT / "remote_guidance", PROJECT_ROOT / "server"):
+            for path in folder.rglob("*.py"):
+                source = path.read_text(encoding="utf-8")
+                if "QCheckBox::indicator:checked" in source:
+                    custom_indicator_files.append(path.relative_to(PROJECT_ROOT).as_posix())
+                    self.assertIn("image: url(", source, str(path))
+
+        # Every other checkbox in section 8 deliberately retains Qt's
+        # platform indicator, which already paints a real check mark.
+        self.assertEqual(custom_indicator_files, ["remote_guidance/client_styles.py"])
 
     def test_settings_status_is_a_compact_strip_with_full_text_in_its_tooltip(self):
         dialog = self._dialog("student")
@@ -1392,7 +1550,11 @@ class RemoteSettingsDialogTests(unittest.TestCase):
             dialog._refresh_ports()
 
         self.assertEqual(dialog.port_combo.currentText(), "SE25 MIDI1")
-        self.assertEqual(dialog.port_combo.count(), 2)
+        self.assertEqual(dialog.port_combo.count(), 3)
+        self.assertEqual(
+            [dialog.port_combo.itemText(i) for i in range(dialog.port_combo.count())],
+            ["SE25 MIDI1", "SE25 MIDI1 #1", "SE25 MIDI1 #2"],
+        )
         self.assertTrue(dialog.port_hint.isVisibleTo(dialog))
 
     def test_both_roles_can_temporarily_connect_and_see_pressed_notes(self):
@@ -1616,6 +1778,7 @@ class RemoteSettingsDialogTests(unittest.TestCase):
         remote = self._remote_with_distinct_roles()
         dialog = self._dialog("student", remote)
         dialog.camera_group.index_edit.setText("7")
+        dialog.port_combo.addItem("A Different Keyboard")
         dialog.port_combo.setCurrentText("A Different Keyboard")
         dialog.profile_combo.setCurrentText("new-profile")
         collected = dialog.collect()

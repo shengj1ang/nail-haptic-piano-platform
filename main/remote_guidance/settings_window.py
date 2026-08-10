@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -214,9 +214,12 @@ class RemoteSettingsDialog(QDialog):
         self.camera_group = CameraGroup("01  /  Camera", role_config.camera)
 
         self.port_combo = QComboBox()
-        # Editable: the port may belong to a keyboard that is not plugged
-        # in yet, or to the machine this config will be copied to.
-        self.port_combo.setEditable(True)
+        self.port_combo.setObjectName("midiPortCombo")
+        # This is a device picker, never a free-text field. If the saved
+        # keyboard is currently unplugged, _populate_ports() inserts that
+        # saved label as an option instead of making the combo editable.
+        self.port_combo.setEditable(False)
+        self.port_combo.setPlaceholderText("No MIDI inputs detected")
         # Two keyboards of the same model report the same name, so the list
         # can contain "... #1"/"... #2" - see the hint below and app.midi.
         self.port_hint = QLabel("")
@@ -359,9 +362,32 @@ class RemoteSettingsDialog(QDialog):
         them apart - and they can swap over when something is replugged.
         Saying that here is cheaper than debugging a lesson where the
         teacher's notes arrive from the student's keyboard."""
+        preferred = (preferred or "").strip()
+        detected = list_input_ports()
+        choices = list(detected)
+        if preferred and preferred not in choices:
+            # Preserve the saved/current selection even when nothing is
+            # plugged in. It remains visible and savable, while Refresh
+            # can add real detected devices beside it later.
+            choices.insert(0, preferred)
+
+        self.port_combo.blockSignals(True)
         self.port_combo.clear()
-        self.port_combo.addItems(list_input_ports())
-        self.port_combo.setCurrentText(preferred)
+        self.port_combo.addItems(choices)
+        if preferred:
+            self.port_combo.setCurrentIndex(self.port_combo.findText(preferred))
+            if preferred not in detected:
+                self.port_combo.setItemData(
+                    self.port_combo.currentIndex(),
+                    "Saved MIDI port; it is not currently detected on this computer.",
+                    Qt.ItemDataRole.ToolTipRole,
+                )
+        elif choices:
+            self.port_combo.setCurrentIndex(0)
+        else:
+            self.port_combo.setCurrentIndex(-1)
+        self.port_combo.blockSignals(False)
+        self.midi_test_btn.setEnabled(bool(self.port_combo.currentText().strip()))
 
         duplicates = ambiguous_port_names()
         if duplicates:
@@ -377,21 +403,29 @@ class RemoteSettingsDialog(QDialog):
         self.port_hint.setVisible(bool(duplicates))
 
     def _refresh_ports(self) -> None:
+        if self.midi_test_listener is not None:
+            self._release_midi_test("MIDI port list refreshed; test connection released.")
         self._populate_ports(self.port_combo.currentText())
 
-    def _on_midi_port_changed(self, _text: str) -> None:
+    def _on_midi_port_changed(self, text: str) -> None:
         # A running listener belongs to the old selection. Keeping it open
         # would make the readout claim to test a different keyboard and hold
         # that old device after the user had moved on.
         if self.midi_test_listener is not None:
             self._release_midi_test("MIDI selection changed; test connection released.")
+        self.midi_test_btn.setEnabled(bool(text.strip()))
 
     def _toggle_midi_test(self) -> None:
         if self.midi_test_listener is not None:
             self._release_midi_test("MIDI test disconnected.")
             return
 
-        port_name = self.port_combo.currentText().strip() or None
+        port_name = self.port_combo.currentText().strip()
+        if not port_name:
+            message = "No MIDI input is selected. Plug in a keyboard and press Refresh."
+            self.midi_test_output.setText(message)
+            self._set_status(message, "warn")
+            return
         try:
             listener = MidiListener(port_name)
         except RuntimeError as exc:
@@ -406,7 +440,7 @@ class RemoteSettingsDialog(QDialog):
         # Reflect the port actually opened without triggering the
         # currentTextChanged release path above.
         self.port_combo.blockSignals(True)
-        self.port_combo.setCurrentText(listener.port_name)
+        self._select_port(listener.port_name)
         self.port_combo.blockSignals(False)
         self.midi_test_btn.setText("Disconnect test")
         self.midi_test_output.setText(
@@ -438,13 +472,27 @@ class RemoteSettingsDialog(QDialog):
 
     def _fill_from_local(self) -> None:
         self.camera_group.set_value(replace(self.cfg.camera))
-        self.port_combo.setCurrentText(self.cfg.midi.port_name or "")
+        self._select_port(self.cfg.midi.port_name or "")
         self.profile_combo.setCurrentText(self.cfg.active_keyboard_profile)
         self._set_status(
             "Filled in from this machine's current setup. If the other role runs on this same machine, give "
             "them a different camera and MIDI port. Nothing is saved until you press Save.",
             "warn",
         )
+
+    def _select_port(self, port_name: str) -> None:
+        """Select an existing option, adding a saved/offline one if needed."""
+        port_name = (port_name or "").strip()
+        if not port_name:
+            self.port_combo.setCurrentIndex(-1)
+            self.midi_test_btn.setEnabled(False)
+            return
+        index = self.port_combo.findText(port_name)
+        if index < 0:
+            self.port_combo.addItem(port_name)
+            index = self.port_combo.count() - 1
+        self.port_combo.setCurrentIndex(index)
+        self.midi_test_btn.setEnabled(True)
 
     def _capture_profile_preview(self) -> None:
         """Preview the unsaved camera/profile values currently on screen."""

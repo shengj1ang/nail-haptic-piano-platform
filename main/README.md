@@ -809,7 +809,10 @@ different identities: Teacher is warm amber and Student is cool cyan. A
 compact command bar puts role, stage, link state and Settings on one line;
 the detailed status is one slim line below it, so the header no longer
 takes several mostly-empty rows. Long status text is available as a
-tooltip instead of forcing the window wider.
+tooltip instead of forcing the window wider. Checked boxes in either
+role now contain a real, high-contrast tick instead of relying on a fill
+colour alone. Settings' camera resolution/FPS fields still accept typed
+numbers and also expose large role-coloured up/down buttons.
 
 The Session stage is divided into workspaces instead of showing the
 camera, every control and the results table at the same time. Teacher has
@@ -1006,6 +1009,13 @@ the selection or refreshing the list releases the old test connection,
 and Save, Cancel and closing the Settings window all release it as well,
 so the client can claim the selected keyboard later when a session starts.
 
+The MIDI picker is a real, non-editable dropdown. **Refresh** lists the
+currently detected inputs. If none are connected, the role's saved port
+remains as the sole option rather than being cleared; if there is no saved
+port either, the empty control says `No MIDI inputs detected` and its test
+button is disabled. The colored down-arrow is deliberately explicit so
+the dropdown cannot be mistaken for a text box.
+
 **Give the two roles different MIDI ports.** Teacher and student normally
 use the same model of keyboard, which reports the same port name twice,
 so both dialogs list `... #1` and `... #2` and warn that the numbering
@@ -1201,12 +1211,24 @@ student is behind.
 ### Latency benchmark
 
 ```bash
-python remote_latency_benchmark.py --server http://127.0.0.1:18765 --username teacher1 --room-id <room id>
+python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
+  --username teacher1 --student-username student1
 ```
 
 or **8. Tele-training → Network Latency Benchmark** for the GUI wrapper.
+The default is self-contained: it logs in as both roles, creates a
+temporary benchmark room, connects a Teacher WebSocket and a built-in
+simulated Student WebSocket, runs the probes, then closes the room without
+deleting its database record. You therefore start only **Relay Server +
+Network Latency Benchmark**; neither full client is needed. Both accounts
+must already exist on the relay, and the GUI pre-fills the demo pair.
+
+Built-in mode measures the real network/relay route and client WebSocket
+code, but deliberately owns no Student Qt UI, LED or haptic device. Enable
+**Use an external Student Client** and provide its room id only when the
+real Student software/hardware dispatch path is the object of the test.
 Defaults follow the report's benchmark: 1000 probes at 500 ms intervals
-over one already-established WebSocket, warm-up samples recorded
+over one persistent WebSocket per endpoint, warm-up samples recorded
 separately and excluded from the statistics, unique sequence number and
 message id per probe. Output goes to
 `data/remote_guidance/latency/<run id>/` as `samples.csv`, `summary.json`
@@ -1216,7 +1238,10 @@ p99 and max for each metric.
 - **Transport RTT is the primary metric** - both stamps come from one
   monotonic clock on the teacher's machine, so no clock synchronisation
   is needed.
-- **One-way latency** is reported as a measurement only when
+- In built-in mode the two simulated endpoints share one host clock, so
+  teacher-send → built-in-student-receive is a directly measured one-way
+  duration through the relay.
+- With an external Student, **one-way latency** is reported as a measurement only when
   `--clocks-synced` asserts both hosts are NTP-synchronised *and* the
   estimated offset uncertainty is recorded with it. Otherwise the output
   shows `RTT/2`, labelled a symmetry-based estimate. Two independent

@@ -539,11 +539,19 @@ Robustness rules the relay enforces:
 Run from `main/`:
 
 ```bash
-python remote_latency_benchmark.py --server http://127.0.0.1:18765 --username teacher1 --room-id <room id>
+python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
+  --username teacher1 --student-username student1
 ```
 
+This default run is self-contained: the benchmark authenticates both
+existing accounts, creates a temporary room, joins and connects its own
+simulated Student WebSocket, then closes the room without deleting its
+database record. Only the relay and benchmark processes need to be open.
+Use `--external-student --room-id <id>` only when a real Student Client
+and its UI/LED/haptic dispatch are intentionally part of the measurement.
+
 Defaults follow the report's benchmark: **1000 probes at 500 ms
-intervals over one already-established WebSocket**, with warm-up samples
+intervals over one persistent WebSocket per endpoint**, with warm-up samples
 recorded separately and excluded from the statistics. Results land in
 `data/remote_guidance/latency/<run_id>/` as `samples.csv`,
 `summary.json` and `latency.png`.
@@ -554,8 +562,8 @@ recorded separately and excluded from the statistics. Results land in
 |---|---|
 | **Transport RTT** | teacher's `perf_counter_ns` at probe send → same clock when `latency.received` arrives. **Primary metric.** |
 | Teacher→server ack | probe send → the relay's `latency.ack`. Isolates which hop is slow. |
-| Cue-presented RTT | probe send → `latency.presented`, i.e. including the student's local cue dispatch |
-| Student dispatch duration | measured entirely on the student's own monotonic clock |
+| Cue-presented RTT | external-Student mode only: probe send → `latency.presented`, including real Student local cue dispatch |
+| Student dispatch duration | external-Student mode only: measured entirely on the real Student's monotonic clock |
 | One-way estimate | see below |
 | Loss | probes with no valid ack before the timeout, as a proportion of the run |
 

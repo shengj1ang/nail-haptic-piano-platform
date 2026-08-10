@@ -395,8 +395,12 @@ class RemoteWebSocketClient:
                 self._connect_once()
                 delay = self.reconnect_initial_delay_s  # a clean run resets backoff
             except Exception as exc:  # noqa: BLE001 - keep retrying whatever broke
-                self._emit_error(f"connection failed: {exc}")
-                self._set_state(STATE_ERROR, str(exc))
+                # stop() closes the socket specifically to wake recv().
+                # Some backends report that expected wake-up as EBADF;
+                # it is normal shutdown, not a connection failure.
+                if not self._stop.is_set():
+                    self._emit_error(f"connection failed: {exc}")
+                    self._set_state(STATE_ERROR, str(exc))
             finally:
                 self._authed.clear()
                 with self._send_lock:

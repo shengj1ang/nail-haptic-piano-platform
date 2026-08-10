@@ -1,13 +1,14 @@
 """Network latency benchmark for the relayed tele-training path.
 
-Sends simulated key/finger commands from a teacher account to a connected
-student client over one already-established WebSocket and reports what
-came back. Defaults follow the report's `System Transmission Performance
-Benchmarking`: 1000 probes at 500 ms intervals, with warm-up samples
-recorded separately and excluded from the statistics.
+By default it logs in as both a teacher and a built-in simulated student,
+creates a temporary room, opens both WebSockets and reports what came
+back. Only this process and the Relay Server are required. Defaults follow
+the report's `System Transmission Performance Benchmarking`: 1000 probes
+at 500 ms intervals, with warm-up samples recorded separately and excluded
+from the statistics.
 
     python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
-        --username teacher1 --room-id <room id>
+        --username teacher1 --student-username student1
 
     python remote_latency_benchmark.py --gui
 
@@ -18,8 +19,10 @@ when --clocks-synced asserts both hosts are NTP-synchronised and the
 offset uncertainty is recorded with it; otherwise the output shows RTT/2,
 labelled a symmetry-based estimate.
 
-Everything measured here is software dispatch/render timing. It is not
-physical LED or actuator onset - see server/README.md.
+Built-in mode measures the network/relay route and does not claim Student
+UI, LED, haptic or physical onset timing. Use `--external-student` with a
+real Student Client and room id only when that real software/hardware path
+is the object of the test - see server/README.md.
 
 Results land in data/remote_guidance/latency/<run id>/ as samples.csv,
 summary.json and latency.png.

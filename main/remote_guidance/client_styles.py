@@ -10,6 +10,11 @@ palette is changed here.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+
+ASSET_DIR = Path(__file__).with_name("assets")
+
 
 def _client_style(
     root_name: str,
@@ -21,6 +26,10 @@ def _client_style(
     accent: str,
     accent_hover: str,
     accent_text: str,
+    dropdown_arrow: Path,
+    checkbox_tick: Path,
+    spin_up_arrow: Path,
+    spin_down_arrow: Path,
 ) -> str:
     settings_name = root_name.replace("Central", "Settings")
     return f"""
@@ -184,7 +193,13 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdi
 }}
 QComboBox::drop-down {{
     border: none;
-    width: 24px;
+    border-left: 1px solid {border};
+    width: 28px;
+}}
+QComboBox::down-arrow {{
+    image: url("{dropdown_arrow.as_posix()}");
+    width: 12px;
+    height: 8px;
 }}
 QComboBox QAbstractItemView {{
     color: #edf0f4;
@@ -198,15 +213,52 @@ QCheckBox {{
     spacing: 7px;
 }}
 QCheckBox::indicator {{
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     border: 1px solid {border};
     border-radius: 4px;
     background: {background};
 }}
+QCheckBox::indicator:hover {{
+    border-color: {accent};
+}}
 QCheckBox::indicator:checked {{
     background: {accent};
     border-color: {accent};
+    image: url("{checkbox_tick.as_posix()}");
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 28px;
+    background: {surface_raised};
+    border: none;
+    border-left: 1px solid {border};
+    border-bottom: 1px solid {border};
+    border-top-right-radius: 5px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 28px;
+    background: {surface_raised};
+    border: none;
+    border-left: 1px solid {border};
+    border-bottom-right-radius: 5px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {accent_hover};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url("{spin_up_arrow.as_posix()}");
+    width: 12px;
+    height: 7px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url("{spin_down_arrow.as_posix()}");
+    width: 12px;
+    height: 7px;
 }}
 QTableWidget {{
     color: #e9edf2;
@@ -266,6 +318,10 @@ TEACHER_STYLE_SHEET = _client_style(
     accent="#f2a65a",
     accent_hover="#60432d",
     accent_text="#20150b",
+    dropdown_arrow=ASSET_DIR / "dropdown_arrow_teacher.svg",
+    checkbox_tick=ASSET_DIR / "checkbox_tick_teacher.svg",
+    spin_up_arrow=ASSET_DIR / "spin_up_teacher.svg",
+    spin_down_arrow=ASSET_DIR / "spin_down_teacher.svg",
 )
 
 TEACHER_STATUS_STYLES = {
@@ -285,6 +341,10 @@ STUDENT_STYLE_SHEET = _client_style(
     accent="#57c7ff",
     accent_hover="#24516a",
     accent_text="#071923",
+    dropdown_arrow=ASSET_DIR / "dropdown_arrow_student.svg",
+    checkbox_tick=ASSET_DIR / "checkbox_tick_student.svg",
+    spin_up_arrow=ASSET_DIR / "spin_up_student.svg",
+    spin_down_arrow=ASSET_DIR / "spin_down_student.svg",
 )
 
 STUDENT_STATUS_STYLES = {
