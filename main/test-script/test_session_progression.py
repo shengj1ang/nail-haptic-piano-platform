@@ -110,6 +110,12 @@ class TestSummaryAndFigures(unittest.TestCase):
             "group_learning_difficulty_progression_rt",
             "group_learning_difficulty_progression_key_accuracy",
         })
+        key_figure = figures[
+            "group_learning_difficulty_progression_key_accuracy"
+        ]
+        figure_notes = " ".join(text.get_text() for text in key_figure.texts)
+        self.assertIn("exceed 100%", figure_notes)
+        self.assertIn("not observed percentages", figure_notes)
         for figure in figures.values():
             self.assertEqual(len(figure.axes), 2)
             self.assertTrue(figure.legends)
@@ -139,6 +145,25 @@ class TestSummaryAndFigures(unittest.TestCase):
                 self.assertEqual(len(group_means), 3)
                 for line in group_means:
                     np.testing.assert_array_equal(line.get_xdata(), np.arange(1, 10))
+
+    def test_key_error_log_figure_uses_bounded_observed_error_rates(self):
+        figure = sp_figures.build_key_error_log_figure(
+            self.frame, self.summary)
+        self.assertEqual(len(figure.axes), 1)
+        ax = figure.axes[0]
+        self.assertEqual(ax.get_yscale(), "symlog")
+        self.assertEqual(ax.get_ylim()[0], 0)
+        self.assertIn("observed key error rate", ax.get_ylabel())
+        formatter = ax.yaxis.get_major_formatter()
+        self.assertEqual(
+            [formatter(value) for value in (0, 0.1, 1, 10)],
+            ["0", "0.1", "1", "10"],
+        )
+        group_means = [line for line in ax.lines if line.get_linewidth() > 2.0]
+        self.assertEqual(len(group_means), 3)
+        for line in group_means:
+            errors = np.asarray(line.get_ydata(), dtype=float)
+            self.assertTrue(np.all((errors >= 0) & (errors <= 100)))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter
 
 from .group_analysis import LEVEL_DISPLAY_LABELS, LEVELS
 
@@ -96,7 +97,84 @@ def build_progression_figure(
     fig.suptitle(
         f"Difficulty-aligned session progression — {metric_title}",
         fontsize=11, y=0.90)
-    fig.tight_layout(rect=(0, 0, 1, 0.82))
+    if adjusted_metric == "key_accuracy_adjusted":
+        fig.text(
+            0.75,
+            0.015,
+            "Why can adjusted values exceed 100%? Additive centering subtracts "
+            "the participant’s Condition × Difficulty mean and restores their "
+            "difficulty mean. These are adjusted display scores, not observed "
+            "percentages.",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            color="#555555",
+            wrap=True,
+        )
+        bottom_margin = 0.14
+    else:
+        bottom_margin = 0
+    fig.tight_layout(rect=(0, bottom_margin, 1, 0.82))
+    return fig
+
+
+def build_key_error_log_figure(
+        frame: pd.DataFrame, summary: pd.DataFrame) -> Figure:
+    """Observed key-error trend with near-ceiling differences expanded.
+
+    Error rate is the bounded, directly interpretable complement of observed
+    key accuracy.  A symmetric-log axis keeps exact 0% errors visible while
+    expanding the small non-zero values that are compressed in an accuracy
+    plot close to 100%.
+    """
+    fig = Figure(figsize=(10.5, 4.2))
+    ax = fig.subplots(1, 1)
+    occurrences = sorted(frame["difficulty_occurrence"].unique())
+
+    for level in LEVELS:
+        level_rows = frame[frame["level"] == level]
+        color = LEVEL_COLORS[level]
+        for _participant, participant_rows in level_rows.groupby("participant"):
+            accuracy = (participant_rows
+                        .set_index("difficulty_occurrence")["key_accuracy_raw"]
+                        .reindex(occurrences).to_numpy(dtype=float))
+            ax.plot(
+                occurrences,
+                (1.0 - accuracy) * 100,
+                color=color,
+                linewidth=0.8,
+                alpha=0.20,
+                zorder=1,
+            )
+
+        mean_rows = (summary[
+            (summary["level"] == level)
+            & (summary["metric"] == "key_accuracy_raw")
+        ].set_index("difficulty_occurrence").reindex(occurrences))
+        ax.plot(
+            occurrences,
+            (1.0 - mean_rows["mean"].to_numpy(dtype=float)) * 100,
+            color=color,
+            marker=LEVEL_MARKERS[level],
+            markersize=5,
+            linewidth=2.6,
+            label=LEVEL_DISPLAY_LABELS[level],
+            zorder=3,
+        )
+
+    ax.set_yscale("symlog", linthresh=0.1, linscale=1.0, base=10)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _position: f"{value:g}"))
+    ax.set_ylim(bottom=0)
+    ax.set_xticks(occurrences)
+    ax.set_xlabel("occurrence within difficulty (1–9)")
+    ax.set_ylabel("observed key error rate (%) — symlog scale")
+    ax.set_title(
+        "Near-ceiling key-accuracy trend shown as error rate",
+        fontsize=10,
+    )
+    ax.grid(axis="y", color="#dddddd", linewidth=0.6, alpha=0.7)
+    ax.legend(fontsize=8, frameon=False, title="Difficulty")
+    fig.tight_layout()
     return fig
 
 

@@ -4,8 +4,9 @@ Select any subset of exported Main User Study participants and get the
 group-level picture over the same within-subject design the
 single-participant window shows: condition and difficulty comparisons,
 paired condition contrasts, a descriptive speed-accuracy trade-off,
-learning/order trends, event-outcome composition, homologous per-finger
-profiles, the Condition x Finger repeated-measures ANOVA, the
+learning/order trends, Condition-A free-fingering strategy,
+event-outcome composition, homologous per-finger profiles, the
+Condition x Finger repeated-measures ANOVA, the
 finger-benefit (compensation / equalisation / weakest-finger) analyses,
 and a data-quality audit.
 
@@ -79,6 +80,7 @@ from ..participant_analysis import (
     compute_wrong_key_distance,
     wrong_key_stats,
 )
+from . import condition_a_strategy_tab
 from . import finger_benefit_tab
 from .participant_analysis_window import (
     CATEGORY_COLORS,
@@ -253,6 +255,7 @@ class GroupAnalysisWindow(QMainWindow):
         self._add_tab("Contrasts", *self._build_contrasts())
         self._add_tradeoff_tab()
         self._add_tab("Learning / Order", *self._build_learning())
+        self._add_tab("Condition A Strategy", *self._build_condition_a_strategy())
         self._add_tab("Errors", *self._build_errors())
         self._add_tab("Fingers", *self._build_fingers())
         self._add_tab("RM-ANOVA", *self._build_rm_anova())
@@ -944,6 +947,10 @@ class GroupAnalysisWindow(QMainWindow):
             difficulty_progression)
         difficulty_figures = sp_figures.build_difficulty_progression_figures(
             difficulty_progression, difficulty_progression_summary)
+        difficulty_figures[
+            "group_learning_difficulty_progression_key_error_log"
+        ] = sp_figures.build_key_error_log_figure(
+            difficulty_progression, difficulty_progression_summary)
 
         caption = (
             "<h3>Learning / order</h3>"
@@ -971,7 +978,12 @@ class GroupAnalysisWindow(QMainWindow):
             "primary view; key accuracy is a companion because its definition is directly comparable "
             "across the full data set. Adjusted key-accuracy values are centred display scores and can therefore "
             "fall slightly outside 0–100%; the observed panel contains the actual percentages. This "
-            "remains descriptive and does not make a condition-effect claim.</p>")
+            "remains descriptive and does not make a condition-effect claim.</p>"
+            "<p><b>Near-ceiling key-accuracy trend:</b> the final figure uses only observed values and "
+            "plots key error rate (100% − key accuracy) on a symmetric-log scale. Lower is better. "
+            "The small linear region around 0 keeps perfect trials visible, while the logarithmic "
+            "region separates small non-zero error rates that overlap near 100% accuracy. No adjusted "
+            "scores are used in this figure.</p>")
         datasets = {
             "learning_within_cell_repetition": ga.within_cell_repetition(
                 [t for t in self._data.trial_rows
@@ -989,6 +1001,12 @@ class GroupAnalysisWindow(QMainWindow):
                    "group_learning_session_position": fig2}
         figures.update(difficulty_figures)
         return caption, figures, datasets
+
+    # ------------------------------------------------------------------
+    # Condition A free-fingering strategy
+
+    def _build_condition_a_strategy(self):
+        return condition_a_strategy_tab.build(self._data.event_rows)
 
     # ------------------------------------------------------------------
     # Errors

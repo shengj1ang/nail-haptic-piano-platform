@@ -1,7 +1,7 @@
 """Coverage tests for the Group Analysis window's "Export figures + data".
 
 The export used to be opt-in: each tab had to remember to register its
-own figures and tables, and six of the ten tabs never did - so the button
+own figures and tables, and six of the tabs never did - so the button
 silently wrote three tabs' worth of output and looked like it had worked.
 Registration now happens in _add_tab, and these tests are what keeps it
 that way:
@@ -33,6 +33,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from app import condition_a_strategy as cas  # noqa: E402
 from app import group_analysis as ga  # noqa: E402
 from app.gui import group_analysis_window as gaw  # noqa: E402
 from finger_fixtures import make_events  # noqa: E402
@@ -47,6 +48,7 @@ TAB_TABLE_PREFIXES = {
     "Contrasts": "contrasts_",
     "Trade-off": "group_tradeoff",
     "Learning / Order": "learning_",
+    "Condition A Strategy": "condition_a_",
     "Errors": "errors_",
     "Fingers": "fingers_",
     "RM-ANOVA": "rm_anova_",
@@ -60,6 +62,7 @@ TAB_FIGURE_PREFIXES = {
     "Contrasts": "group_contrasts",
     "Trade-off": "group_tradeoff",
     "Learning / Order": "group_learning",
+    "Condition A Strategy": "group_condition_a",
     "Errors": "group_errors",
     "Fingers": "group_fingers",
     "RM-ANOVA": "group_rm_anova",
@@ -123,6 +126,7 @@ def build_window():
     w._add_tab("Contrasts", *w._build_contrasts())
     w._add_tradeoff_tab()
     w._add_tab("Learning / Order", *w._build_learning())
+    w._add_tab("Condition A Strategy", *w._build_condition_a_strategy())
     w._add_tab("Errors", *w._build_errors())
     w._add_tab("Fingers", *w._build_fingers())
     w._add_tab("RM-ANOVA", *w._build_rm_anova())
@@ -183,11 +187,28 @@ class TestExportCoverage(unittest.TestCase):
                      "learning_session_position",
                      "learning_difficulty_progression_trials",
                      "learning_difficulty_progression_group_summary",
+                     "condition_a_trial_strategy",
                      "errors_participant_proportions",
                      "fingers_participant_cells",
                      "quality_participant_audit",
                      "finger_benefit_cells"):
             self.assertIn(slug, self.window._datasets)
+
+    def test_condition_a_has_participant_hand_and_finger_usage_views(self):
+        for slug in (
+                "group_condition_a_hand_usage_by_participant",
+                "group_condition_a_finger_usage_by_participant"):
+            self.assertIn(slug, self.window._figures)
+        hand_usage = self.window._datasets["condition_a_hand_usage"]
+        self.assertEqual(set(hand_usage["hand"]), {"L", "R"})
+        totals = hand_usage.groupby("participant")["share_pct"].sum()
+        np.testing.assert_allclose(totals.to_numpy(dtype=float), 100)
+        heatmap = self.window._figures[
+            "group_condition_a_finger_usage_by_participant"
+        ]
+        labels = [tick.get_text().split("\n")[0]
+                  for tick in heatmap.axes[0].get_xticklabels()]
+        self.assertEqual(labels, cas.SPATIAL_FINGER_ORDER)
 
     def test_inferential_performance_exports_exclude_condition_a(self):
         for slug in ("condition_difficulty_participant_cells",
