@@ -536,6 +536,37 @@ def count_extra_presses(results: List[QuizResult], midi_raw_path: Path) -> Optio
     }
 
 
+def scored_near_tie(r: QuizResult) -> bool:
+    """Event scored finger-correct while a *different* fingertip was the
+    reported one - the cued finger cleared theta from second place, or
+    from a dead tie the inside-the-key preference broke the other way.
+
+    actual_finger answers "which fingertip did the detector report?" and
+    finger_correct answers "did the cued finger keep at least theta of the
+    mass?" (see app.finger_matching), so the two disagree legitimately.
+    Every view that shows both - the detail table, the review video - uses
+    this to label the disagreement instead of leaving a tick beside a
+    different finger. Nothing derives a verdict from it."""
+    return (
+        bool(r.finger_correct)
+        and r.actual_finger is not None
+        and r.target_finger is not None
+        and r.actual_finger != r.target_finger
+    )
+
+
+def subthreshold_match(r: QuizResult) -> bool:
+    """The mirror of scored_near_tie(): the reported fingertip *is* the
+    cued one, yet the event failed the rule because that finger never held
+    theta of the mass - three fingertips over the same key split it. Shown
+    so a cross beside a matching finger has a visible reason."""
+    return (
+        r.finger_correct is False
+        and r.actual_finger is not None
+        and r.actual_finger == r.target_finger
+    )
+
+
 def finger_manually_corrected(r: QuizResult) -> bool:
     """Was this event's actual_finger hand-corrected in the event review
     window? Corrections made since QuizResult.finger_corrected exists say
