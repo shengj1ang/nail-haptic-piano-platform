@@ -74,6 +74,7 @@ from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
+from app.gui.single_song_metrics_window import SingleSongMetricsWindow
 from app.gui.validation_experiment_window import (
     AdhesionComparisonWindow,
     AmplitudeSweepWindow,
@@ -186,6 +187,7 @@ SECTIONS = [
         [
             ("Experiment Sequence Generator", SequenceGeneratorWindow),
             ("Sequence/Music Metrics", SequenceMetricsWindow),
+            ("Single Song Complexity Evaluation", SingleSongMetricsWindow),
         ],
     ),
     (
