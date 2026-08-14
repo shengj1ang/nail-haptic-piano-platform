@@ -49,7 +49,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, Rectangle
 from PySide6.QtCore import Qt
 from scipy import stats as sstats
 from PySide6.QtWidgets import (
@@ -63,7 +63,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -78,10 +77,14 @@ from ..participant_analysis import (
     CATEGORIES,
     compute_error_breakdown,
     compute_wrong_key_distance,
+    top_confusion,
     wrong_key_stats,
 )
 from . import condition_a_strategy_tab
 from . import finger_benefit_tab
+from .analysis_export import export_analysis
+from .progress_task import run_with_progress
+from .wrapping_tabs import WrappingTabWidget
 from .participant_analysis_window import (
     CATEGORY_COLORS,
     CONDITION_COLORS,
@@ -94,6 +97,9 @@ LEVELS = ga.LEVELS
 LEVEL_DISPLAY_LABELS = ga.LEVEL_DISPLAY_LABELS
 LEVEL_TICK_LABELS = ga.LEVEL_TICK_LABELS
 PARTICIPANT_LINE = "#9a9a9a"
+# Outlines the confusion cells the theta rule forgave, matching the amber
+# the per-trial matrix uses for the same events (app/gui/quiz_detail_window.py).
+NEAR_TIE_COLOR = "#e0a020"
 
 
 # Formatting lives in .stats_format so the "&lt;" rule (a bare "<" in a
@@ -150,7 +156,7 @@ class GroupAnalysisWindow(QMainWindow):
         self.status_label = QLabel(
             "Tick the participants to include, then click “Analyse selected participants”.")
         self.status_label.setWordWrap(True)
-        self.tabs = QTabWidget()
+        self.tabs = WrappingTabWidget()
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -250,18 +256,54 @@ class GroupAnalysisWindow(QMainWindow):
         self._cells = ga.participant_cell_metrics(data.trial_rows)
         self._cond_titles = self._condition_titles(data.trial_rows)
 
-        self._add_tab("Overview", *self._build_overview())
-        self._add_tab("Condition × Difficulty", *self._build_condition_difficulty())
-        self._add_tab("Contrasts", *self._build_contrasts())
-        self._add_tradeoff_tab()
-        self._add_tab("Learning / Order", *self._build_learning())
-        self._add_tab("Condition A Strategy", *self._build_condition_a_strategy())
-        self._add_tab("Errors", *self._build_errors())
-        self._add_tab("Fingers", *self._build_fingers())
-        self._add_tab("RM-ANOVA", *self._build_rm_anova())
-        self._add_tab("Finger Benefit", *self._build_finger_benefit())
-        self._add_tab("Quality", *self._build_quality())
+        if not run_with_progress(self, "Analyzing group data",
+                                 [(title, self._tab_runner(title, build))
+                                  for title, build in self._tab_builders()]):
+            # A half-built window would export a partial set of figures as
+            # though it were the whole analysis, so cancelling leaves
+            # nothing rather than something misleading.
+            self.tabs.clear()
+            self._figures.clear()
+            self._datasets.clear()
+            self.status_label.setText("Analysis cancelled — nothing to show or export.")
+            return
         self.save_figs_btn.setEnabled(True)
+
+    def _tab_builders(self):
+        """Every tab in display order, as (title, builder).
+
+        This list is the analysis: _analyze() walks it and the progress
+        dialog sizes itself from it, so adding an analysis means adding one
+        line here and nothing else - no count to bump, no label to keep in
+        step. test_group_analysis_window.py asserts the built tabs match
+        this list, which is what catches a tab added anywhere else.
+
+        A builder returns the (caption, figures, datasets) triple that
+        _add_tab takes, or None if it adds its own tab - the trade-off tab
+        does, because it owns display toggles that rebuild its figures.
+        """
+        return [
+            ("Overview", self._build_overview),
+            ("Condition × Difficulty", self._build_condition_difficulty),
+            ("Contrasts", self._build_contrasts),
+            ("Trade-off", self._add_tradeoff_tab),
+            ("Learning / Order", self._build_learning),
+            ("Condition A Strategy", self._build_condition_a_strategy),
+            ("Errors", self._build_errors),
+            ("Fingers", self._build_fingers),
+            ("Finger Confusion", self._build_finger_confusion),
+            ("RM-ANOVA", self._build_rm_anova),
+            ("Finger Benefit", self._build_finger_benefit),
+            ("Quality", self._build_quality),
+        ]
+
+    def _tab_runner(self, title: str, build):
+        """Wrap a builder as a no-argument step for run_with_progress."""
+        def run() -> None:
+            result = build()
+            if result is not None:  # None = the builder added its own tab
+                self._add_tab(title, *result)
+        return run
 
     @staticmethod
     def _condition_titles(trial_rows: List[dict]) -> Dict[str, str]:
@@ -840,58 +882,29 @@ class GroupAnalysisWindow(QMainWindow):
         return "".join(f"<p>{line}</p>" for line in lines)
 
     def _save_figures(self) -> None:
-        """Export figures + data (participant-window pattern): every
-        figure on every tab as 300 dpi PNG + SVG, every tidy table behind
-        them as CSV, plus a manifest, under
+        """Export figures + data: every figure on every tab as PNG + SVG,
+        every tidy table behind them as CSV, plus a manifest, under
         data/MainUserStudy/group_figures/.
 
         Registration happens in _add_tab, so this writes exactly what the
-        window is showing. One unwritable file is reported and skipped
-        rather than aborting the other fifty."""
-        out_dir = STUDY_DATA_DIR / "group_figures"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        manifest, figs, csvs, failures = [], 0, 0, []
+        window is showing. The writing itself, and its progress dialog,
+        live in app.gui.analysis_export - shared with the participant
+        window, which exports the same way under a per-participant prefix.
 
-        for slug, fig in sorted(self._figures.items()):
-            try:
-                fig.savefig(out_dir / f"{slug}.png", dpi=300, bbox_inches="tight")
-                fig.savefig(out_dir / f"{slug}.svg", bbox_inches="tight")
-            except Exception as e:
-                failures.append(f"{slug}.png/.svg ({type(e).__name__}: {e})")
-                continue
-            figs += 1
-            manifest.append({"file": f"{slug}.png / {slug}.svg", "kind": "figure",
-                             "rows": "", "columns": ""})
-        for slug, df in sorted(self._datasets.items()):
-            try:
-                df.to_csv(out_dir / f"{slug}.csv", index=False)
-            except Exception as e:
-                failures.append(f"{slug}.csv ({type(e).__name__}: {e})")
-                continue
-            csvs += 1
-            manifest.append({"file": f"{slug}.csv", "kind": "table",
-                             "rows": len(df), "columns": ", ".join(map(str, df.columns))})
-
-        # The manifest makes a flat folder of ~60 files navigable, and
-        # records WHICH participants and analysis the export came from -
-        # a CSV sitting in a report appendix has to be self-identifying.
-        header = pd.DataFrame([{
-            "file": "(export)", "kind": "provenance",
+        The manifest makes a flat folder of ~110 files navigable, and its
+        provenance row records WHICH participants the export came from - a
+        CSV lifted into a report appendix has to be self-identifying."""
+        provenance = {
             "rows": f"N = {self._data.n}",
             "columns": (f"participants: {', '.join(self._data.included)}; "
                         f"{len(self._data.trial_rows)} trials, "
                         f"{len(self._data.event_rows)} events "
                         f"({len(ga.valid_events(self._data.event_rows))} valid); "
                         f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
-        }])
-        pd.concat([header, pd.DataFrame(manifest)], ignore_index=True).to_csv(
-            out_dir / "_manifest.csv", index=False)
-
-        msg = (f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs "
-               f"+ _manifest.csv to {out_dir}")
-        if failures:
-            msg += "  —  FAILED: " + "; ".join(failures)
-        self.status_label.setText(msg)
+        }
+        self.status_label.setText(export_analysis(
+            self, STUDY_DATA_DIR / "group_figures",
+            self._figures, self._datasets, provenance))
 
     # ------------------------------------------------------------------
     # Learning / order
@@ -1117,6 +1130,144 @@ class GroupAnalysisWindow(QMainWindow):
         }
         return caption, {"group_errors_composition": fig1,
                          "group_errors_correct_key_wrong_finger": fig2}, datasets
+
+    # ------------------------------------------------------------------
+    # Finger confusion, pooled over every participant and trial
+
+    def _draw_confusion(self, ax, grid: dict, title: str, normalized: bool,
+                        vmax: float, cell_fontsize: float) -> None:
+        """One target x detected heatmap, with the cells the scoring rule
+        forgave outlined rather than left to read as errors.
+
+        An off-diagonal cell where every event still passed is adjacent-
+        fingertip ambiguity, not a substitution, so it gets a solid amber
+        outline; a partly-passed cell gets a dashed one. This is the same
+        distinction the per-trial matrix in the quiz detail window draws
+        with cell tints - without it a pooled matrix looks like it
+        disagrees with the group's finger accuracy."""
+        matrix = np.array(grid["matrix"], dtype=float)
+        passed = np.array(grid["passed"], dtype=float)
+        shown = matrix
+        if normalized:
+            sums = matrix.sum(axis=1, keepdims=True)
+            shown = np.divide(matrix * 100, sums, out=np.zeros_like(matrix), where=sums > 0)
+        ax.imshow(shown, cmap="Blues", vmin=0, vmax=vmax)
+        n = len(ga.FINGER_ORDER)
+        for i in range(n):
+            for j in range(n):
+                v = shown[i][j]
+                if v >= 0.5:
+                    ax.text(j, i, f"{v:.0f}", ha="center", va="center", fontsize=cell_fontsize,
+                            color="white" if v > 0.55 * vmax else "#1a3a5c")
+                if i != j and passed[i][j] > 0:
+                    ax.add_patch(Rectangle(
+                        (j - 0.5, i - 0.5), 1, 1, fill=False, linewidth=1.3,
+                        edgecolor=NEAR_TIE_COLOR,
+                        linestyle="-" if passed[i][j] == matrix[i][j] else (0, (2, 1)),
+                    ))
+        ax.set_xticks(range(n), ga.FINGER_ORDER, fontsize=7)
+        ax.set_yticks(range(n), ga.FINGER_ORDER, fontsize=7)
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_title(title, fontsize=10)
+        ax.set_xlabel("detected finger", fontsize=8)
+
+    def _build_finger_confusion(self):
+        events = self._data.event_rows
+        confusion_df = ga.finger_confusion(events)
+        # The headline matrix pools the two *cued* conditions only. A shows
+        # the same axes but cannot be read the same way - nobody was told
+        # which finger to use, so its off-diagonal mass is free choice, not
+        # error, and folding it in would drag the diagonal down by a third
+        # for a reason that has nothing to do with execution or detection.
+        # A gets its own panel in fig 2, and the all-condition totals are
+        # still reported in the caption and exported.
+        guided = ga.confusion_grid(confusion_df, ga.GUIDANCE_CONDITIONS)
+        pooled = ga.confusion_grid(confusion_df)
+        by_cond = {c: ga.confusion_grid(confusion_df, c) for c in CONDITIONS}
+        totals = ga.confusion_totals(guided)
+        all_totals = ga.confusion_totals(pooled)
+
+        # Fig 1: every participant and every cued trial in one matrix.
+        fig1 = Figure(figsize=(10.5, 5.4))
+        ax_counts, ax_norm = fig1.subplots(1, 2)
+        vmax = max((max(row) for row in guided["matrix"]), default=1) or 1
+        self._draw_confusion(ax_counts, guided, f"Event counts (n = {guided['total']})",
+                             normalized=False, vmax=vmax, cell_fontsize=6.5)
+        self._draw_confusion(ax_norm, guided, "Row-normalized % per target finger",
+                             normalized=True, vmax=100.0, cell_fontsize=6.5)
+        ax_counts.set_ylabel("target finger", fontsize=8)
+        fig1.suptitle(
+            f"Target vs detected finger — all {self._data.n} participants, all cued trials "
+            f"(B + C) pooled", fontsize=11)
+        fig1.legend(handles=[
+            Patch(facecolor="none", edgecolor=NEAR_TIE_COLOR, label="all events passed θ (near-tie)"),
+            Patch(facecolor="none", edgecolor=NEAR_TIE_COLOR, linestyle="--",
+                  label="some passed θ, some did not"),
+        ], loc="lower center", ncol=2, fontsize=7, frameon=False)
+        fig1.tight_layout(rect=(0, 0.06, 1, 1))
+
+        # Fig 2: the same thing split by condition, row-normalized so the
+        # unequal event counts per cell don't drive the colour.
+        fig2 = Figure(figsize=(10.5, 4.0))
+        axes = fig2.subplots(1, len(CONDITIONS))
+        for ax, c in zip(axes, CONDITIONS):
+            self._draw_confusion(ax, by_cond[c],
+                                 f"{self._cond_titles[c]} (n = {by_cond[c]['total']})",
+                                 normalized=True, vmax=100.0, cell_fontsize=6.0)
+        axes[0].set_ylabel("target finger", fontsize=8)
+        fig2.suptitle("Row-normalized % per target finger, by condition", fontsize=11)
+        fig2.tight_layout()
+
+        top = top_confusion(guided["matrix"])
+        lines = [
+            "<h3>Finger confusion pooled across the whole study</h3>",
+            "Rows are the cued finger, columns the fingertip the detector reported (its softmax "
+            "argmax), both in physical order L5→R5, so neighbouring-finger substitutions sit next "
+            "to the diagonal and cross-hand errors land outside the hand's block.",
+            f"Of {guided['total']} cued events (B + C): <b>{totals['diagonal']}</b> on the "
+            f"diagonal, <b>{totals['near_tie']}</b> off-diagonal that still scored correct "
+            "(outlined amber — the cued finger held at least θ of the probability mass while a "
+            f"neighbour was fractionally more probable), <b>{totals['substitution']}</b> "
+            f"off-diagonal that did not, and <b>{totals['unresolved']}</b> unresolved (no fingertip "
+            "detected; kept out of the grid and listed per target finger below).",
+            "<b>Off the diagonal is therefore not the same as an error.</b> The amber cells are "
+            "detector ambiguity between two adjacent fingertips over one key, and they are scored "
+            "as the right finger — the same reading the per-trial matrix in the quiz detail window "
+            "shows. Only the un-outlined off-diagonal cells are finger substitutions.",
+        ]
+        if top:
+            lines.append(f"Most frequent off-diagonal cell in B + C: target {top['target']} "
+                         f"detected as {top['actual']} (n = {top['n']}).")
+        unres = {f: n for f, n in guided["unresolved"].items() if n}
+        if unres:
+            lines.append("Unresolved by target finger: "
+                         + ", ".join(f"{f}: {n}" for f, n in unres.items()) + ".")
+        lines.append(
+            "<b>Condition A is not in the pooled matrix above.</b> It has no target-finger cue, so "
+            "its off-diagonal mass is free choice rather than error and pooling it would move the "
+            "diagonal for a reason that is not about execution or detection. It has its own panel "
+            f"below, and for reference all three conditions together come to {pooled['total']} "
+            f"events: {all_totals['diagonal']} diagonal, {all_totals['near_tie']} near-tie, "
+            f"{all_totals['substitution']} off-diagonal, {all_totals['unresolved']} unresolved "
+            "(also in the exported totals table).")
+        lines.append("Descriptive only; the inferential comparisons are in Contrasts and RM-ANOVA.")
+        caption = "".join(f"<p>{line}</p>" for line in lines)
+
+        totals_df = pd.DataFrame([
+            {"condition": c, **ga.confusion_totals(by_cond[c]), "total": by_cond[c]["total"]}
+            for c in CONDITIONS
+        ] + [
+            {"condition": "B+C", **totals, "total": guided["total"]},
+            {"condition": "all", **all_totals, "total": pooled["total"]},
+        ])
+        datasets = {
+            "confusion_group_long": confusion_df,
+            "confusion_group_totals": totals_df,
+        }
+        return caption, {"group_confusion_pooled": fig1,
+                         "group_confusion_by_condition": fig2}, datasets
 
     # ------------------------------------------------------------------
     # Fingers

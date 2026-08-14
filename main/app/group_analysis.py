@@ -86,7 +86,7 @@ import csv
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -108,6 +108,7 @@ from .participant_analysis import (  # noqa: F401  (re-exported)
     GUIDANCE_CONDITIONS,
     LEVELS,
     THRESHOLD_SENSITIVITY_VALUES,
+    UNRESOLVED,
     VALIDITY_INVALID_CARRYOVER,
     classify_event_outcome,
     participant_cell_metrics,
@@ -627,6 +628,88 @@ def finger_cell_descriptives(pf_df: pd.DataFrame, metric: str = "fa",
         return pd.DataFrame(columns=["condition", "finger_id", "n", "mean", "sd",
                                      "sem", "ci95_lo", "ci95_hi"])
     return group_center(frame, metric, ["condition", "finger_id"])
+
+
+# ---------------------------------------------------------------------------
+# Pooled finger confusion
+
+def finger_confusion(event_rows: List[dict]) -> pd.DataFrame:
+    """Target vs detected finger pooled over every participant and trial.
+
+    One row per (condition, target_finger, actual_finger) with two counts,
+    because they answer different questions and the difference is easy to
+    misread:
+
+      n       how many events landed in the cell;
+      passed  how many of those still scored finger-correct.
+
+    The detected finger is the softmax argmax while the verdict is the
+    theta rule on the *target* finger's mass (app.finger_matching), so an
+    off-diagonal cell whose events all passed is adjacent-fingertip
+    ambiguity the scoring forgave, not a substitution the participant
+    made. Without `passed` a pooled matrix looks like it contradicts the
+    group's finger accuracy - the same reason the per-trial matrix in the
+    quiz detail window carries both.
+
+    actual_finger is UNRESOLVED where no fingertip was detected. Timeouts
+    and events with no cued finger are out; carry-over exclusions are
+    already gone via valid_events().
+    """
+    counts: Dict[tuple, List[int]] = {}
+    for e in valid_events(event_rows):
+        if e["timed_out"] or e["target_finger"] not in FINGER_ORDER:
+            continue
+        actual = e["actual_finger"] if e["actual_finger"] in FINGER_ORDER else UNRESOLVED
+        cell = counts.setdefault((e["condition"], e["target_finger"], actual), [0, 0])
+        cell[0] += 1
+        cell[1] += 1 if e["finger_correct"] else 0
+    return pd.DataFrame(
+        [{"condition": c, "target_finger": t, "actual_finger": a, "n": n, "passed": p}
+         for (c, t, a), (n, p) in sorted(counts.items())]
+    )
+
+
+def confusion_grid(confusion_df: pd.DataFrame,
+                   conditions: Optional[Sequence[str]] = None) -> Dict[str, object]:
+    """10x10 count and passed grids over the given conditions - one, several
+    (GUIDANCE_CONDITIONS pools the two cued ones), or every condition when
+    None. Rows target, columns detected, both in FINGER_ORDER, plus
+    per-target unresolved counts and the total behind the grid."""
+    sub = confusion_df
+    if conditions is not None and len(sub):
+        wanted = [conditions] if isinstance(conditions, str) else list(conditions)
+        sub = sub[sub["condition"].isin(wanted)]
+    matrix = [[0] * len(FINGER_ORDER) for _ in FINGER_ORDER]
+    passed = [[0] * len(FINGER_ORDER) for _ in FINGER_ORDER]
+    unresolved = {f: 0 for f in FINGER_ORDER}
+    total = 0
+    for row in sub.itertuples():
+        total += row.n
+        if row.actual_finger == UNRESOLVED:
+            unresolved[row.target_finger] += row.n
+            continue
+        i = FINGER_ORDER.index(row.target_finger)
+        j = FINGER_ORDER.index(row.actual_finger)
+        matrix[i][j] += row.n
+        passed[i][j] += row.passed
+    return {"matrix": matrix, "passed": passed, "unresolved": unresolved, "total": total}
+
+
+def confusion_totals(grid: Dict[str, object]) -> Dict[str, int]:
+    """Headline counts for a grid: events on the diagonal, off-diagonal
+    events that still scored correct (near-ties), off-diagonal events that
+    did not (genuine substitutions), and unresolved."""
+    matrix, passed = grid["matrix"], grid["passed"]
+    n = len(FINGER_ORDER)
+    diagonal = sum(matrix[i][i] for i in range(n))
+    off = sum(matrix[i][j] for i in range(n) for j in range(n) if i != j)
+    off_passed = sum(passed[i][j] for i in range(n) for j in range(n) if i != j)
+    return {
+        "diagonal": diagonal,
+        "near_tie": off_passed,
+        "substitution": off - off_passed,
+        "unresolved": sum(grid["unresolved"].values()),
+    }
 
 
 # ---------------------------------------------------------------------------

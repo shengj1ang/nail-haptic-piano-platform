@@ -23,6 +23,9 @@ from app.group_analysis import (  # noqa: E402
     cell_availability,
     condition_inference,
     condition_pivot,
+    confusion_grid,
+    confusion_totals,
+    finger_confusion,
     group_center,
     load_group,
     load_participant_rows,
@@ -451,6 +454,60 @@ class TestInference(unittest.TestCase):
         # monotonicity lifts 0.04*1 to 0.06 as well.
         self.assertEqual(_holm([0.01, 0.04, 0.03]), [0.03, 0.06, 0.06])
         self.assertEqual(_holm([0.5]), [0.5])
+
+
+class TestFingerConfusion(unittest.TestCase):
+    """The pooled matrix has to keep "detected finger" and "scored
+    correct" apart - they are different questions and an off-diagonal
+    cell can be either kind (see app.finger_matching)."""
+
+    def events(self):
+        return [
+            # on the diagonal
+            event(condition="B", target_finger="R2", actual_finger="R2", finger_correct=True),
+            # off-diagonal but scored correct: near-tie, not a substitution
+            event(condition="B", target_finger="R3", actual_finger="R2", finger_correct=True),
+            # off-diagonal and failed: a real substitution
+            event(condition="B", target_finger="R4", actual_finger="R3", finger_correct=False),
+            # no fingertip detected
+            event(condition="C", target_finger="L2", actual_finger=None, finger_correct=False),
+            # excluded before it reaches the grid
+            event(condition="C", target_finger="L1", actual_finger="L1",
+                     validity="invalid_carryover"),
+            event(condition="C", target_finger="L1", actual_finger=None,
+                     finger_correct=None, timed_out=True),
+        ]
+
+    def test_long_form_carries_n_and_passed(self):
+        df = finger_confusion(self.events())
+        row = df[(df["target_finger"] == "R3") & (df["actual_finger"] == "R2")].iloc[0]
+        self.assertEqual((int(row["n"]), int(row["passed"])), (1, 1))
+        row = df[(df["target_finger"] == "R4")].iloc[0]
+        self.assertEqual((int(row["n"]), int(row["passed"])), (1, 0))
+        # carry-over and timeout never reach the table
+        self.assertNotIn("L1", set(df["target_finger"]))
+
+    def test_totals_split_near_tie_from_substitution(self):
+        grid = confusion_grid(finger_confusion(self.events()))
+        totals = confusion_totals(grid)
+        self.assertEqual(totals["diagonal"], 1)
+        self.assertEqual(totals["near_tie"], 1)       # R3 detected as R2, still passed
+        self.assertEqual(totals["substitution"], 1)   # R4 detected as R3, failed
+        self.assertEqual(totals["unresolved"], 1)
+        self.assertEqual(sum(totals.values()), grid["total"])
+
+    def test_grid_filters_by_condition(self):
+        df = finger_confusion(self.events())
+        self.assertEqual(confusion_grid(df, "B")["total"], 3)
+        self.assertEqual(confusion_grid(df, "C")["total"], 1)
+        # a sequence pools, which is how the guided-only matrix is built
+        self.assertEqual(confusion_grid(df, ["B", "C"])["total"], 4)
+        self.assertEqual(confusion_grid(df)["total"], 4)
+
+    def test_unresolved_stays_out_of_the_grid(self):
+        grid = confusion_grid(finger_confusion(self.events()), "C")
+        self.assertEqual(grid["unresolved"]["L2"], 1)
+        self.assertEqual(sum(sum(row) for row in grid["matrix"]), 0)
 
 
 if __name__ == "__main__":

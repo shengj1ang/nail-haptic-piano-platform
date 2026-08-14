@@ -54,7 +54,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -90,6 +89,9 @@ from ..participant_export import collect_participant_data
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..pilot_study import list_participants
 from ..sequence_generator import LEVEL_DISPLAY, LEVEL_TICK_LABEL
+from .analysis_export import export_analysis
+from .progress_task import run_with_progress
+from .wrapping_tabs import WrappingTabWidget
 from .stats_format import fmt, fmt_signed
 
 CATEGORY_COLORS = {
@@ -165,7 +167,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         top.addWidget(analyze_btn)
         top.addWidget(self.save_figs_btn)
 
-        self.tabs = QTabWidget()
+        self.tabs = WrappingTabWidget()
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -222,70 +224,79 @@ class ParticipantAnalysisWindow(QMainWindow):
         self._figures: Dict[str, Figure] = {}
         # slug -> tidy DataFrame written next to the figures on export.
         self._datasets: Dict[str, object] = {}
-        self._add_tab("Overview", *self._build_overview(participant, trials))
-        self._add_tab("Learning", *self._build_learning(trials))
-        self._add_tab("Difficulty", *self._build_difficulty(trials))
-        self._add_tab("Trade-off", *self._build_tradeoff(trials))
-        self._add_tab("Errors", *self._build_errors(trials, events))
-        self._add_confusion_tab(trials, events)
-        self._add_tab("Fingers", *self._build_fingers(events))
-        self._add_tab("Finger benefit", *self._build_finger_benefit(events))
-        self._add_tab("Timing", *self._build_timing(events))
-        self._add_tab("Quality", *self._build_quality(trials, all_events))
+        if not run_with_progress(self, f"Analyzing {participant}",
+                                 [(title, self._tab_runner(title, build))
+                                  for title, build in self._tab_builders()]):
+            # A half-built window would export a partial set of figures as
+            # though it were the whole analysis, so cancelling leaves
+            # nothing rather than something misleading.
+            self.tabs.clear()
+            self._figures.clear()
+            self._datasets.clear()
+            self.status_label.setText("Analysis cancelled — nothing to show or export.")
+            return
         self.save_figs_btn.setEnabled(True)
 
     def _save_figures(self) -> None:
-        """Every figure as a 300 dpi PNG and an SVG, every tidy table as
-        a CSV, plus a manifest - all named <participant>_<slug>.* so the
-        report can cite files verbatim.
+        """Every figure as a PNG and an SVG, every tidy table as a CSV,
+        plus a manifest - all named <participant>_<slug>.* so the report
+        can cite files verbatim.
 
         Registration happens in _add_tab, so this writes exactly what the
-        window is showing. One unwritable file is reported and skipped
-        rather than aborting the rest."""
-        out_dir = STUDY_DATA_DIR / self._participant / "figures"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        prefix = self._participant
-        manifest, figs, csvs, failures = [], 0, 0, []
+        window is showing. The writing itself, and its progress dialog,
+        live in app.gui.analysis_export - shared with the group window,
+        which exports the same way without the participant prefix.
 
-        for slug, fig in sorted(self._figures.items()):
-            try:
-                fig.savefig(out_dir / f"{prefix}_{slug}.png", dpi=300, bbox_inches="tight")
-                fig.savefig(out_dir / f"{prefix}_{slug}.svg", bbox_inches="tight")
-            except Exception as e:
-                failures.append(f"{prefix}_{slug}.png/.svg ({type(e).__name__}: {e})")
-                continue
-            figs += 1
-            manifest.append({"file": f"{prefix}_{slug}.png / {prefix}_{slug}.svg",
-                             "kind": "figure", "rows": "", "columns": ""})
-        for slug, df in sorted(self._datasets.items()):
-            try:
-                df.to_csv(out_dir / f"{prefix}_{slug}.csv", index=False)
-            except Exception as e:
-                failures.append(f"{prefix}_{slug}.csv ({type(e).__name__}: {e})")
-                continue
-            csvs += 1
-            manifest.append({"file": f"{prefix}_{slug}.csv", "kind": "table",
-                             "rows": len(df), "columns": ", ".join(map(str, df.columns))})
-
-        # A CSV sitting in a report appendix has to be self-identifying:
-        # the manifest records whose data it is and on what denominator.
+        A CSV sitting in a report appendix has to be self-identifying, so
+        the manifest's provenance row records whose data it is and on what
+        denominator."""
         analyzed = sum(1 for t in self._trials if t.get("analyzed"))
-        header = pd.DataFrame([{
-            "file": "(export)", "kind": "provenance",
+        provenance = {
             "rows": self._participant,
             "columns": (f"{len(self._trials)} trials ({analyzed} analyzed), "
                         f"{len(self._all_events)} events "
                         f"({len(self._events)} valid); "
                         f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
-        }])
-        pd.concat([header, pd.DataFrame(manifest)], ignore_index=True).to_csv(
-            out_dir / f"{prefix}__manifest.csv", index=False)
+        }
+        self.status_label.setText(export_analysis(
+            self, STUDY_DATA_DIR / self._participant / "figures",
+            self._figures, self._datasets, provenance, prefix=self._participant))
 
-        msg = (f"Exported {figs} figures (300 dpi PNG + SVG) + {csvs} CSVs "
-               f"+ {prefix}__manifest.csv to {out_dir}")
-        if failures:
-            msg += "  —  FAILED: " + "; ".join(failures)
-        self.status_label.setText(msg)
+    def _tab_builders(self):
+        """Every tab in display order, as (title, builder).
+
+        This list is the analysis: _analyze() walks it and the progress
+        dialog sizes itself from it, so adding an analysis means adding one
+        line here and nothing else - no count to bump, no label to keep in
+        step. test_participant_analysis_window.py asserts the built tabs
+        match this list, which is what catches a tab added anywhere else.
+
+        Builders read the participant data off self, set up by _analyze()
+        just above, and return the (caption, figures, datasets) triple that
+        _add_tab takes - or None if the builder adds its own tab, as the
+        confusion tab does for its view selector.
+        """
+        trials, events, all_events = self._trials, self._events, self._all_events
+        return [
+            ("Overview", lambda: self._build_overview(self._participant, trials)),
+            ("Learning", lambda: self._build_learning(trials)),
+            ("Difficulty", lambda: self._build_difficulty(trials)),
+            ("Trade-off", lambda: self._build_tradeoff(trials)),
+            ("Errors", lambda: self._build_errors(trials, events)),
+            ("Confusion", lambda: self._add_confusion_tab(trials, events)),
+            ("Fingers", lambda: self._build_fingers(events)),
+            ("Finger benefit", lambda: self._build_finger_benefit(events)),
+            ("Timing", lambda: self._build_timing(events)),
+            ("Quality", lambda: self._build_quality(trials, all_events)),
+        ]
+
+    def _tab_runner(self, title: str, build):
+        """Wrap a builder as a no-argument step for run_with_progress."""
+        def run() -> None:
+            result = build()
+            if result is not None:  # None = the builder added its own tab
+                self._add_tab(title, *result)
+        return run
 
     def _add_tab(self, title: str, caption_html: str,
                  figures: Dict[str, Figure],

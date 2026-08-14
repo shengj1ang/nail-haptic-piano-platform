@@ -254,6 +254,19 @@ SECTIONS = [
     ),
 ]
 
+# Tools exempt from the one-tool-at-a-time rule, which exists because most
+# of these windows claim the camera or the MIDI keyboard and two of them
+# running at once would fight over the device.
+#
+# These two claim no hardware - they are read-only views over the exported
+# CSVs - and they are the pair you actually want side by side, reading a
+# participant's own numbers against the group they sit in. They coexist
+# with each other and with whatever exclusive tool is open.
+CONCURRENT_TOOLS = {
+    ParticipantAnalysisWindow,
+    GroupAnalysisWindow,
+}
+
 STYLE_SHEET = """
 QWidget#launcherRoot {
     background: #1e1f24;
@@ -306,7 +319,8 @@ class LauncherWindow(QWidget):
         self.setWindowTitle("Multi-Modal Platform")
         self.setStyleSheet(STYLE_SHEET)
         self.cfg = cfg
-        self._current = None
+        self._current = None          # the one exclusive tool, if any
+        self._concurrent = {}         # window_cls -> its open window
         self.remote = RemoteGuidanceConfig.load()
 
         title = QLabel("Multi-Modal Platform")
@@ -380,18 +394,42 @@ class LauncherWindow(QWidget):
             self._open(entry)
 
     def _open(self, window_cls) -> None:
-        if self._current is not None:
-            self._current.close()
-            self._current = None
+        """Open a tool, honouring the one-tool-at-a-time rule - except for
+        the tools in CONCURRENT_TOOLS, which may stay open alongside
+        anything else (see that constant for why).
 
+        A concurrent tool that is already open is raised rather than
+        duplicated: a second copy would show the same data, and rebuilding
+        an analysis takes seconds the user has already spent."""
+        if window_cls in CONCURRENT_TOOLS:
+            existing = self._concurrent.get(window_cls)
+            if existing is not None and existing.isVisible():
+                existing.raise_()
+                existing.activateWindow()
+                return
+            window = self._create(window_cls)
+            if window is None:
+                return
+            self._concurrent[window_cls] = window
+        else:
+            # Exclusive tools replace each other, but deliberately leave the
+            # concurrent ones alone: those hold no hardware and closing them
+            # would throw away an analysis the user is reading.
+            if self._current is not None:
+                self._current.close()
+                self._current = None
+            window = self._create(window_cls)
+            if window is None:
+                return
+            self._current = window
+        window.show()
+
+    def _create(self, window_cls):
         try:
-            window = window_cls(self.cfg)
+            return window_cls(self.cfg)
         except Exception as e:
             QMessageBox.warning(self, "Couldn't open tool", str(e))
-            return
-
-        window.show()
-        self._current = window
+            return None
 
     # ------------------------------------------------------------------
     # Tele-training: independent processes
@@ -440,9 +478,39 @@ class LauncherWindow(QWidget):
         return self._start_process(server_spec(self.remote, gui=True))
 
     def closeEvent(self, event) -> None:
+        """Closing the launcher ends the session: every window it opened
+        goes with it, and so does anything those windows opened themselves.
+
+        Sub-windows are the reason this cannot just close self._current.
+        The quiz detail view opens per-event review windows, the experiment
+        session opens a runner and a participant-facing cue screen, and each
+        of those is a top-level window that on its own keeps the process
+        alive after the launcher is gone - the app looks quit while still
+        holding the camera. Sweeping every top-level widget catches them
+        without the launcher having to know what each tool spawns.
+
+        The detached tele-training processes are deliberately NOT touched:
+        _start_process starts them precisely so a session survives the
+        launcher, and killing a relay would drop a connected student.
+        """
+        for window in list(self._concurrent.values()):
+            window.close()
+        self._concurrent.clear()
         if self._current is not None:
             self._current.close()
+            self._current = None
+        for widget in QApplication.topLevelWidgets():
+            if widget is not self:
+                widget.close()
         super().closeEvent(event)
+        # exit(0), not quit(): Qt 6's quit() asks every window to close
+        # first and ABANDONS the shutdown if any one of them ignores the
+        # request, so a single window refusing - a confirmation prompt, a
+        # thread still winding down - would leave the process alive with no
+        # launcher left to quit it. Every window has already been asked to
+        # close politely above; this is the part that does not take no for
+        # an answer.
+        QApplication.exit(0)
 
 
 def main() -> None:

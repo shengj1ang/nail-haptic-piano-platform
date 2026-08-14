@@ -51,6 +51,7 @@ TAB_TABLE_PREFIXES = {
     "Condition A Strategy": "condition_a_",
     "Errors": "errors_",
     "Fingers": "fingers_",
+    "Finger Confusion": "confusion_group_",
     "RM-ANOVA": "rm_anova_",
     "Finger Benefit": "finger_",
     "Quality": "quality_",
@@ -65,6 +66,7 @@ TAB_FIGURE_PREFIXES = {
     "Condition A Strategy": "group_condition_a",
     "Errors": "group_errors",
     "Fingers": "group_fingers",
+    "Finger Confusion": "group_confusion",
     "RM-ANOVA": "group_rm_anova",
     "Finger Benefit": "group_finger",
     "Quality": "group_quality",
@@ -121,17 +123,13 @@ def build_window():
     w._pc = ga.participant_condition_metrics(data.trial_rows)
     w._cells = ga.participant_cell_metrics(data.trial_rows)
     w._cond_titles = w._condition_titles(data.trial_rows)
-    w._add_tab("Overview", *w._build_overview())
-    w._add_tab("Condition × Difficulty", *w._build_condition_difficulty())
-    w._add_tab("Contrasts", *w._build_contrasts())
-    w._add_tradeoff_tab()
-    w._add_tab("Learning / Order", *w._build_learning())
-    w._add_tab("Condition A Strategy", *w._build_condition_a_strategy())
-    w._add_tab("Errors", *w._build_errors())
-    w._add_tab("Fingers", *w._build_fingers())
-    w._add_tab("RM-ANOVA", *w._build_rm_anova())
-    w._add_tab("Finger Benefit", *w._build_finger_benefit())
-    w._add_tab("Quality", *w._build_quality())
+    # Build the tabs the way the window does, by walking its own
+    # _tab_builders() list. Copying the list here instead - which this
+    # test used to do - meant a newly added tab was never built, so the
+    # coverage contract below silently stopped applying to it, which is
+    # exactly the failure these tests exist to prevent.
+    for title, build in w._tab_builders():
+        w._tab_runner(title, build)()
     _WINDOW = w
     return w
 

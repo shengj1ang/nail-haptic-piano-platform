@@ -126,16 +126,13 @@ def build_window():
     w._trials = trials
     w._all_events = events
     w._events = paw.pa.valid_events(events)
-    w._add_tab("Overview", *w._build_overview(PARTICIPANT, trials))
-    w._add_tab("Learning", *w._build_learning(trials))
-    w._add_tab("Difficulty", *w._build_difficulty(trials))
-    w._add_tab("Trade-off", *w._build_tradeoff(trials))
-    w._add_tab("Errors", *w._build_errors(trials, w._events))
-    w._add_confusion_tab(trials, w._events)
-    w._add_tab("Fingers", *w._build_fingers(w._events))
-    w._add_tab("Finger benefit", *w._build_finger_benefit(w._events))
-    w._add_tab("Timing", *w._build_timing(w._events))
-    w._add_tab("Quality", *w._build_quality(trials, events))
+    # Build the tabs the way the window does, by walking its own
+    # _tab_builders() list. Copying the list here instead - which this
+    # test used to do - meant a newly added tab was never built, so the
+    # coverage contract below silently stopped applying to it, which is
+    # exactly the failure these tests exist to prevent.
+    for title, build in w._tab_builders():
+        w._tab_runner(title, build)()
     _WINDOW = w
     return w
 
