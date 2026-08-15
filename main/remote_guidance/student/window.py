@@ -28,6 +28,14 @@ that same moment, and a failure to find it is a warning rather than a
 refusal. "Connect LED" stays on the page as a manual override for
 checking the wiring beforehand.
 
+Session names come from the teacher unless one is typed here. The teacher
+generates `remote-<epoch>` and records the same lesson under
+`data/music/<that name>/`, so leaving the box empty puts the two halves of
+one lesson under one name on both machines. Because this client usually
+starts recording *before* the teacher opens the session, the folder is
+renamed once at the end rather than being left half-written under two
+names - see `_rename_to_teacher_session_name()`.
+
 Which camera, MIDI port and keyboard profile this client uses is set from
 its own **Settings** button (remote_guidance/settings_window.py), not
 from the launcher.
@@ -187,6 +195,13 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self._pending_recording_start: Optional[Dict[str, Any]] = None
         self.session_id: Optional[str] = None
         self.session_name = ""
+        # The name the teacher gave this session (remote-<epoch>), and
+        # whether this client's own name was generated rather than typed.
+        # Together they decide whether the two machines' folders can be
+        # made to agree - see _adopt_teacher_session_name().
+        self.teacher_session_name: Optional[str] = None
+        self._session_name_is_auto = False
+        self._pending_session_name: Optional[str] = None
         self.cue = None
         self.last_hands: Dict[str, Any] = {}
 
@@ -292,7 +307,11 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.guidance_combo.setCurrentIndex(max(index, 0))
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("session name (folder under data/quiz/)")
+        self.name_edit.setPlaceholderText("leave empty to use the teacher's name for the session")
+        self.name_edit.setToolTip(
+            "The folder under data/quiz/. Left empty, this session takes the teacher's remote-<epoch> name, "
+            "so it matches the lesson the teacher recorded under data/music/. Type one to override it."
+        )
 
         self.timeout_spin = QDoubleSpinBox()
         self.timeout_spin.setRange(1.0, 30.0)
@@ -694,7 +713,8 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         if self.session is not None:
             return
         self.workspace_tabs.setCurrentIndex(self.practice_tab_index)
-        name = sanitize_quiz_name(self.name_edit.text() or f"remote-{int(time.time())}")
+        self._pending_session_name = None
+        name = self._resolve_session_name()
         guidance_mode = self.guidance_combo.currentData()
 
         problems = self.remote.serial_port_problems()
@@ -781,7 +801,9 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 "channels": self.cue.enabled_channels,
                 "timeout_s": self.timeout_spin.value(),
                 "recording_video": self.video_writer is not None,
-                "session_name": self.session_name,
+                # The name this session will be saved under, which is not
+                # necessarily the one it started under.
+                "session_name": self._final_session_name(),
             },
         )
 
@@ -843,11 +865,55 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         for strip, idx in SYNC_LED_PIXELS[1:]:
             self.led.set_pixel(strip, idx, 0, 0, 0, 0)
 
+    def _resolve_session_name(self) -> str:
+        """What to call this session's data/quiz/ folder.
+
+        An empty box means "name this after the session", and the session
+        is the teacher's to name: its remote-<epoch> is also what the
+        teacher's own recording of the lesson is called. Only when the
+        teacher has not said yet does this client generate the same shape
+        of name itself - and _adopt_teacher_session_name() then puts the
+        two back together when it does arrive."""
+        typed = self.name_edit.text().strip()
+        self._session_name_is_auto = not typed
+        return sanitize_quiz_name(typed or self.teacher_session_name or f"remote-{int(time.time())}")
+
+    def _adopt_teacher_session_name(self, name: str) -> str:
+        """Take the teacher's name for this session where it can be taken,
+        and say on the status line what was decided.
+
+        Three cases, and only the middle one needs any work:
+
+        * nothing running yet - remembered, and _start_session() uses it;
+        * running under a generated name - the folder is already open and
+          being written to, so the rename waits until the video writer is
+          released in _finish_session();
+        * running under a name somebody typed - left alone. A typed name is
+          a decision (a participant id, a retake), and silently replacing
+          it with remote-<epoch> would lose it.
+        """
+        self.teacher_session_name = name
+        if self.session is None or name == self.session_name:
+            return ""
+        if not self._session_name_is_auto:
+            return (
+                f" The teacher calls it {name!r}; this client keeps the name you typed "
+                f"({self.session_name!r})."
+            )
+        self._pending_session_name = name
+        return f" Saving as data/quiz/{name}/, the name the teacher's own recording has."
+
+    def _final_session_name(self) -> str:
+        """What this session's folder will be called once it is saved."""
+        return self._pending_session_name or self.session_name
+
     def _on_remote_session_start(self, envelope: Dict[str, Any]) -> None:
         payload = envelope.get("payload") or {}
         self.session_id = envelope.get("session_id")
         if self.bridge is not None:
             self.bridge.session_id = self.session_id
+        teacher_name = sanitize_quiz_name(payload.get("session_name") or "") if payload.get("session_name") else ""
+        name_note = self._adopt_teacher_session_name(teacher_name) if teacher_name else ""
         if self.session is None:
             self._set_status(
                 "The teacher started a session, but this client is not ready yet - press "
@@ -860,7 +926,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         # Repeat the ready message now that session_id is available; the
         # teacher's session.start deliberately contains no modality.
         self._announce_ready()
-        self._set_status(f"Session started by the teacher ({payload.get('mode', 'live')}).", "ok")
+        self._set_status(f"Session started by the teacher ({payload.get('mode', 'live')})." + name_note, "ok")
 
     def _on_pause(self) -> None:
         if self.session is not None:
@@ -1190,6 +1256,10 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         # not the live device, so this cannot cut it short.
         self._release_camera()
 
+        # After the writer is released and before anything is saved: the
+        # folder can only be moved while nothing is holding a file in it.
+        rename_note = self._rename_to_teacher_session_name()
+
         results = session.results()
         summary = summarize(results)
         self._save_session(session, results, summary, midi_start)
@@ -1212,10 +1282,49 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         for widget in (self.guidance_combo, self.name_edit, self.timeout_spin, self.record_check):
             widget.setEnabled(True)
         self.set_settings_enabled(True)
-        self._set_status(f"Session finished ({reason}). {len(results)} events saved.", "ok")
+        self._set_status(
+            f"Session finished ({reason}). {len(results)} events saved to data/quiz/{self.session_name}/."
+            + rename_note,
+            "warn" if rename_note else "ok",
+        )
         self.workspace_tabs.setCurrentIndex(self.results_tab_index)
 
         self._run_final_pass(session, results)
+
+    def _rename_to_teacher_session_name(self) -> str:
+        """Move this session's folder onto the teacher's name for it, and
+        report anything that stopped it.
+
+        The student normally presses "Ready for guidance" before the
+        teacher opens the session, so recording starts under a name
+        generated here and the teacher's arrives afterwards. Everything is
+        still written under one name - the move happens once, at the end,
+        with no file open - and an existing folder is never overwritten:
+        the local name simply stands, and the caller says so."""
+        target = self._pending_session_name
+        self._pending_session_name = None
+        if not target or not self.session_name or target == self.session_name:
+            return ""
+
+        source_dir = quiz_dir(self.session_name)
+        target_dir = quiz_dir(target)
+        if target_dir.exists():
+            return (
+                f" data/quiz/{target}/ already exists, so this stays under {self.session_name!r} and the "
+                "two machines' folder names differ."
+            )
+        if source_dir.exists():
+            try:
+                source_dir.rename(target_dir)
+            except OSError as exc:
+                return (
+                    f" Could not rename data/quiz/{self.session_name}/ to {target}/ ({exc}) - keeping the "
+                    "local name."
+                )
+            if self.video_path is not None:
+                self.video_path = quiz_raw_dir(target) / self.video_path.name
+        self.session_name = target
+        return ""
 
     def _save_session(self, session: StudentSession, results, summary, midi_start) -> None:
         """Writes the standard data/quiz/<name>/ layout, so every

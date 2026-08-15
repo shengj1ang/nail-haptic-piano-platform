@@ -38,7 +38,9 @@ Two people, two machines, one relay in between.
   finger* they used; that key/finger pair - or the whole set of them,
   when the teacher plays a chord - is sent to the student, whose
   keyboard LED lights the key and whose screen and/or nail-mounted
-  actuator cues the finger.
+  actuator cues the finger. Both machines keep a recording of the lesson,
+  under one name - the student's in `data/quiz/`, the teacher's in
+  `data/music/` (§4.13).
 - **Asynchronous recorded sequences** - the teacher uploads a fingering
   plan recorded earlier (`data/music/` or `data/sequence/`) and triggers
   it remotely. The student downloads the whole thing first and schedules
@@ -87,7 +89,7 @@ starts them with `QProcess.startDetached` (see
 
 | File | Lines | Responsibility |
 |---|---:|---|
-| `config.py` | 320 | The `remote_guidance` block of `config.json`; per-role `Config` views; serial-port validation |
+| `config.py` | 328 | The `remote_guidance` block of `config.json`; per-role `Config` views; serial-port validation |
 | `protocol.py` | 210 | Versioned message envelope, message-type constants, `GuidanceAction`. **Client half of a matched pair with `server/schemas.py`** |
 | `timing.py` | 393 | Wall vs monotonic clocks, `DispatchTimings`, `ClockOffsetEstimator`, `LatencyStats`, `one_way_estimate` |
 | `network_client.py` | 483 | `RemoteApiClient` (stdlib urllib REST) + `RemoteWebSocketClient` (threaded, `websocket-client`), including quiet expected socket-close handling. **No Qt** |
@@ -101,13 +103,14 @@ starts them with `QProcess.startDetached` (see
 | `setup_wizard.py` | 599 | `RemoteSetupWizard` - click-to-scan camera selection → calibration launcher → MIDI-mapping launcher. It constructs no camera when opened (§4.12) |
 | `calibration_wizard.py` | 456 | Tele-training's copy of Initial Setup's five-page name → capture → boundary → cropped edges → key-fill flow; only its safe save destination differs (§4.12) |
 | `midi_mapping_wizard.py` | 473 | Tele-training's copy of Initial Setup's two-page Middle C check → live camera/key-highlight mapping flow; it lists and writes only marked Tele-training profiles (§4.12) |
-| `vision_worker.py` | 170 | Latest-only background camera + MediaPipe loop shared by the two clients; keeps native vision calls off both GUI/network fast paths |
+| `vision_worker.py` | 194 | Latest-only background camera + MediaPipe loop shared by the two clients; keeps native vision calls off both GUI/network fast paths, and optionally carries an unannotated copy of each frame for recording (§4.13) |
 | `student/session.py` | 551 | **The core.** Event model, queueing, all timing rules. No Qt, no hardware |
-| `student/window.py` | 1378 | Student GUI: compact cyan role bar plus separate Practice/Results workspaces; devices in, Qt signals out; owns the visual/haptic/both choice and Quiz-style local MIDI audio/timbre, announces readiness, and defers an early recorded trigger until ready |
-| `teacher/live_detector.py` | 270 | Background camera/HandTracker snapshot + one latency-first non-blocking MIDI reader → finger matching plus note-on/off events for local audio |
+| `student/window.py` | 1485 | Student GUI: compact cyan role bar plus separate Practice/Results workspaces; devices in, Qt signals out; owns the visual/haptic/both choice and Quiz-style local MIDI audio/timbre, announces readiness, and defers an early recorded trigger until ready |
+| `teacher/live_detector.py` | 314 | Background camera/HandTracker snapshot + one latency-first non-blocking MIDI reader → finger matching plus note-on/off events for local audio; `set_raw_capture()` adds the unannotated frame a recording needs |
+| `teacher/live_recorder.py` | 359 | Writes a live lesson to `data/music/remote-<epoch>/` in the Song Recording Wizard's layout, from the detector's own camera/MIDI output. No Qt (§4.13) |
 | `teacher/recording_import.py` | 160 | `data/music`/`data/sequence` → uploadable recording |
 | `teacher/recording_wizard.py` | 635 | Tele-training-private three-page Teacher recording flow; fixed Teacher Settings devices, amber UI, section 3-compatible capture/fingering/save pipeline, and complete close-time release |
-| `teacher/window.py` | 1115 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
+| `teacher/window.py` | 1348 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
 | `tools/latency_benchmark.py` | 740 | Self-contained two-login/two-WebSocket benchmark CLI with built-in Student responder, automatic temporary room lifecycle, plus explicit external-Student mode |
 | `tools/benchmark_window.py` | 302 | GUI wrapper around that CLI (runs it as a QProcess); defaults to Relay + Benchmark only and feeds both passwords over stdin |
 
@@ -123,7 +126,7 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 3028 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats and self-contained two-role benchmark controls/responder, launcher actions, GUI staging plus main-window/Settings role themes, visible spin/tick controls and workspace separation, MIDI dropdown/empty-scan preservation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, and message handling |
+| `test-script/test_remote_guidance_config.py` | 3503 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats and self-contained two-role benchmark controls/responder, launcher actions, GUI staging plus main-window/Settings role themes, visible spin/tick controls and workspace separation, MIDI dropdown/empty-scan preservation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, message handling, and the teacher's lesson recording: wizard-format save, epoch stamps, lead-in-corrected duration, unannotated frames, cue-before-archive tick ordering and the shared session name |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
 | `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
@@ -383,6 +386,61 @@ enforced nothing, since nothing ever read it back, while implying a
 constraint that does not exist - and it carried the profile across a role
 switch, which handed the teacher the student's calibration.
 
+### 4.13 One live lesson, recorded on both machines under one name
+
+The student has always kept the durable record of a session: cues,
+responses, video and MIDI land in `data/quiz/<name>/` exactly like a local
+quiz. The teacher kept nothing - the live table was in memory, and the
+relay stores payloads and timestamps rather than a performance. But the
+teacher's camera and MIDI keyboard are already open and already producing
+exactly what the Song Recording Wizard saves, so a live session now writes
+it (`teacher/live_recorder.py`):
+
+```
+data/music/remote-<epoch>/        teacher: the lesson as it was played
+    raw/performance.mp4  raw/midi_raw.json  raw/notes.json
+    raw/sync.json  raw/keyboard_profile/  score.mid  fingering.json  meta.json
+
+data/quiz/remote-<epoch>/         student: the same lesson as it was received
+    raw/performance.mp4  raw/midi_raw.json  raw/notes.json
+    raw/sync.json  results.json  meta.json
+```
+
+Same layout as the wizard's, deliberately: the song picker, the uploader,
+`load_playback_events` and the playback tools all read it unchanged, so a
+lesson that was just taught live can be uploaded and replayed as a
+pre-recorded one. `meta.json` is written last, after the offline finger
+pass, because `list_songs()` treats its presence as "this song finished
+saving" - a lesson whose pass fails keeps its raw capture and is simply
+not listed.
+
+**The name is generated once, by the teacher**, and travels in
+`session.start`. The student uses it for its own folder whenever its
+session-name box was left empty, which makes the two halves of a lesson
+pairable without consulting the relay. A *typed* student name always wins -
+it is a participant id or a retake, and losing it would be worse than two
+folder names that differ - and the client says so on the status line.
+Because the student usually presses **Ready for guidance** before the
+teacher opens the session, its folder is created under a locally generated
+`remote-<epoch>` and renamed once at the end, after the video writer is
+released; an existing folder is never overwritten.
+
+Two things the teacher's copy is not:
+
+- **It is not a second measurement.** The one open MIDI port belongs to
+  the live detector and is drained by the guidance timer, so a note's
+  `abs_time` here is the moment that timer saw it - within one 33 ms tick
+  of the key going down, and the same instant the cue was sent. Opening a
+  second reader, or moving the port onto a stamping thread, would change
+  the latency path §6 measures. Reaction times still come only from the
+  student's clock (§4.2).
+- **It is not the preview.** The live view has the whole calibrated key map
+  painted over it, hands included; recording that would leave the offline
+  finger pass with a video MediaPipe cannot track in. `keep_raw` on
+  `LatestVisionWorker` copies each frame *before* `annotate` runs, on the
+  vision thread, and only while a recording wants it. The video write
+  itself happens at the end of the tick, after the cue has gone out.
+
 ---
 
 ## 5. Data flow of one live cue
@@ -406,16 +464,22 @@ TEACHER                          RELAY                    STUDENT
                                                            MIDI note-on arrives
                                                            reaction = response - cue_ready
                                   ◄─────────────────────── performance.response (provisional)
+  (recorder writes the unannotated frame + this tick's MIDI - after the send)
   ... session ends ...
-                                                           analyze_recording() over video
-                                  ◄─────────────────────── performance.response (final)
-                                  ◄─────────────────────── session.finished + summary
+  analyze_recording() over the                             analyze_recording() over video
+  teacher's own video                                      ◄── performance.response (final)
+  → data/music/remote-<epoch>/                             ◄── session.finished + summary
 ```
 
 The two-stage result split (`provisional` → `final`) is deliberate: the
 live finger verdict uses whatever hand landmarks were on screen at the
 moment, the final one re-runs the same matcher over the recorded video
 with the LED sync anchor.
+
+Both ends run that same offline pass at the end, over their own video and
+for different questions: the student's decides whether the *response* was
+correct, the teacher's writes the fingering of the *lesson* (§4.13). Only
+the student's is ever sent anywhere.
 
 ---
 
@@ -823,7 +887,8 @@ network      server_url, username, room_id, join_code, verify_tls,
 student      camera{...}, midi{port_name}, keyboard_profile,
              led{port}, haptic{port}, default_guidance_mode,
              record_video, default_timeout_s
-teacher      camera{...}, midi{port_name}, keyboard_profile, chord_detection
+teacher      camera{...}, midi{port_name}, keyboard_profile,
+             chord_detection, record_video
 local_server enabled, host, port, use_gui
 ```
 
@@ -1020,6 +1085,30 @@ Each of these cost real debugging time. They all have tests now.
    recorded path deliberately enters through the same door so both kinds
    of event produce identical timings (§4.1).
 
+10. **An epoch stamp subtracted from an elapsed duration clamps to zero
+    and says nothing.** Found while building the teacher's lesson
+    recording (§4.13), which copied the line. Both Song Recording
+    Wizards computed a song's length as
+    `record.duration_s - first_note_on_time(events)` - correct while
+    `abs_time` was recorder-relative, wrong from the July 2026
+    epoch-timestamp migration onwards, because `first_note_on_time`
+    became ~1.79e9 and `max(..., 0.0)` swallowed the result. **Every song
+    recorded after that migration has `duration_s: 0.0` in its
+    `meta.json`** (visible on disk: songs recorded before it still carry
+    real lengths). Nothing crashed, nothing warned, and the only reader
+    is the uploader's description text - which is exactly why it survived.
+
+    The lead-in now has one implementation,
+    `app.music_recording.lead_in_seconds(events, recording_start_time)`,
+    which needs the recording's start moment precisely so the two
+    quantities cannot be confused again, and all three producers call it.
+    `test-script/test_music_recording.py` drives both wizards over a
+    synthetic recording and asserts the saved length is the playing, not
+    the capture. The general rule this is an instance of: **a stored time
+    here is always an absolute `time.time()` value** - anything that
+    subtracts one from something must be able to say what the other one
+    is.
+
 ---
 
 ## 10. Known gaps and what is not verified
@@ -1034,10 +1123,15 @@ background-vision/visual-first version has deterministic injected tests
 but still needs a fresh user timing run with real devices. The following
 remain unverified:
 
-- LED key cue and the LED sync flash
+- LED key cue and the LED sync flash (student's, and the teacher's own
+  during a recorded lesson - the teacher rig may have no strip at all,
+  in which case `app.sync_led` falls back to the recorded start times)
 - Haptic cue on an explicit serial port
 - Instrumented teacher MIDI-press → student visual-onset timing on real hardware
 - Student video recording and the offline finger pass
+- Teacher-side lesson recording (§4.13) end to end on real devices: the
+  layout, the naming and the tick wiring have tests, but no run has yet
+  produced a `data/music/remote-<epoch>/` from a real camera and keyboard
 - The two-machine benchmark (**all latency figures so far are loopback
   on one machine** - ~1.3 ms RTT, which says nothing about a campus
   network)
@@ -1096,7 +1190,18 @@ remain unverified:
 - **`local_server.enabled` is read but nothing acts on it** since Launch
   Local Stack was removed.
 - **Teacher pause/resume for live mode is only a message.** The student
-  honours it; there is no visible teacher-side state machine.
+  honours it; there is no visible teacher-side state machine. A pause does
+  not pause the teacher's own lesson recording either - the video and MIDI
+  run from Start to Stop.
+- **The teacher's recorded note times are tick-quantised** (§4.13): the
+  live detector's MIDI port is drained by the 33 ms guidance timer, so a
+  note's stamp is when that timer saw it. Good enough to line the lesson up
+  with its video and to replay it; it is not an independent onset
+  measurement, and nothing treats it as one.
+- **A lesson whose finger pass fails is not a song.** It keeps its video,
+  MIDI and sync marks but has no `meta.json`, so `list_songs()` does not
+  show it and there is no re-run button - the pass would have to be run by
+  hand. Closing the Teacher Client mid-lesson lands in the same state.
 - **Error surfaces are status lines.** A dropped relay mid-lesson shows a
   message but there is no recovery UI.
 
@@ -1106,8 +1211,10 @@ remain unverified:
 - Wire the photodiode/accelerometer rig into the reserved columns.
 - Multi-student rooms (routing + teacher UI).
 - Token refresh + a clearer reconnect UX.
-- Trim `student/window.py` (1378 lines) - the session-page building and
+- Trim `student/window.py` (1485 lines) - the session-page building and
   the recording/analysis plumbing could split out.
+- Give an unanalysed `data/music/` folder a way back into the fingering
+  pass, which would also cover a wizard recording abandoned before save.
 
 ---
 

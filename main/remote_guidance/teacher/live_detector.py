@@ -14,6 +14,10 @@ teacher role and nothing more:
 No matching algorithm is written here. `poll()` returns whatever the
 shared matcher decided, already packed into protocol GuidanceActions.
 
+`set_raw_capture()` additionally hands back the frame *before* the key
+overlay and the landmarks are drawn on it, which is the only version
+live_recorder.py may put in a video file - see its module docstring.
+
 The window drains MIDI and completed vision snapshots from a QTimer.
 Camera reads and MediaPipe run continuously in LatestVisionWorker, so a
 slow frame cannot stall the MIDI/network path. MidiInputReader.poll()
@@ -25,6 +29,7 @@ feedback.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -56,6 +61,10 @@ class DetectionResult:
     actions: List[GuidanceAction] = None
     hands: Dict[str, Hand] = None
     midi_events: List[MidiMessage] = None
+    # The same frame without the key overlay and landmarks, present only
+    # while set_raw_capture(True) - what a recording has to store if the
+    # offline finger pass is to read it back (see vision_worker.py).
+    raw_frame: Optional[np.ndarray] = None
 
     def __post_init__(self) -> None:
         if self.actions is None:
@@ -89,6 +98,7 @@ class TeacherLiveDetector:
         self.tracker: Optional[HandTracker] = HandTracker() if open_camera else None
         self._vision_worker: Optional[LatestVisionWorker] = None
         self._vision_sequence = 0
+        self._keep_raw = False
         self.midi: Optional[MidiInputReader] = None
 
         self.template: Optional[KeyboardTemplate] = None
@@ -105,6 +115,7 @@ class TeacherLiveDetector:
                 annotate=lambda frame, _hands: self._annotate(frame),
                 name="remote-teacher-vision",
                 max_fps=cfg.camera.fps or 30,
+                keep_raw=self._keep_raw,
             )
             self._vision_worker.start()
 
@@ -136,6 +147,36 @@ class TeacherLiveDetector:
     @property
     def profile_ready(self) -> bool:
         return self.template is not None and self.mapping is not None
+
+    # -- recording support ---------------------------------------------
+
+    def set_raw_capture(self, enabled: bool) -> None:
+        """Ask for an unannotated copy of every frame from here on.
+
+        Off by default: the copy costs a frame memcpy per camera frame and
+        only a recording needs it. It is made on the vision thread, never
+        on the GUI thread that sends guidance."""
+        self._keep_raw = bool(enabled)
+        if self._vision_worker is not None:
+            self._vision_worker.set_keep_raw(self._keep_raw)
+
+    def wait_for_raw_frame(self, timeout: float = 3.0) -> Optional[np.ndarray]:
+        """One unannotated frame, for opening a video writer at the right
+        resolution. Startup-only: it waits."""
+        self.set_raw_capture(True)
+        if self._vision_worker is None:
+            frame = self.camera.read() if self.camera is not None else None
+            return frame
+        deadline = time.monotonic() + max(float(timeout), 0.0)
+        while True:
+            snapshot = self._vision_worker.wait_for_frame(timeout=max(deadline - time.monotonic(), 0.0))
+            if snapshot.raw_frame is not None:
+                return snapshot.raw_frame
+            if time.monotonic() >= deadline:
+                return None
+            # The first snapshots were produced before set_keep_raw took
+            # effect; give the worker a frame's worth of time to catch up.
+            time.sleep(0.01)
 
     def connect_midi(self, port_name: Optional[str] = None) -> str:
         """Opens the teacher's MIDI port. Raises RuntimeError with the
@@ -181,6 +222,7 @@ class TeacherLiveDetector:
                 self._vision_sequence = snapshot.sequence
                 self.last_hands = snapshot.hands
                 result.frame = snapshot.frame
+                result.raw_frame = snapshot.raw_frame
             result.hands = self.last_hands
 
         if self.midi is not None:
@@ -205,6 +247,8 @@ class TeacherLiveDetector:
         frame = self.camera.read() if self.camera is not None else None
         if frame is not None and self.tracker is not None:
             self.last_hands = self.tracker.process(frame)
+            if self._keep_raw:
+                result.raw_frame = frame.copy() if annotate else frame
             if annotate:
                 self._annotate(frame)
             result.frame = frame

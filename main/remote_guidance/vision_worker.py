@@ -12,6 +12,13 @@ snapshot without waiting. Dropping intermediate preview frames is
 intentional: guidance needs the newest completed hand state, not a queue of
 old video frames. Recording still writes at its declared time base from the
 GUI's latest frame, using the existing duplicate-frame catch-up logic.
+
+``keep_raw`` additionally carries an *unannotated* copy of each frame. The
+teacher's preview draws the whole calibrated key map over the frame, and
+that wash covers the hands wherever they are above the keys - recording it
+would hand the offline finger pass a video MediaPipe cannot read. The copy
+is made on this thread, before ``annotate`` runs, and only while a
+recording actually wants it.
 """
 
 from __future__ import annotations
@@ -30,6 +37,9 @@ class VisionSnapshot:
     sequence: int
     frame: Any
     hands: Dict[str, Any]
+    # The same frame before annotate() drew on it - None unless the worker
+    # was asked to keep it (see keep_raw below).
+    raw_frame: Any = None
 
 
 class LatestVisionWorker:
@@ -50,6 +60,7 @@ class LatestVisionWorker:
         name: str = "remote-vision",
         retry_delay_s: float = 0.01,
         max_fps: Optional[float] = 30.0,
+        keep_raw: bool = False,
     ):
         self.camera = camera
         self.tracker = tracker
@@ -57,6 +68,7 @@ class LatestVisionWorker:
         self.name = name
         self.retry_delay_s = max(float(retry_delay_s), 0.001)
         self.frame_interval_s = 0.0 if not max_fps or max_fps <= 0 else 1.0 / float(max_fps)
+        self.keep_raw = bool(keep_raw)
 
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -74,6 +86,12 @@ class LatestVisionWorker:
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name=self.name, daemon=True)
         self._thread.start()
+
+    def set_keep_raw(self, keep_raw: bool) -> None:
+        """Start or stop carrying the unannotated copy. A plain flag read
+        once per frame: the next frame is the first one it applies to, and
+        an in-flight one is never half-copied."""
+        self.keep_raw = bool(keep_raw)
 
     def snapshot(self) -> VisionSnapshot:
         """Return immediately with the newest completed result."""
@@ -95,6 +113,11 @@ class LatestVisionWorker:
                         self._stop.wait(self.retry_delay_s)
                         continue
                     hands = self.tracker.process(frame)
+                    raw_frame = None
+                    if self.keep_raw:
+                        # Nothing has drawn on the frame yet; only an
+                        # annotating worker needs a copy of it.
+                        raw_frame = frame.copy() if self.annotate is not None else frame
                     if self.annotate is not None:
                         self.annotate(frame, hands)
                 except Exception as exc:  # noqa: BLE001 - a later frame may recover
@@ -110,6 +133,7 @@ class LatestVisionWorker:
                         sequence=self._snapshot.sequence + 1,
                         frame=frame,
                         hands=dict(hands),
+                        raw_frame=raw_frame,
                     )
                     self.last_error = None
                 self._frame_ready.set()

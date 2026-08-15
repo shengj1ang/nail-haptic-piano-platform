@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -333,6 +334,52 @@ class VisionWorkerTests(unittest.TestCase):
         self.assertEqual(tracker.called_on, "test-remote-vision")
         self.assertTrue(camera.released)
         self.assertTrue(tracker.closed)
+
+    def test_keep_raw_carries_the_frame_from_before_the_overlay(self):
+        """The teacher preview paints the whole key map over the frame,
+        hands included. Recording that would hand the offline finger pass
+        a video MediaPipe cannot track in, so a recording asks for the
+        frame as the camera produced it."""
+        from remote_guidance.vision_worker import LatestVisionWorker
+
+        class Camera:
+            def read(self):
+                return {"pixels": "clean"}
+
+            def release(self):
+                pass
+
+        class Tracker:
+            def process(self, _frame):
+                return {}
+
+            def close(self):
+                pass
+
+        worker = LatestVisionWorker(
+            Camera(),
+            Tracker(),
+            annotate=lambda frame, _hands: frame.update(pixels="overlaid"),
+            name="test-raw-vision",
+        )
+        try:
+            worker.start()
+            plain = worker.wait_for_frame(timeout=1.0)
+            self.assertIsNone(plain.raw_frame, "the copy must cost nothing until a recording wants it")
+
+            worker.set_keep_raw(True)
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                snapshot = worker.snapshot()
+                if snapshot.raw_frame is not None:
+                    break
+                time.sleep(0.005)
+        finally:
+            worker.close()
+
+        self.assertIsNotNone(snapshot.raw_frame, "keep_raw produced no unannotated frame")
+        self.assertEqual(snapshot.raw_frame["pixels"], "clean")
+        self.assertEqual(snapshot.frame["pixels"], "overlaid")
 
 
 class SerialPortValidationTests(unittest.TestCase):
@@ -1924,6 +1971,139 @@ class TeacherRecordingWizardTests(unittest.TestCase):
         self.assertTrue(camera.released)
 
 
+class TeacherLiveRecorderTests(unittest.TestCase):
+    """A live lesson has to land in data/music/ in exactly the layout the
+    Song Recording Wizard writes - anything else and the song picker, the
+    uploader and the playback tools would each need a second code path."""
+
+    def setUp(self):
+        from unittest import mock
+
+        self._dir = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self._dir.name)
+        self.addCleanup(self._dir.cleanup)
+
+        self.writer = mock.MagicMock()
+        self.writer.isOpened.return_value = True
+        patcher = mock.patch(
+            "remote_guidance.teacher.live_recorder.cv2.VideoWriter", return_value=self.writer
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        profile_patcher = mock.patch("remote_guidance.teacher.live_recorder.snapshot_profile")
+        self.snapshot_profile = profile_patcher.start()
+        self.addCleanup(profile_patcher.stop)
+
+    def _recorder(self, name="remote-1770000000"):
+        from types import SimpleNamespace
+
+        from remote_guidance.teacher.live_recorder import TeacherLiveRecorder
+
+        recorder = TeacherLiveRecorder(
+            name,
+            fps=30,
+            profile_name="teacher-profile",
+            data_dir=self.data_dir,
+            sync_flash=False,
+        )
+        recorder.start(SimpleNamespace(shape=(480, 640, 3)))
+        return recorder
+
+    def _play(self, recorder, notes=(60, 62)):
+        from app.midi import MidiMessage
+
+        now = time.time()
+        for offset, note in enumerate(notes):
+            recorder.add_midi([MidiMessage("note_on", note, 100)], now + offset)
+            recorder.add_midi([MidiMessage("note_off", note, 0)], now + offset + 0.25)
+
+    def test_a_lesson_is_saved_in_the_wizards_layout(self):
+        from app.music_recording import list_songs, load_fingering, load_raw_midi_log
+
+        recorder = self._recorder()
+        self._play(recorder)
+        recorder.stop()
+        recorder.save_raw()
+
+        raw = self.data_dir / "remote-1770000000" / "raw"
+        for name in ("midi_raw.json", "notes.json", "sync.json"):
+            self.assertTrue((raw / name).exists(), f"{name} is missing from the lesson recording")
+        self.assertTrue((self.data_dir / "remote-1770000000" / "score.mid").exists())
+        self.snapshot_profile.assert_called_once()
+        self.assertEqual(self.snapshot_profile.call_args.args[0], "teacher-profile")
+
+        # Not a song until the offline pass has been through it, exactly
+        # as the wizard behaves: meta.json is written last.
+        self.assertEqual(list_songs(self.data_dir), [])
+        recorder.save_fingering_and_meta([None, None])
+        self.assertEqual(list_songs(self.data_dir), ["remote-1770000000"])
+
+        events = load_raw_midi_log(raw / "midi_raw.json")
+        self.assertEqual([e.type for e in events], ["note_on", "note_off", "note_on", "note_off"])
+        self.assertTrue(all(e.abs_time > 1e6 for e in events), "raw times must be absolute epoch seconds")
+        self.assertEqual([e.note for e in load_fingering(self.data_dir / "remote-1770000000" / "fingering.json")], [60, 62])
+
+    def test_the_sync_file_records_the_teachers_own_clocks(self):
+        from app.music_recording import SyncInfo
+
+        recorder = self._recorder()
+        self._play(recorder, notes=(64,))
+        recorder.stop()
+        recorder.save_raw()
+
+        sync = SyncInfo.load(self.data_dir / "remote-1770000000" / "raw" / "sync.json")
+        self.assertGreater(sync.video_start_time, 1e6)
+        self.assertGreater(sync.midi_start_time, 1e6)
+        # No strip answered, so app.sync_led falls back to the start times
+        # rather than being handed a flash that never happened.
+        self.assertEqual((sync.led_on_time, sync.led_off_time), (0.0, 0.0))
+
+    def test_the_saved_duration_drops_the_lead_in_before_the_first_note(self):
+        """Every stored time here is an absolute epoch value, so the
+        lead-in has to be measured from the start of the recording.
+        Subtracting the first note's epoch stamp from an elapsed duration
+        would make every lesson 0.0 seconds long."""
+        from app.midi import MidiMessage
+        from app.music_recording import SongMeta
+
+        recorder = self._recorder()
+        recorder.video_start_time = 1_770_000_000.0
+        recorder.add_midi([MidiMessage("note_on", 60, 100)], 1_770_000_004.0)
+        recorder.add_midi([MidiMessage("note_off", 60, 0)], 1_770_000_005.0)
+        recorder.stop()
+        recorder.duration_s = 10.0  # four seconds of talking, six of playing
+        recorder.save_raw()
+        recorder.save_fingering_and_meta([None])
+
+        meta = SongMeta.load(self.data_dir / "remote-1770000000" / "meta.json")
+        self.assertAlmostEqual(meta.duration_s, 6.0)
+        self.assertEqual(meta.note_count, 1)
+
+    def test_velocity_zero_note_ons_are_stored_as_note_offs(self):
+        """mido's convention, applied exactly as RawMidiRecorder applies
+        it - otherwise a keyboard that never sends note_off would look
+        like a recording of notes nobody released."""
+        from app.midi import MidiMessage
+
+        recorder = self._recorder()
+        recorder.add_midi([MidiMessage("note_on", 60, 100), MidiMessage("note_on", 60, 0)], time.time())
+        self.assertEqual([e.type for e in recorder.raw_events], ["note_on", "note_off"])
+        self.assertEqual(recorder.note_count, 1)
+
+    def test_nothing_is_written_after_stop(self):
+        recorder = self._recorder()
+        recorder.stop()
+        self._play(recorder)
+        recorder.write_frame()
+        self.assertEqual(recorder.raw_events, [])
+        self.writer.release.assert_called_once_with()
+
+    def test_the_session_name_is_epoch_seconds(self):
+        from remote_guidance.teacher.live_recorder import live_session_name
+
+        self.assertEqual(live_session_name(1770000000.9), "remote-1770000000")
+
+
 class _ClientStageChecks:
     """Shared checks for both remote clients' staged flow.
 
@@ -2147,8 +2327,8 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
 
         return TeacherRemoteWindow(Config.load(), rgc.RemoteGuidanceConfig())
 
-    device_attributes = ("detector", "audio", "bridge")
-    hardware_attributes = ("detector", "audio")
+    device_attributes = ("detector", "audio", "bridge", "live_recorder")
+    hardware_attributes = ("detector", "audio", "live_recorder")
     window_module = "remote_guidance.teacher.window"
     required_widgets = (
         "view", "table", "summary_view", "detect_label", "link_label", "status_label",
@@ -2157,8 +2337,173 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         "chord_check", "timbre_combo", "playback_combo", "guidance_tabs", "live_guidance_page",
         "recorded_guidance_page", "results_guidance_page", "record_song_btn", "recording_pause_btn",
         "recording_resume_btn", "recording_stop_btn", "song_refresh_btn", "stages", "stage_label",
-        "role_label", "camera_panel", "results_tab_index",
+        "role_label", "camera_panel", "results_tab_index", "record_check", "progress",
     )
+
+    def test_a_live_session_names_the_lesson_for_both_machines(self):
+        """One lesson, one name: the teacher's data/music/remote-<epoch>/
+        and the student's data/quiz/remote-<epoch>/ are two halves of the
+        same session, and neither end invents its own name for it."""
+        from unittest import mock
+
+        old_room, old_name = self.window.room, self.window.session_name
+        old_active, old_mode = self.window.session_active, self.window.session_mode
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        self.window.record_check.setChecked(True)
+        try:
+            with mock.patch.object(self.window, "_open_detector", return_value=True), mock.patch.object(
+                self.window, "_connect_midi", return_value=True
+            ), mock.patch.object(self.window, "_start_live_recording") as start_recording, mock.patch.object(
+                self.window, "_run_api"
+            ):
+                self.window._start_live_session()
+            session_name = self.window.session_name
+            start_recording.assert_called_once_with(session_name)
+
+            with mock.patch.object(self.window, "_send") as send:
+                self.window._on_session_created({"session_id": "s-live"})
+        finally:
+            self.window.room = old_room
+            self.window.session_name = old_name
+            self.window.session_active, self.window.session_mode = old_active, old_mode
+            self.window._sync_guidance_controls()
+
+        self.assertRegex(session_name, r"^remote-\d{10}$")
+        payload = send.call_args.args[1]
+        self.assertEqual(payload["mode"], "live")
+        self.assertEqual(payload["session_name"], session_name)
+
+    def test_the_lesson_recording_is_optional_and_fixed_for_the_session(self):
+        from unittest import mock
+
+        old_room, old_name = self.window.room, self.window.session_name
+        self.window.room = {"room_id": "r-1", "name": "test room"}
+        self.window.record_check.setChecked(False)
+        try:
+            with mock.patch.object(self.window, "_open_detector", return_value=True), mock.patch.object(
+                self.window, "_connect_midi", return_value=True
+            ), mock.patch.object(self.window, "_start_live_recording") as start_recording, mock.patch.object(
+                self.window, "_run_api"
+            ):
+                self.window._start_live_session()
+            start_recording.assert_not_called()
+            # Still named: the student names its own folder after the
+            # session whether or not the teacher keeps a copy.
+            self.assertRegex(self.window.session_name, r"^remote-\d{10}$")
+        finally:
+            self.window.room = old_room
+            self.window.session_name = old_name
+            self.window.record_check.setChecked(True)
+            self.window._sync_guidance_controls()
+
+    def test_the_lesson_is_recorded_without_the_preview_overlay(self):
+        """The frame on screen has the whole key map painted over it,
+        hands included. Recording that would leave the offline finger
+        pass with a video it cannot track in."""
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from app.midi import MidiMessage
+
+        old_detector, old_recorder, old_audio = (
+            self.window.detector,
+            self.window.live_recorder,
+            self.window.audio,
+        )
+        detector = mock.MagicMock()
+        detector.poll.return_value = SimpleNamespace(
+            frame="frame-with-overlay",
+            raw_frame="frame-as-the-camera-produced-it",
+            midi_events=[MidiMessage("note_on", 60, 100)],
+            actions=[],
+            hands={},
+        )
+        recorder = mock.MagicMock()
+        self.window.detector = detector
+        self.window.live_recorder = recorder
+        self.window.audio = None
+        try:
+            with mock.patch.object(self.window.view, "set_frame"):
+                self.window._tick()
+        finally:
+            self.window.detector, self.window.live_recorder = old_detector, old_recorder
+            self.window.audio = old_audio
+
+        recorder.write_frame.assert_called_once_with("frame-as-the-camera-produced-it")
+        messages, stamp = recorder.add_midi.call_args.args
+        self.assertEqual([m.note for m in messages], [60])
+        self.assertGreater(stamp, 1e6)
+
+    def test_the_students_cue_is_never_delayed_by_the_teachers_archive(self):
+        """Encoding a frame takes milliseconds. Guidance goes out first
+        and the recording catches up afterwards - never the other way."""
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from app.midi import MidiMessage
+        from remote_guidance.protocol import GuidanceAction
+
+        order = []
+        old_detector, old_recorder, old_audio = (
+            self.window.detector,
+            self.window.live_recorder,
+            self.window.audio,
+        )
+        detector = mock.MagicMock()
+        detector.poll.return_value = SimpleNamespace(
+            frame=None,
+            raw_frame=None,
+            midi_events=[MidiMessage("note_on", 60, 100)],
+            actions=[GuidanceAction(note=60, note_name="C4", finger="R1")],
+            hands={},
+        )
+        recorder = mock.MagicMock()
+        recorder.write_frame.side_effect = lambda *_a: order.append("record")
+        recorder.add_midi.side_effect = lambda *_a: order.append("record")
+        self.window.detector = detector
+        self.window.live_recorder = recorder
+        self.window.audio = None
+        try:
+            with mock.patch.object(self.window, "_send_guidance", side_effect=lambda *_a: order.append("cue")):
+                self.window._tick()
+        finally:
+            self.window.detector, self.window.live_recorder = old_detector, old_recorder
+            self.window.audio = old_audio
+
+        self.assertEqual(order[0], "cue", f"the recording ran before the cue was sent: {order}")
+
+    def test_handing_the_camera_back_closes_the_recording_first(self):
+        """There is no state where the camera is gone but the recording
+        it feeds is still open, whichever way the session ended."""
+        from unittest import mock
+
+        old_detector = self.window.detector
+        detector = mock.MagicMock()
+        self.window.detector = detector
+        order = []
+        try:
+            with mock.patch.object(
+                self.window, "_finish_live_recording", side_effect=lambda: order.append("recording")
+            ):
+                detector.close.side_effect = lambda: order.append("camera")
+                self.window._close_detector()
+        finally:
+            self.window.detector = old_detector
+
+        self.assertEqual(order, ["recording", "camera"])
+
+    def test_a_lesson_becomes_a_song_only_once_its_fingers_are_matched(self):
+        from unittest import mock
+
+        recorder = mock.MagicMock()
+        recorder.song_name = "remote-1770000000"
+        recorder.note_count = 12
+        with mock.patch.object(self.window, "_refresh_songs") as refresh:
+            self.window._on_recording_analyzed(recorder, [None])
+        recorder.save_fingering_and_meta.assert_called_once_with([None])
+        refresh.assert_called_once_with("music/remote-1770000000")
+        self.assertIn("remote-1770000000", self.window.status_label.text())
+        self.assertFalse(self.window.progress.isVisible())
 
     def test_guidance_and_results_have_separate_workspaces(self):
         self.assertEqual(self.window.guidance_tabs.count(), 3)
@@ -2756,6 +3101,136 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
             self.window._ensure_led()
         self.assertFalse(self.window.led_connected)
         self.assertIn("LED strip not found", self.window.status_label.text())
+
+    def _remote_session_start(self, name="remote-1770000000"):
+        return {"session_id": "s-live", "payload": {"mode": "live", "session_name": name}}
+
+    def test_an_unnamed_session_takes_the_teachers_name_for_the_lesson(self):
+        """Both machines then hold the same lesson under the same name:
+        data/music/remote-<epoch>/ on the teacher, data/quiz/remote-<epoch>/
+        here."""
+        from unittest import mock
+
+        old = (self.window.session, self.window.session_name, self.window.teacher_session_name)
+        self.window.session = mock.MagicMock()
+        self.window.session_name = "remote-1769999999"  # generated here, before the teacher spoke
+        self.window._session_name_is_auto = True
+        try:
+            with mock.patch.object(self.window, "_send"):
+                self.window._on_remote_session_start(self._remote_session_start())
+            self.assertEqual(self.window._final_session_name(), "remote-1770000000")
+        finally:
+            (
+                self.window.session,
+                self.window.session_name,
+                self.window.teacher_session_name,
+            ) = old
+            self.window._pending_session_name = None
+            self.window._session_name_is_auto = False
+
+    def test_a_typed_session_name_is_never_replaced_by_the_teachers(self):
+        """A typed name is a decision - a participant id, a retake - and
+        losing it to remote-<epoch> would be worse than two folder names
+        that differ."""
+        from unittest import mock
+
+        old = (self.window.session, self.window.session_name)
+        self.window.session = mock.MagicMock()
+        self.window.session_name = "P14-session-3"
+        self.window._session_name_is_auto = False
+        try:
+            with mock.patch.object(self.window, "_send"):
+                self.window._on_remote_session_start(self._remote_session_start())
+            self.assertEqual(self.window._final_session_name(), "P14-session-3")
+            self.assertEqual(self.window.teacher_session_name, "remote-1770000000")
+            self.assertIn("remote-1770000000", self.window.status_label.text())
+        finally:
+            self.window.session, self.window.session_name = old
+            self.window._pending_session_name = None
+
+    def test_the_folder_is_renamed_once_at_the_end_not_mid_recording(self):
+        """The student normally presses Ready before the teacher opens
+        the session, so recording has already begun under the generated
+        name. Moving the folder while the video writer holds a file in it
+        is exactly what this avoids."""
+        from unittest import mock
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        quiz_root = Path(directory.name)
+        (quiz_root / "remote-1769999999" / "raw").mkdir(parents=True)
+        (quiz_root / "remote-1769999999" / "raw" / "performance.mp4").write_bytes(b"")
+
+        old = (self.window.session_name, self.window.video_path)
+        self.window.session_name = "remote-1769999999"
+        self.window._session_name_is_auto = True
+        self.window._pending_session_name = "remote-1770000000"
+        self.window.video_path = quiz_root / "remote-1769999999" / "raw" / "performance.mp4"
+        try:
+            with mock.patch(
+                "remote_guidance.student.window.quiz_dir", side_effect=lambda name: quiz_root / name
+            ), mock.patch(
+                "remote_guidance.student.window.quiz_raw_dir", side_effect=lambda name: quiz_root / name / "raw"
+            ):
+                self.window._rename_to_teacher_session_name()
+        finally:
+            self.window.session_name, self.window.video_path = old
+            self.window._pending_session_name = None
+            self.window._session_name_is_auto = False
+
+        self.assertTrue((quiz_root / "remote-1770000000" / "raw" / "performance.mp4").exists())
+        self.assertFalse((quiz_root / "remote-1769999999").exists())
+
+    def test_an_existing_folder_is_never_overwritten_by_the_rename(self):
+        from unittest import mock
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        quiz_root = Path(directory.name)
+        (quiz_root / "remote-1769999999").mkdir(parents=True)
+        (quiz_root / "remote-1770000000" / "raw").mkdir(parents=True)
+        (quiz_root / "remote-1770000000" / "raw" / "keep-me.json").write_text("{}", encoding="utf-8")
+
+        old_name = self.window.session_name
+        self.window.session_name = "remote-1769999999"
+        self.window._pending_session_name = "remote-1770000000"
+        try:
+            with mock.patch(
+                "remote_guidance.student.window.quiz_dir", side_effect=lambda name: quiz_root / name
+            ):
+                note = self.window._rename_to_teacher_session_name()
+            self.assertEqual(self.window.session_name, "remote-1769999999")
+            self.assertIn("already exists", note)
+        finally:
+            self.window.session_name = old_name
+            self.window._pending_session_name = None
+
+        self.assertTrue((quiz_root / "remote-1770000000" / "raw" / "keep-me.json").exists())
+        self.assertTrue((quiz_root / "remote-1769999999").exists())
+
+    def test_the_teachers_name_is_used_when_it_arrives_before_ready(self):
+        """The other order: the teacher opens the session first, so no
+        rename is needed - the folder is created under the right name."""
+        from unittest import mock
+
+        old = (self.window.session, self.window.teacher_session_name, self.window.name_edit.text())
+        self.window.session = None
+        try:
+            with mock.patch.object(self.window, "_send"):
+                self.window._on_remote_session_start(self._remote_session_start())
+            self.assertEqual(self.window.teacher_session_name, "remote-1770000000")
+
+            self.window.name_edit.clear()
+            self.assertEqual(self.window._resolve_session_name(), "remote-1770000000")
+            self.assertTrue(self.window._session_name_is_auto)
+
+            self.window.name_edit.setText("P14-session-3")
+            self.assertEqual(self.window._resolve_session_name(), "P14-session-3")
+            self.assertFalse(self.window._session_name_is_auto)
+        finally:
+            self.window.session, self.window.teacher_session_name = old[0], old[1]
+            self.window.name_edit.setText(old[2])
+            self.window._session_name_is_auto = False
 
     required_widgets = (
         "view", "table", "progress", "link_label", "status_label", "sign_in_panel", "room_panel",

@@ -57,7 +57,7 @@ from ..music_recording import (
     SyncInfo,
     build_fingering_entries,
     build_score_midi,
-    first_note_on_time,
+    lead_in_seconds,
     notes_only,
     raw_dir,
     sanitize_song_name,
@@ -504,7 +504,7 @@ class ReviewPage(QWizardPage):
             )
             sync.save(r_dir / RAW_SYNC_FILENAME)
 
-            lead_in_s = first_note_on_time(record.raw_events)
+            lead_in_s = lead_in_seconds(record.raw_events, record.video_start_time)
             trimmed_events = trim_to_first_note(record.raw_events)
             self._trimmed_notes = notes_only(trimmed_events)
             self._duration_s = max(record.duration_s - lead_in_s, 0.0)

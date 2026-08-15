@@ -127,6 +127,11 @@ class TeacherConfig:
     # Multi-finger matching for simultaneous note-ons (chords), through
     # the existing app.finger_matching.match_notes_to_fingers.
     chord_detection: bool = True
+    # Record a live lesson to data/music/<session name>/, in the Song
+    # Recording Wizard's layout. The default for the checkbox on the
+    # session page, which is where it is chosen per session - same
+    # arrangement as the student's record_video.
+    record_video: bool = True
 
 
 @dataclass
@@ -180,6 +185,7 @@ class RemoteGuidanceConfig:
                 midi=_build(MidiConfig, (data.get("teacher") or {}).get("midi")),
                 keyboard_profile=(data.get("teacher") or {}).get("keyboard_profile", "default"),
                 chord_detection=bool((data.get("teacher") or {}).get("chord_detection", True)),
+                record_video=bool((data.get("teacher") or {}).get("record_video", True)),
             ),
             local_server=_build(LocalServerConfig, data.get("local_server")),
         )
@@ -210,6 +216,7 @@ class RemoteGuidanceConfig:
                 "midi": asdict(self.teacher.midi),
                 "keyboard_profile": self.teacher.keyboard_profile,
                 "chord_detection": self.teacher.chord_detection,
+                "record_video": self.teacher.record_video,
             },
             "local_server": asdict(self.local_server),
         }

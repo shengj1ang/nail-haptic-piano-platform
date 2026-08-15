@@ -11,7 +11,10 @@ material and the student's results:
   - **Live**: the teacher's own camera + MIDI keyboard run the platform's
     existing detection chain (see live_detector.py), and every note-on
     becomes a `guidance.live` event carrying the note and the finger that
-    played it.
+    played it. The same camera and keyboard also record the lesson to
+    `data/music/remote-<epoch>/` in the Song Recording Wizard's layout
+    (see live_recorder.py), so the teacher's own performance survives the
+    session instead of only the student's copy of it.
   - **Pre-recorded**: an existing data/music or data/sequence folder is
     uploaded as a recording (metadata + note/finger events, no video) and
     triggered remotely. The student downloads it in full and schedules it
@@ -35,11 +38,17 @@ with each delay component in its own column so none of them can be
 mistaken for another. The teacher's machine never re-scores anything:
 correctness comes from the student, which is where the finger matching
 actually ran.
+
+One session, one name. `remote-<epoch>` is generated here and travels in
+`session.start`, so the teacher's `data/music/remote-<epoch>/` and the
+student's `data/quiz/remote-<epoch>/` are the two halves of the same
+lesson and can be paired without consulting the relay.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from PySide6.QtCore import Qt, QTimer
@@ -53,6 +62,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -65,6 +75,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import Config
+from app.gui.analyze_worker import AnalyzeWorker
 from app.gui.image_view import ImageView
 from app.keyboard.midi_mapping import note_name
 from app.music_recording import sanitize_song_name
@@ -102,12 +113,17 @@ from ..protocol import (
 from ..qt_bridge import RemoteClientBridge
 from ..timing import mono_ns, wall_ns
 from .live_detector import TeacherLiveDetector
+from .live_recorder import TeacherLiveRecorder, live_session_name
 from .recording_wizard import TeacherRecordingWizard
 from .recording_import import ImportedRecording, describe, import_song, list_available_songs
 
 log = logging.getLogger("remote_guidance.teacher.window")
 
 TICK_MS = 33
+# Same clapperboard as the wizard and the student: flash the first white
+# keys shortly after the writer opens, so app.sync_led has a mark to find.
+LED_FLASH_DELAY_MS = 300
+LED_FLASH_DURATION_MS = 800
 # The student is told to begin this far in the future, so both ends have
 # time to be ready. Only the *start* moment depends on this; every cue
 # timing is still measured on the student's own clock.
@@ -167,10 +183,18 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.session_id: Optional[str] = None
         self.session_active = False
         self.session_mode: Optional[str] = None
+        # The name both ends use for this session - see the module
+        # docstring. Set when a session is opened, never guessed twice.
+        self.session_name: Optional[str] = None
         self.recording_id: Optional[str] = None
         self.imported: Optional[ImportedRecording] = None
         self.recording_wizard: Optional[TeacherRecordingWizard] = None
+        self.live_recorder: Optional[TeacherLiveRecorder] = None
         self._worker: Optional[ApiCallWorker] = None
+        self._analyze_worker: Optional[AnalyzeWorker] = None
+        # closeEvent() also ends a session; a finger pass started from
+        # there would report into a window that is going away.
+        self._closing = False
 
         # message_id -> row, plus the teacher's own monotonic send stamp
         # for a clock-sync-free round-trip figure.
@@ -267,6 +291,13 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.timbre_combo.setCurrentIndex(max(self.timbre_combo.findData(DEFAULT_TIMBRE), 0))
         self.timbre_combo.currentIndexChanged.connect(self._on_timbre_changed)
 
+        self.record_check = QCheckBox("Record this lesson to data/music")
+        self.record_check.setToolTip(
+            "Save the teacher's own camera and MIDI as a normal song folder - the same layout, and the same "
+            "offline finger pass, as the Song Recording Wizard."
+        )
+        self.record_check.setChecked(self.remote.teacher.record_video)
+
         self.live_btn = QPushButton("Start live session")
         self.live_btn.setProperty("role", "primary")
         self.live_btn.clicked.connect(self._start_live_session)
@@ -292,6 +323,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         timbre_row.addWidget(QLabel("Instrument:"))
         timbre_row.addWidget(self.timbre_combo, 1)
         live.addLayout(timbre_row)
+        live.addWidget(self.record_check)
         live.addStretch(1)
         live.addWidget(self.live_btn)
 
@@ -300,6 +332,12 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         live_transport_row.addWidget(self.resume_btn)
         live_transport_row.addWidget(self.stop_btn)
         live.addLayout(live_transport_row)
+
+        # Hidden until the offline finger pass runs, so it costs the window
+        # no minimum height while a lesson is being taught.
+        self.progress = QProgressBar()
+        self.progress.setVisible(False)
+        live.addWidget(self.progress)
 
         # -- pre-recorded ----------------------------------------------
         self.song_combo = QComboBox()
@@ -453,6 +491,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         _open_detector() simply picks up the new camera and profile."""
         self.cfg = teacher_config(self.base_cfg, self.remote)
         self.chord_check.setChecked(self.remote.teacher.chord_detection)
+        self.record_check.setChecked(self.remote.teacher.record_video)
         self._set_status(
             f"Settings saved. Camera {self.cfg.camera.index}, MIDI {self.cfg.midi.port_name!r}, "
             f"profile {self.cfg.active_keyboard_profile!r} - used from the next session.",
@@ -492,6 +531,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.session_active = False
         self.session_mode = None
         self.session_id = None
+        self.session_name = None
         self.recording_id = None
         self.room = None
         self._rows.clear()
@@ -529,7 +569,12 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _close_detector(self) -> None:
         """Give the camera, MediaPipe and the MIDI port back the moment
-        guiding stops, so the next tool to want them is not blocked."""
+        guiding stops, so the next tool to want them is not blocked.
+
+        The lesson recording is closed first: it is fed by this camera, so
+        there is no version of "the camera is gone but the recording goes
+        on". Every path that ends a live session comes through here."""
+        self._finish_live_recording()
         self._close_audio()
         if self.detector is not None:
             self.detector.close()
@@ -638,6 +683,9 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.live_btn.setEnabled(idle and not wizard_open)
         self.midi_btn.setEnabled(not wizard_open and (idle or live_active))
         self.chord_check.setEnabled(not wizard_open and (idle or live_active))
+        # Whether the lesson is being recorded is fixed for its length -
+        # the writer is opened once, with the session.
+        self.record_check.setEnabled(idle and not wizard_open)
         for button in (self.pause_btn, self.resume_btn, self.stop_btn):
             button.setEnabled(live_active)
 
@@ -771,6 +819,14 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         if not self.room or self.session_active or self.recording_wizard is not None:
             return
         self._open_detector()
+        # Named before the relay is asked for a session: the name has to
+        # exist for both the local recording and session.start, and it
+        # must be the same string in both.
+        self.session_name = live_session_name()
+        if self.record_check.isChecked():
+            self._start_live_recording(self.session_name)
+        # After the recording, so that a missing keyboard - which costs
+        # every cue, not just the archive - is the warning left on screen.
         if not self._connect_midi():
             self._set_status(
                 "No MIDI keyboard connected - the session will start, but live cues need one. "
@@ -785,12 +841,19 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _on_session_created(self, session: dict) -> None:
         self._activate_session(session, "live")
-        self._set_status("Session running. Play a key to guide the student.", "ok")
+        recorder = self.live_recorder
+        self._set_status(
+            "Session running. Play a key to guide the student."
+            + (f" Recording to data/music/{recorder.song_name}/." if recorder is not None else ""),
+            "ok",
+        )
 
     def _activate_session(self, session: dict, mode: str) -> None:
         self.session_id = session["session_id"]
         self.session_active = True
         self.session_mode = mode
+        if not self.session_name:
+            self.session_name = live_session_name()
         if self.bridge is not None:
             self.bridge.session_id = self.session_id
         self.table.setRowCount(0)
@@ -801,12 +864,173 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             {
                 "mode": mode,
                 "started_at_unix_ns": wall_ns(),
+                # The student names its own data/quiz/<name>/ folder after
+                # this, so one lesson has one name on both machines.
+                "session_name": self.session_name,
             },
         )
         self.guidance_tabs.setCurrentIndex(
             self.live_tab_index if mode == "live" else self.recorded_tab_index
         )
         self._sync_guidance_controls()
+
+    # ------------------------------------------------------------------
+    # Recording the lesson (data/music/remote-<epoch>/)
+    # ------------------------------------------------------------------
+
+    def _start_live_recording(self, song_name: str) -> None:
+        """Open the video writer before the session exists, so a recording
+        problem is seen while nothing has started.
+
+        Never fatal: a lesson with no camera is still a lesson, and the
+        student's own recording is unaffected either way."""
+        # Creating the relay session can fail after the devices are open,
+        # which leaves Start live session pressable again. Close whatever
+        # the previous attempt opened rather than leaking its writer.
+        self._finish_live_recording()
+        if self.detector is None:
+            # _open_detector() has already said the camera is unavailable;
+            # no camera means no recording, and repeating it here would
+            # only push that message off the status line.
+            log.info("no teacher detector - %s will not be recorded", song_name)
+            return
+        frame = self.detector.wait_for_raw_frame(timeout=3.0)
+        if frame is None:
+            self.detector.set_raw_capture(False)
+            self._set_status("Camera produced no frame - continuing without recording this lesson.", "warn")
+            return
+
+        recorder = TeacherLiveRecorder(
+            song_name,
+            fps=self.cfg.camera.fps or 30,
+            profile_name=self.cfg.active_keyboard_profile,
+        )
+        try:
+            recorder.start(frame, midi_start_time=time.time())
+        except Exception as exc:  # noqa: BLE001 - the lesson goes ahead regardless
+            log.exception("could not start the live recording")
+            self.detector.set_raw_capture(False)
+            self._set_status(f"Could not start recording this lesson ({exc}). Continuing without it.", "warn")
+            return
+
+        self.live_recorder = recorder
+        if recorder.connect_led():
+            QTimer.singleShot(LED_FLASH_DELAY_MS, self._flash_sync_leds_on)
+
+    def _flash_sync_leds_on(self) -> None:
+        if self.live_recorder is None:
+            return
+        self.live_recorder.flash_on()
+        QTimer.singleShot(LED_FLASH_DURATION_MS, self._flash_sync_leds_off)
+
+    def _flash_sync_leds_off(self) -> None:
+        if self.live_recorder is not None:
+            self.live_recorder.flash_off()
+
+    def _finish_live_recording(self) -> None:
+        """Close the recording and save it exactly as the wizard does:
+        raw log, note log, sync marks and score.mid now; fingering.json and
+        meta.json when the offline pass over the video comes back."""
+        recorder, self.live_recorder = self.live_recorder, None
+        if recorder is None:
+            return
+        recorder.stop()
+        if self.detector is not None:
+            self.detector.set_raw_capture(False)
+        if self._closing:
+            # A multi-minute MediaPipe pass started from closeEvent would
+            # outlive the window it reports into. The raw capture below is
+            # still written; the fingering is not.
+            log.info("window closing - %s keeps its raw capture, unanalysed", recorder.directory)
+
+        try:
+            recorder.save_raw()
+        except Exception as exc:  # noqa: BLE001 - report, never lose the session over it
+            log.exception("saving the live recording failed")
+            self._set_status(f"Could not save the lesson recording: {exc}", "error")
+            return
+
+        if self._closing:
+            return
+        if not recorder.has_notes:
+            self._set_status(
+                f"No notes were played - {recorder.directory} holds the raw capture but is not a song.", "warn"
+            )
+            return
+        if self._analyze_running():
+            # One MediaPipe pass at a time, same rule as the student's.
+            # The previous lesson is still being matched, so this one keeps
+            # its video, MIDI and sync marks but no fingering.
+            self._set_status(
+                f"The previous lesson's finger pass is still running, so {recorder.directory} was saved "
+                "without fingering.json and is not listed as a song.",
+                "warn",
+            )
+            return
+
+        self.progress.setVisible(True)
+        self.progress.setRange(0, 0)
+        self._set_status(f"Matching the lesson's fingers against {recorder.video_path.name}...", "idle")
+        worker = AnalyzeWorker(
+            recorder.video_path,
+            recorder.notes_path,
+            self.cfg.active_keyboard_profile,
+            sync_path=recorder.sync_path,
+        )
+        worker.progress.connect(self._on_analyze_progress)
+        worker.succeeded.connect(lambda matches, r=recorder: self._on_recording_analyzed(r, matches))
+        worker.failed.connect(lambda message, r=recorder: self._on_recording_analyze_failed(r, message))
+        worker.finished.connect(lambda w=worker: self._release_analyze_worker(w))
+        self._analyze_worker = worker
+        worker.start()
+
+    def _analyze_running(self) -> bool:
+        """Same dead-wrapper guard as _worker_running(): a QThread already
+        handed to deleteLater() raises rather than answering."""
+        if self._analyze_worker is None:
+            return False
+        try:
+            return self._analyze_worker.isRunning()
+        except RuntimeError:
+            self._analyze_worker = None
+            return False
+
+    def _release_analyze_worker(self, worker: AnalyzeWorker) -> None:
+        if self._analyze_worker is worker:
+            self._analyze_worker = None
+        worker.deleteLater()
+
+    def _on_analyze_progress(self, done: int, total: int) -> None:
+        if total > 0:
+            self.progress.setRange(0, total)
+            self.progress.setValue(done)
+
+    def _on_recording_analyzed(self, recorder: TeacherLiveRecorder, matches: list) -> None:
+        self.progress.setVisible(False)
+        try:
+            recorder.save_fingering_and_meta(matches)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("saving the live recording's fingering failed")
+            self._set_status(f"Could not finish the lesson recording: {exc}", "error")
+            return
+        # meta.json is what makes a folder a song, so the library only
+        # gains the lesson now.
+        self._refresh_songs(f"music/{recorder.song_name}")
+        self._set_status(
+            f"Lesson saved to data/music/{recorder.song_name}/ ({recorder.note_count} notes). "
+            "It can be uploaded and replayed like any other song.",
+            "ok",
+        )
+
+    def _on_recording_analyze_failed(self, recorder: TeacherLiveRecorder, message: str) -> None:
+        self.progress.setVisible(False)
+        self._set_status(
+            f"The lesson's finger pass failed ({message}). {recorder.directory} keeps the video, the MIDI "
+            "and the sync marks, but has no fingering.json and is not listed as a song.",
+            "warn",
+        )
+
+    # ------------------------------------------------------------------
 
     def _pause(self) -> None:
         self._send(TYPE_SESSION_PAUSE, {})
@@ -822,12 +1046,14 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._send(TYPE_RECORDING_STOP, {})
         self.session_active = False
         self.session_mode = None
-        # Symmetric with the start: guiding is over, so the camera and
-        # the MIDI port go back. Starting again reopens them.
-        self._close_detector()
-        self._sync_guidance_controls()
         self.detect_label.setText("Camera and MIDI released. Start live session opens them again.")
         self._set_status("Stop sent. Waiting for the student's results...", "idle")
+        # Symmetric with the start: guiding is over, so the camera and
+        # the MIDI port go back. Starting again reopens them. Last, so
+        # that what it has to say about saving the lesson is what stays
+        # on the status line.
+        self._close_detector()
+        self._sync_guidance_controls()
 
     # ------------------------------------------------------------------
     # Pre-recorded
@@ -865,6 +1091,10 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         # Recorded playback runs on the student; no teacher camera/MIDI
         # should remain claimed from an earlier manual Connect MIDI.
         self._close_detector()
+        # Nothing is recorded here - the teacher plays nothing - but the
+        # student still names its results folder after the session, so a
+        # recorded run gets its own name rather than the last live one.
+        self.session_name = live_session_name()
         playback_mode = self.playback_combo.currentData() or PLAYBACK_PACED
         self._run_api(
             lambda: self.api.create_session(
@@ -905,6 +1135,10 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         if self.detector is None:
             return
         result = self.detector.poll()
+        # Stamped here, before any work: this is the moment the guidance
+        # timer saw the key, and the recording says so rather than
+        # implying an independent measurement (see live_recorder.py).
+        seen_at = time.time()
         if result.frame is not None:
             self.view.set_frame(result.frame)
         if self.audio is not None:
@@ -915,6 +1149,11 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
                     self.audio.stop_key(midi_event.note)
         if result.actions:
             self._send_guidance(result.actions)
+        # Last on purpose. Encoding a frame takes milliseconds; the
+        # student's cue does not wait behind this session's own archive.
+        if self.live_recorder is not None:
+            self.live_recorder.add_midi(result.midi_events, seen_at)
+            self.live_recorder.write_frame(result.raw_frame)
 
     def _send_guidance(self, actions) -> None:
         if self.session_id is None:
@@ -1093,6 +1332,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def closeEvent(self, event) -> None:
         self._timer.stop()
+        self._closing = True
         self.leave_session()
         super().closeEvent(event)
 
