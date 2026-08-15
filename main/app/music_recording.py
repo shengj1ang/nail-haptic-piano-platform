@@ -170,6 +170,23 @@ def first_note_on_time(events: List[RawMidiEvent]) -> float:
     return min(times) if times else 0.0
 
 
+def lead_in_seconds(events: List[RawMidiEvent], recording_start_time: Optional[float]) -> float:
+    """How much of the recording went by before the first note.
+
+    The dead air a saved song drops: the LED sync flash, plus however long
+    the performer took to start. Callers subtract it from the *elapsed*
+    length of the capture to get the length of the piece.
+
+    It needs the recording's start moment because `first_note_on_time` is
+    an absolute `time.time()` value like every other stored time here -
+    subtracting that from an elapsed duration directly is a difference of
+    two different quantities, and leaves every song 0.0 seconds long."""
+    first_note = first_note_on_time(events)
+    if not first_note or not recording_start_time:
+        return 0.0
+    return max(first_note - recording_start_time, 0.0)
+
+
 def trim_to_first_note(events: List[RawMidiEvent]) -> List[RawMidiEvent]:
     """Shift every event onto a song-position clock: the first note_on
     lands at 0, events before it are dropped. The result's abs_time is
