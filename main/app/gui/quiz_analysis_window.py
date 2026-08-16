@@ -17,13 +17,14 @@ Used two ways:
     guidance type and headline metrics; tick any subset (e.g. all of one
     participant via the filter box) and (re-)analyze them in one batch.
 
-Two analysis modes:
-  - "from video": the full pipeline - MediaPipe finger-matching over the
-    raw recording, save results.json/meta.json, render the review video.
-  - "data only": re-summarize an already-analyzed quiz straight from its
-    results.json. This is the second half of the manual-audit loop: watch
-    the review video, hand-correct any mis-scored note in results.json,
-    then recompute the headline metrics without re-running the video.
+Analysis is one pass: MediaPipe finger-matching over the raw recording,
+saving results.json/meta.json, then the review video. The second half of
+the manual-audit loop happens in the detail window instead - correcting a
+finger or ruling on a carry-over there rewrites results.json and re-caches
+meta.json on the spot (app.quiz.save_quiz_summary), so nothing here has to
+be re-run afterwards. What does still have to be re-run after a round of
+corrections is the participant export: the CSVs Group Analysis reads are
+snapshots.
 """
 
 from typing import List, Optional
@@ -60,6 +61,7 @@ from ..quiz import (
     REVIEW_VIDEO_FILENAME,
     SENSITIVITY_THRESHOLDS,
     QuizMeta,
+    apply_summary,
     full_summary,
     list_quizzes,
     load_quiz_results,
@@ -251,14 +253,6 @@ class QuizAnalysisWindow(QMainWindow):
         )
         self.analyze_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self._start_batch)
-        self.data_only_btn = QPushButton("Analyze selected (data only)")
-        self.data_only_btn.setObjectName("dataBtn")  # stored-data family - indigo
-        self.data_only_btn.setToolTip(
-            "Recompute the summary metrics straight from results.json - no video pass. Use after "
-            "manually correcting a quiz's results.json; only works on quizzes already analyzed from video."
-        )
-        self.data_only_btn.setEnabled(False)
-        self.data_only_btn.clicked.connect(self._run_data_only)
         self.cancel_btn = QPushButton("Cancel remaining")
         self.cancel_btn.setObjectName("stopBtn")  # interrupts a run in progress
         self.cancel_btn.setVisible(False)
@@ -304,7 +298,6 @@ class QuizAnalysisWindow(QMainWindow):
         bottom_row.setSpacing(8)
         bottom_row.addWidget(self.align_btn)
         bottom_row.addWidget(self.analyze_btn)
-        bottom_row.addWidget(self.data_only_btn)
         bottom_row.addWidget(export_btn)
         bottom_row.addWidget(self.cancel_btn)
         bottom_row.addStretch(1)
@@ -386,8 +379,8 @@ class QuizAnalysisWindow(QMainWindow):
                 "—" if needs_analysis and not meta.analyzed else getter(meta, summary)
             )
         self.table.item(row, COL_STATUS).setText("analyzed" if meta.analyzed else "not analyzed")
-        # Remembered per row so "Select (not) analyzed" and the data-only
-        # button's precondition don't have to re-read every meta.json.
+        # Remembered per row so "Select (not) analyzed" doesn't have to
+        # re-read every meta.json.
         self.table.item(row, COL_QUIZ).setData(Qt.ItemDataRole.UserRole, meta.analyzed)
         self._fill_sync_cols(row, meta.quiz_name)
 
@@ -627,10 +620,10 @@ class QuizAnalysisWindow(QMainWindow):
         detail.show()
 
     def _on_results_edited(self, name: str) -> None:
-        """A per-event finger correction was saved from a detail window:
-        recompute the row's displayed metrics from the edited results.json.
-        meta.json stays as-is until Analyze selected (data only) persists
-        the recomputed summary."""
+        """An event was corrected or ruled on in a detail window: refresh
+        the row from the edited files. Both are already up to date on disk
+        - the detail window re-caches meta.json as part of saving - so this
+        is a plain reload, no recomputation to persist."""
         row = self._row_of(name)
         if row is None:
             return
@@ -643,20 +636,9 @@ class QuizAnalysisWindow(QMainWindow):
 
     def _update_analyze_btn(self) -> None:
         n = len(self._checked_names())
-        analyzed_n = sum(
-            1
-            for row in range(self.table.rowCount())
-            if self.table.item(row, COL_QUIZ).checkState() == Qt.CheckState.Checked and self._row_analyzed(row)
-        )
         idle = self._current_name is None
         self.analyze_btn.setText(f"Analyze selected (from video) ({n})" if n else "Analyze selected (from video)")
         self.analyze_btn.setEnabled(n > 0 and idle)
-        # Data-only needs the video pass to have run already (it only
-        # re-summarizes results.json), so it counts just the analyzed ones.
-        self.data_only_btn.setText(
-            f"Analyze selected (data only) ({analyzed_n})" if analyzed_n else "Analyze selected (data only)"
-        )
-        self.data_only_btn.setEnabled(analyzed_n > 0 and idle)
         self.align_btn.setText(f"Auto-align selected ({n})" if n else "Auto-align selected")
         self.align_btn.setEnabled(n > 0 and idle)
 
@@ -703,7 +685,6 @@ class QuizAnalysisWindow(QMainWindow):
         self._batch_failed = 0
         self.analyze_btn.setEnabled(False)
         self.align_btn.setEnabled(False)
-        self.data_only_btn.setEnabled(False)
         self.cancel_btn.setVisible(True)
         self.filter_edit.setEnabled(False)
         for name in self._queue:
@@ -722,47 +703,6 @@ class QuizAnalysisWindow(QMainWindow):
         self._batch_total -= len(self._queue)
         self._queue = []
         self.cancel_btn.setEnabled(False)
-
-    def _run_data_only(self) -> None:
-        """Re-summarize each checked quiz straight from its (possibly
-        hand-corrected) results.json - no video pass, no review render.
-        The manual-audit loop: analyze from video, watch the review video,
-        fix any mis-scored note directly in results.json, then this
-        recomputes the metrics exactly as saved, without re-judging
-        anything. Quizzes whose video pass never ran are skipped - there'd
-        be no finger data to summarize."""
-        done = skipped = failed = 0
-        for name in self._checked_names():
-            row = self._row_of(name)
-            if row is not None and not self._row_analyzed(row):
-                self.table.item(row, COL_STATUS).setText("skipped (analyze from video first)")
-                skipped += 1
-                continue
-            try:
-                meta = QuizMeta.load(quiz_dir(name) / META_FILENAME)
-                results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
-            except Exception as e:
-                if row is not None:
-                    self.table.item(row, COL_STATUS).setText(f"failed: {e}")
-                failed += 1
-                continue
-            summary = full_summary(name, results)
-            meta.hits = summary["hits"]
-            meta.misses = summary["misses"]
-            meta.note_accuracy = summary["note_accuracy"]
-            meta.mean_timing_error_s = summary["mean_timing_error_s"]
-            meta.finger_accuracy = summary["finger_accuracy"]
-            meta.save(quiz_dir(name) / META_FILENAME)
-            if row is not None:
-                self._fill_row(row, meta, summary)
-                self.table.item(row, COL_STATUS).setText("analyzed (recomputed from results.json)")
-            done += 1
-        parts = [f"{done} recomputed from results.json"]
-        if skipped:
-            parts.append(f"{skipped} skipped (never analyzed from video)")
-        if failed:
-            parts.append(f"{failed} failed")
-        self.status_label.setText("Data-only pass done: " + ", ".join(parts) + ".")
 
     def _run_next(self) -> None:
         if not self._queue:
@@ -841,11 +781,7 @@ class QuizAnalysisWindow(QMainWindow):
         save_quiz_results(self._current_results, quiz_dir(name) / RESULTS_FILENAME)
 
         summary = full_summary(name, self._current_results)
-        meta.hits = summary["hits"]
-        meta.misses = summary["misses"]
-        meta.note_accuracy = summary["note_accuracy"]
-        meta.mean_timing_error_s = summary["mean_timing_error_s"]
-        meta.finger_accuracy = summary["finger_accuracy"]
+        apply_summary(meta, summary)
         meta.analyzed = True
         meta.save(quiz_dir(name) / META_FILENAME)
 

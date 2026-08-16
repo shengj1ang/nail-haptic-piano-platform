@@ -63,6 +63,7 @@ from ..quiz import (
     quiz_dir,
     quiz_raw_dir,
     save_quiz_results,
+    save_quiz_summary,
 )
 from ..review_video import BAD, GOOD, NEUTRAL, TARGET_TINT, load_hands_by_frame
 from ..sync_led import resolve_sync_anchor
@@ -481,6 +482,10 @@ class EventReviewWindow(QMainWindow):
             r.finger_corrected = True  # explicit audit trail, never inferred
         r.finger_reviewed = True  # watched by a human either way
         save_quiz_results(results, quiz_dir(self.quiz_name) / RESULTS_FILENAME)
+        # meta.json caches the headline numbers this event feeds into, so
+        # it is re-derived here rather than left to whoever opened this
+        # window - the two files are never out of step on disk.
+        save_quiz_summary(self.quiz_name)
         self.result = r
         return r
 
@@ -498,8 +503,8 @@ class EventReviewWindow(QMainWindow):
         r = self._write_verdict(corrected=True)
         self.save_note.setText(
             f"✔ Saved: Actual Finger = {r.actual_finger or 'unresolved'}, "
-            f"finger_correct = {r.finger_correct}. Run Analyze selected (data only) in Quiz "
-            "Analysis to refresh the stored summary metrics."
+            f"finger_correct = {r.finger_correct}. The summary metrics behind it have "
+            "already been recomputed."
         )
         self.saved.emit(self.quiz_name)
         self._after_verdict()

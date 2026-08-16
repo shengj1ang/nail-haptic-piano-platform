@@ -71,6 +71,7 @@ from ..quiz import (
     quiz_dir,
     quiz_raw_dir,
     save_quiz_results,
+    save_quiz_summary,
     scored_near_tie,
     subthreshold_match,
     suspected_carryover,
@@ -300,6 +301,8 @@ class QuizDetailWindow(QMainWindow):
         window.show()
 
     def _on_event_corrected(self, _name: str) -> None:
+        # The review window has already written both results.json and the
+        # meta.json summary it feeds, so this is a plain reload.
         self._build()
         self.changed.emit(self.quiz_name)
 
@@ -326,6 +329,7 @@ class QuizDetailWindow(QMainWindow):
         if menu.exec(self._events_table.viewport().mapToGlobal(pos)) is action:
             r.validity = new_validity
             save_quiz_results(results, quiz_dir(self.quiz_name) / RESULTS_FILENAME)
+            save_quiz_summary(self.quiz_name)  # excluding an event moves every headline number
             self._build()
             self.changed.emit(self.quiz_name)
 

@@ -19,8 +19,8 @@ the only fixed colours, one meaning each:
   #primaryBtn  blue    - runs the video pipeline: the main action
   #syncBtn     teal    - video/MIDI alignment (solid), #cellBtn is its
                          in-table outline twin
-  #dataBtn     indigo  - recomputes or exports from stored data, no
-                         video pass (#exportBtn is the outline twin)
+  #exportBtn   indigo  - writes stored data out to disk, no video pass;
+                         outline only, the family has no solid member
   #saveBtn     amber   - writes a new value into results.json
   #confirmBtn  green   - records a verdict without changing any value
                          (#playBtn is the outline twin: playback "go")
@@ -140,7 +140,7 @@ QPushButton:disabled {
     border-color: rgba(128, 128, 128, 0.20);
 }
 /* Solid accents: the button starts or writes something. */
-QPushButton#primaryBtn, QPushButton#syncBtn, QPushButton#dataBtn,
+QPushButton#primaryBtn, QPushButton#syncBtn,
 QPushButton#saveBtn, QPushButton#confirmBtn, QPushButton#stopBtn {
     border: none;
     font-weight: 600;
@@ -152,9 +152,6 @@ QPushButton#primaryBtn:pressed { background: #295ba5; }
 QPushButton#syncBtn { background: #2a9d8f; color: #ffffff; }
 QPushButton#syncBtn:hover { background: #23867a; }
 QPushButton#syncBtn:pressed { background: #1c6d64; }
-QPushButton#dataBtn { background: #6b5bd2; color: #ffffff; }
-QPushButton#dataBtn:hover { background: #5c4cbb; }
-QPushButton#dataBtn:pressed { background: #4c3fa0; }
 QPushButton#saveBtn { background: #f0b429; color: #3a2b00; }
 QPushButton#saveBtn:hover { background: #d99e14; }
 QPushButton#saveBtn:pressed { background: #c08c0f; }
@@ -182,7 +179,7 @@ QPushButton#playBtn:hover { background: rgba(46, 158, 91, 0.16); }
 QPushButton#playBtn:pressed { background: rgba(46, 158, 91, 0.28); }
 
 QPushButton#primaryBtn:disabled, QPushButton#syncBtn:disabled,
-QPushButton#dataBtn:disabled, QPushButton#saveBtn:disabled,
+QPushButton#saveBtn:disabled,
 QPushButton#confirmBtn:disabled, QPushButton#stopBtn:disabled {
     background: rgba(128, 128, 128, 0.28);
     color: #8a8c93;

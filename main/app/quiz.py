@@ -631,3 +631,28 @@ def full_summary(quiz_name: str, results: List[QuizResult]) -> Dict[str, object]
     s = summarize(results)
     s["extra"] = count_extra_presses(results, quiz_raw_dir(quiz_name) / RAW_MIDI_FILENAME)
     return s
+
+
+def apply_summary(meta: QuizMeta, summary: Dict[str, object]) -> None:
+    """Copy the headline numbers out of a summarize()/full_summary() dict
+    onto meta, in place. These five QuizMeta fields are a cache of what
+    results.json says - nothing reads them back (the analysis table, the
+    participant export and Group Analysis all recompute from the
+    per-event data), they exist so a quiz folder is readable on its own."""
+    meta.hits = summary["hits"]
+    meta.misses = summary["misses"]
+    meta.note_accuracy = summary["note_accuracy"]
+    meta.mean_timing_error_s = summary["mean_timing_error_s"]
+    meta.finger_accuracy = summary["finger_accuracy"]
+
+
+def save_quiz_summary(quiz_name: str) -> None:
+    """Re-derive the cached headline numbers from the quiz's results.json
+    and write them back into its meta.json. Every path that edits an
+    event after the analysis pass (the detail window's carry-over verdict,
+    the per-event finger correction) calls this, so meta.json never lags
+    the per-event data it summarizes."""
+    results = load_quiz_results(quiz_dir(quiz_name) / RESULTS_FILENAME)
+    meta = QuizMeta.load(quiz_dir(quiz_name) / META_FILENAME)
+    apply_summary(meta, full_summary(quiz_name, results))
+    meta.save(quiz_dir(quiz_name) / META_FILENAME)
