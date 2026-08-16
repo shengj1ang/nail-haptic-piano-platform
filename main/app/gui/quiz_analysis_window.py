@@ -74,6 +74,7 @@ from ..sync_led import load_sync_alignment, resolve_sync_anchor
 from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
 from .missing_video import MISSING_VIDEO_TITLE, missing_video_message, require_video
 from .quiz_detail_window import QuizDetailWindow
+from .quiz_style import STYLE_SHEET
 from .video_sync_window import VideoSyncWindow
 
 COL_QUIZ = 0
@@ -212,9 +213,23 @@ class QuizAnalysisWindow(QMainWindow):
         for i, (_title, tip, _needs, _get) in enumerate(METRIC_COLUMNS):
             self.table.horizontalHeaderItem(METRIC_COL0 + i).setToolTip(tip)
         self.table.verticalHeader().setVisible(False)
+        # 40+ metric columns to scan sideways - banded rows keep the eye on
+        # one quiz. (The detail window's table has no banding on purpose:
+        # every cell there carries a verdict tint of its own.)
+        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # The Video Sync column has no header text and no item text, so
+        # ResizeToContents sized it to an empty string and clipped the
+        # button living in it ("'ideo Syn"). Measure one styled button
+        # instead - hard-coding a width would clip again under a different
+        # UI font (Segoe UI on Windows, whatever the Linux desktop sets).
+        probe = QPushButton("Video Sync")
+        probe.setObjectName("cellBtn")
+        probe.setStyleSheet(STYLE_SHEET)
+        self.table.horizontalHeader().setSectionResizeMode(COL_SYNC_BTN, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(COL_SYNC_BTN, probe.sizeHint().width() + 12)
         # There are far more metric columns than fit on screen - scroll
         # sideways (per pixel, not per column) to reach the rest.
         self.table.horizontalHeader().setStretchLastSection(False)
@@ -223,18 +238,21 @@ class QuizAnalysisWindow(QMainWindow):
         self.table.cellDoubleClicked.connect(self._open_detail)
 
         self.align_btn = QPushButton("Auto-align selected")
+        self.align_btn.setObjectName("syncBtn")  # alignment family - teal
         self.align_btn.setToolTip(
             "Run LED flash detection on every checked quiz and save it as an auto alignment; quizzes already aligned (manual included) are skipped, untrusted detections are marked failed."
         )
         self.align_btn.setEnabled(False)
         self.align_btn.clicked.connect(self._auto_align_selected)
         self.analyze_btn = QPushButton("Analyze selected (from video)")
+        self.analyze_btn.setObjectName("primaryBtn")  # the window's main action
         self.analyze_btn.setToolTip(
             "Full pipeline: MediaPipe finger-matching over the raw video, then the review video."
         )
         self.analyze_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self._start_batch)
         self.data_only_btn = QPushButton("Analyze selected (data only)")
+        self.data_only_btn.setObjectName("dataBtn")  # stored-data family - indigo
         self.data_only_btn.setToolTip(
             "Recompute the summary metrics straight from results.json - no video pass. Use after "
             "manually correcting a quiz's results.json; only works on quizzes already analyzed from video."
@@ -242,6 +260,7 @@ class QuizAnalysisWindow(QMainWindow):
         self.data_only_btn.setEnabled(False)
         self.data_only_btn.clicked.connect(self._run_data_only)
         self.cancel_btn = QPushButton("Cancel remaining")
+        self.cancel_btn.setObjectName("stopBtn")  # interrupts a run in progress
         self.cancel_btn.setVisible(False)
         self.cancel_btn.clicked.connect(self._cancel_batch)
         self.progress_bar = QProgressBar()
@@ -250,14 +269,21 @@ class QuizAnalysisWindow(QMainWindow):
             f"Finger Accuracy counts a note as correct when the target finger's probability is "
             f"≥ {FINGER_PROBABILITY_THRESHOLD:.2f}."
         )
+        # Deliberately not the muted "note" style: this label doubles as
+        # the batch status line ("[3/12] analyzing ...", failures, export
+        # results), which has to stay as readable as the table.
         self.status_label.setWordWrap(True)
 
         top_row = QHBoxLayout()
+        top_row.setSpacing(8)
         top_row.addWidget(self.filter_edit, 1)
         top_row.addWidget(refresh_btn)
 
+        select_label = QLabel("Select:")
+        select_label.setObjectName("note")
         select_row = QHBoxLayout()
-        select_row.addWidget(QLabel("Select:"))
+        select_row.setSpacing(8)
+        select_row.addWidget(select_label)
         select_row.addWidget(select_all_btn)
         select_row.addWidget(select_unanalyzed_btn)
         select_row.addWidget(select_analyzed_btn)
@@ -265,6 +291,7 @@ class QuizAnalysisWindow(QMainWindow):
         select_row.addStretch(1)
 
         export_btn = QPushButton("Export participant data...")
+        export_btn.setObjectName("exportBtn")  # stored-data family, outline
         export_btn.setToolTip(
             "Pick a Main User Study participant - or all of them at once - and write "
             "<participant>_trials.csv and <participant>_events.csv (all metrics + per-event data, "
@@ -274,6 +301,7 @@ class QuizAnalysisWindow(QMainWindow):
         export_btn.clicked.connect(self._export_participant)
 
         bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(8)
         bottom_row.addWidget(self.align_btn)
         bottom_row.addWidget(self.analyze_btn)
         bottom_row.addWidget(self.data_only_btn)
@@ -282,7 +310,10 @@ class QuizAnalysisWindow(QMainWindow):
         bottom_row.addStretch(1)
 
         central = QWidget()
+        central.setStyleSheet(STYLE_SHEET)
         layout = QVBoxLayout(central)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
         layout.addLayout(top_row)
         layout.addLayout(select_row)
         layout.addWidget(self.table, 1)
@@ -329,6 +360,7 @@ class QuizAnalysisWindow(QMainWindow):
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 self.table.setItem(row, col, item)
             sync_btn = QPushButton("Video Sync")
+            sync_btn.setObjectName("cellBtn")  # short padding - it sits in a table row
             sync_btn.clicked.connect(lambda _=False, n=name: self._open_sync_window(n))
             self.table.setCellWidget(row, COL_SYNC_BTN, sync_btn)
             try:

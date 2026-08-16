@@ -16,8 +16,11 @@ playback. Two overlays, both on by default and independently switchable
     fingertip ringed in the same green/red for right/wrong finger.
 
 Below the player, the event's target finger, detected finger, and
-probability evidence are shown, and the Actual Finger can be corrected
-from the physical finger list.
+probability evidence are shown - Actual Finger written exactly as the
+detail table writes it, "R3 (≈R2)" and all (app/gui/finger_cell.py) -
+and the Actual Finger can be corrected from the physical finger list.
+Both verdict buttons close the window afterwards unless "Close after
+saving" is unticked.
 
 A correction changes actual_finger, re-judges finger_correct as an exact
 match against the target finger, and sets finger_corrected as the audit
@@ -27,6 +30,8 @@ under a different threshold (and corrections made before
 finger_corrected existed remain recognisable - see
 app.quiz.finger_manually_corrected).
 """
+
+import html
 
 import cv2
 import numpy as np
@@ -61,6 +66,8 @@ from ..quiz import (
 )
 from ..review_video import BAD, GOOD, NEUTRAL, TARGET_TINT, load_hands_by_frame
 from ..sync_led import resolve_sync_anchor
+from .finger_cell import finger_cell
+from .quiz_style import STYLE_SHEET
 
 WINDOW_SECONDS = 5.0  # played on each side of the keypress
 # How long the last frame is held when the recording stops inside that
@@ -132,6 +139,7 @@ class EventReviewWindow(QMainWindow):
         self.slider.valueChanged.connect(self._show_frame)
 
         self.play_btn = QPushButton("▶ Play")
+        self.play_btn.setObjectName("playBtn")
         self.play_btn.clicked.connect(self._toggle_play)
         self.speed_combo = QComboBox()
         for s in SPEEDS:
@@ -181,7 +189,15 @@ class EventReviewWindow(QMainWindow):
         self.labels_check.setEnabled(self.fingers_check.isChecked())
         self.labels_check.toggled.connect(lambda: self._show_frame(self.slider.value()))
         self.fingers_check.toggled.connect(self.labels_check.setEnabled)
+
+        self.close_check = QCheckBox("Close after saving")
+        self.close_check.setChecked(True)
+        self.close_check.setToolTip(
+            "Close this window as soon as Save correction or Confirm as is has written the "
+            "verdict. Uncheck it to stay here after saving."
+        )
         self.time_label = QLabel()
+        self.time_label.setObjectName("note")
         # Its text changes length as you scrub (keypress marker, held-tail
         # note); an Ignored width policy keeps that from widening the whole
         # window - and with it the video area - mid-playback.
@@ -202,6 +218,8 @@ class EventReviewWindow(QMainWindow):
         overlay_row.addWidget(self.fingers_check)
         overlay_row.addSpacing(24)
         overlay_row.addWidget(self.labels_check)
+        overlay_row.addSpacing(24)
+        overlay_row.addWidget(self.close_check)
         overlay_row.addStretch(1)
 
         self._timer = QTimer(self)
@@ -209,17 +227,10 @@ class EventReviewWindow(QMainWindow):
 
         # --- correction ----------------------------------------------
         timed_out = r.timed_out
-        p = r.target_finger_probability
-        detected = None
-        if r.finger_probabilities:
-            detected = max(r.finger_probabilities, key=r.finger_probabilities.get)
-        evidence = QLabel(
-            f"Target finger: <b>{r.target_finger or '—'}</b>  |  "
-            f"detected (softmax argmax): {detected or 'unresolved'}  |  "
-            f"current Actual Finger: <b>{r.actual_finger or 'unresolved'}</b>  |  "
-            f"p(target) = {f'{p:.2f}' if p is not None else 'n/a'}"
-        )
-        evidence.setWordWrap(True)
+        self.evidence = QLabel()
+        self.evidence.setWordWrap(True)
+        self.evidence.setObjectName("evidence")
+        self._refresh_evidence()
 
         self.finger_combo = QComboBox()
         for f in FINGER_CHOICES:
@@ -228,9 +239,14 @@ class EventReviewWindow(QMainWindow):
         current_idx = self.finger_combo.findData(r.actual_finger)
         self.finger_combo.setCurrentIndex(current_idx if current_idx >= 0 else self.finger_combo.count() - 1)
 
+        # Amber changes the stored label, green leaves it alone: the two
+        # buttons are one keystroke apart in a queue you work through fast,
+        # so the colour carries which one writes a new finger.
         save_btn = QPushButton("Save correction")
+        save_btn.setObjectName("saveBtn")
         save_btn.clicked.connect(self._save_correction)
         confirm_btn = QPushButton("Confirm as is")
+        confirm_btn.setObjectName("confirmBtn")
         confirm_btn.setToolTip(
             "The automatic verdict was right - change nothing, just record that this event has "
             "been watched so it leaves the review queue."
@@ -241,9 +257,11 @@ class EventReviewWindow(QMainWindow):
             "Either button records that a human has ruled on this event, which takes it off the "
             "review queue."
         )
+        self.save_note.setObjectName("note")
         self.save_note.setWordWrap(True)
 
         correction_row = QHBoxLayout()
+        correction_row.setSpacing(10)
         correction_row.addWidget(QLabel("Actual finger was:"))
         correction_row.addWidget(self.finger_combo, 1)
         correction_row.addWidget(save_btn)
@@ -251,7 +269,9 @@ class EventReviewWindow(QMainWindow):
 
         box = QGroupBox("Correct Actual Finger")
         box_layout = QVBoxLayout(box)
-        box_layout.addWidget(evidence)
+        box_layout.setContentsMargins(14, 16, 14, 12)
+        box_layout.setSpacing(10)
+        box_layout.addWidget(self.evidence)
         box_layout.addLayout(correction_row)
         box_layout.addWidget(self.save_note)
         if timed_out:
@@ -259,7 +279,10 @@ class EventReviewWindow(QMainWindow):
             box.setTitle("Correct Actual Finger (disabled - this event timed out, there is no keypress)")
 
         central = QWidget()
+        central.setStyleSheet(STYLE_SHEET)
         layout = QVBoxLayout(central)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         layout.addWidget(self.image_label, 1)
         layout.addWidget(self.slider)
         layout.addLayout(player_row)
@@ -271,6 +294,28 @@ class EventReviewWindow(QMainWindow):
         self._show_frame(self.keypress_frame)
 
     # ------------------------------------------------------------------
+
+    def _refresh_evidence(self) -> None:
+        """The evidence line, rebuilt from self.result so it also reflects
+        a correction just saved from this window. Actual Finger is spelled
+        the way the Quiz Detail table spells it - "R3 (≈R2)" when the cued
+        finger was scored despite a neighbour winning the argmax, "R4
+        (p<θ)" for the mirror case - so one event never reads two ways
+        across the two windows (app/gui/finger_cell.py)."""
+        r = self.result
+        p = r.target_finger_probability
+        detected = None
+        if r.finger_probabilities:
+            detected = max(r.finger_probabilities, key=r.finger_probabilities.get)
+        text, tip, _tint = finger_cell(r)
+        self.evidence.setText(
+            f"Target finger: <b>{r.target_finger or '—'}</b>  |  "
+            f"detected (softmax argmax): {detected or 'unresolved'}  |  "
+            # escaped: "(p<θ)" in a rich-text label would be read as a tag
+            f"current Actual Finger: <b>{html.escape(text)}</b>  |  "
+            f"p(target) = {f'{p:.2f}' if p is not None else 'n/a'}"
+        )
+        self.evidence.setToolTip(tip or "")
 
     def _load_clip(self, video_path, center_frame: int):
         """±WINDOW_SECONDS of frames around center_frame, stored as JPEG
@@ -439,6 +484,16 @@ class EventReviewWindow(QMainWindow):
         self.result = r
         return r
 
+    def _after_verdict(self) -> None:
+        """Either button saves; whether it also closes is the reviewer's
+        choice. Closing is the default because the queue is worked through
+        one double-click at a time - untick it to keep watching the same
+        keypress after saving, and the evidence line then shows the new
+        verdict in place."""
+        self._refresh_evidence()
+        if self.close_check.isChecked():
+            self.close()
+
     def _save_correction(self) -> None:
         r = self._write_verdict(corrected=True)
         self.save_note.setText(
@@ -447,6 +502,7 @@ class EventReviewWindow(QMainWindow):
             "Analysis to refresh the stored summary metrics."
         )
         self.saved.emit(self.quiz_name)
+        self._after_verdict()
 
     def _confirm_as_is(self) -> None:
         r = self._write_verdict(corrected=False)
@@ -455,3 +511,11 @@ class EventReviewWindow(QMainWindow):
             f"finger_correct = {r.finger_correct}. The event is off the review queue."
         )
         self.saved.emit(self.quiz_name)
+        self._after_verdict()
+
+    def closeEvent(self, event) -> None:
+        """The window can outlive its close (the detail window holds a
+        reference until it next prunes) - stop the playback timer so a
+        closed player isn't still scrubbing."""
+        self._timer.stop()
+        super().closeEvent(event)

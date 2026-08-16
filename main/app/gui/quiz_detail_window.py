@@ -14,8 +14,9 @@ different finger, the column names the disagreement: "R3 (≈R2)" for an
 event scored as the cued R3 that a neighbour narrowly won on
 probability, and "R4 (p<θ)" for the mirror case where the argmax is the
 cued finger but never cleared θ. Both are display only - see
-_finger_cell(); results.json keeps the argmax, because the confusion
-matrix, the unresolved rate and the Condition A strategy measures are
+app/gui/finger_cell.py, shared with the per-event review window so one
+event never reads two ways; results.json keeps the argmax, because the
+confusion matrix, the unresolved rate and the Condition A measures are
 all statements about what the detector saw, and every accuracy figure
 reads finger_correct rather than re-deriving it from the two labels.
 
@@ -33,8 +34,8 @@ detection confidence, QC press counts).
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -75,7 +76,9 @@ from ..quiz import (
     suspected_carryover,
 )
 from .event_review_window import EventReviewWindow
+from .finger_cell import COLOR_NEAR_TIE, finger_cell
 from .missing_video import require_video
+from .quiz_style import STYLE_SHEET, tint_item
 
 # Row/cell tints for the event table (light, readable on white).
 COLOR_TIMEOUT = QColor(230, 230, 230)
@@ -91,7 +94,6 @@ COLOR_INVALID = QColor(205, 205, 205)  # manually excluded from all stats
 COLOR_TO_REVIEW = QColor(255, 225, 150)  # in the review queue - watch this one
 COLOR_REVIEWED = QColor(225, 235, 225)  # a human has already ruled on it
 COLOR_CORRECT = QColor(215, 240, 215)
-COLOR_NEAR_TIE = QColor(255, 240, 200)
 COLOR_WRONG_FINGER_CELL = QColor(255, 220, 220)
 COLOR_UNRESOLVED = QColor(230, 230, 230)
 
@@ -134,50 +136,6 @@ def _pct(x) -> str:
     return f"{x * 100:.0f}%" if x is not None else "n/a"
 
 
-def _finger_cell(r):
-    """(text, tooltip, tint) for the Actual finger column.
-
-    actual_finger is the softmax argmax; finger_correct is the θ rule on
-    the *target* finger's mass (see app.finger_matching). Printing the raw
-    argmax beside a ✓ reads as a contradiction it isn't, so the two
-    disagreeing cases are named in the cell instead of being left for the
-    reader to reconstruct from the p(target) column. Nothing here writes
-    to results.json - the stored value stays the argmax, which is what the
-    confusion matrix, the unresolved rate and the Condition A strategy
-    measures need it to be."""
-    if r.actual_finger is None:
-        return "unresolved", None, None
-
-    probs = r.finger_probabilities or {}
-    p_target = r.target_finger_probability
-    p_actual = probs.get(r.actual_finger)
-    p_t = f"{p_target:.2f}" if p_target is not None else "n/a"
-    p_a = f"{p_actual:.2f}" if p_actual is not None else "n/a"
-
-    if scored_near_tie(r):
-        return (
-            f"{r.target_finger} (≈{r.actual_finger})",
-            f"Scored as the cued {r.target_finger}: it held p = {p_t} ≥ θ = "
-            f"{FINGER_PROBABILITY_THRESHOLD:.2f}, so the benefit of the doubt goes to the "
-            f"learner. {r.actual_finger} was fractionally more probable (p = {p_a}) and is what "
-            "results.json stores as actual_finger - the camera cannot separate two fingertips "
-            f"this close. The confusion matrix below therefore still counts this event as "
-            f"{r.target_finger} → {r.actual_finger} (amber), and every statistic reads the ✓.",
-            COLOR_NEAR_TIE,
-        )
-    if subthreshold_match(r):
-        return (
-            f"{r.actual_finger} (p<θ)",
-            f"The most probable fingertip was {r.actual_finger}, which is the cued finger - but it "
-            f"held only p = {p_t} < θ = {FINGER_PROBABILITY_THRESHOLD:.2f}, so the mass was split "
-            "across several fingertips over the key and the automatic rule cannot credit the "
-            "event. That is why Finger ✓ is ✗ next to a matching finger. Double-click the row to "
-            "watch the keypress and rule on it.",
-            None,
-        )
-    return r.actual_finger, None, None
-
-
 class QuizDetailWindow(QMainWindow):
     changed = Signal(str)  # quiz name, emitted after an event correction is saved
 
@@ -185,14 +143,83 @@ class QuizDetailWindow(QMainWindow):
         super().__init__()
         self.quiz_name = quiz_name
         self.setWindowTitle(f"Quiz Detail - {quiz_name}")
-        self.resize(1000, 750)
+        # Tall enough that the fixed-height confusion matrix underneath
+        # still leaves the event table a usable number of rows.
+        self.resize(1100, 880)
+        self._center_on_screen()
         self._event_windows: list = []  # keep references so Qt doesn't GC them
         self._build()
+
+    def _center_on_screen(self) -> None:
+        """Open in the middle of the screen rather than wherever the
+        window manager would park it - this window is opened from a row in
+        Quiz Analysis, and it was landing hard against a screen edge with
+        part of it out of reach. The size is clamped to the available area
+        first, so a laptop display gets a shorter window instead of one
+        running off the bottom."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self.resize(self.size().boundedTo(available.size()))
+        frame = self.frameGeometry()
+        frame.moveCenter(available.center())
+        self.move(frame.topLeft())
 
     def _build(self) -> None:
         """(Re)load everything from disk and rebuild the whole view -
         also called after a per-event correction is saved, so the table,
-        confusion matrix and stats always reflect the current results.json."""
+        confusion matrix and stats always reflect the current results.json.
+
+        The rebuild throws the old event table away, which would drop the
+        reader back at event 0 every time; where they were is carried
+        across (_capture_view_state) and painting is held off until it has
+        been put back, so working down a long trial doesn't mean scrolling
+        back after every verdict."""
+        keep = self._capture_view_state()
+        self.setUpdatesEnabled(False)
+        try:
+            self._build_view()
+            # Works when the new table already knows its scroll range.
+            self._restore_view_state(keep)
+        finally:
+            # It often doesn't: until the event loop has laid the table
+            # out, its range is still 0 and the position above clamped to
+            # the top (reliably so on Fusion/offscreen, which is what
+            # Linux and Windows use). So put it back once more after
+            # layout - and only then start painting, so no frame showing
+            # event 0 ever reaches the screen.
+            QTimer.singleShot(0, lambda: self._finish_build(keep))
+
+    def _finish_build(self, keep) -> None:
+        self._restore_view_state(keep)
+        self.setUpdatesEnabled(True)
+
+    def _capture_view_state(self):
+        """Where the reader is in the event table: the scroll position and
+        the current row. None on the first build, when there is no table
+        yet."""
+        table = getattr(self, "_events_table", None)
+        if table is None:
+            return None
+        return table.verticalScrollBar().value(), table.currentRow()
+
+    def _restore_view_state(self, state) -> None:
+        """Put the view back where _capture_view_state() found it. The row
+        count doesn't change across a correction, so the scrollbar value
+        transfers directly; Qt clamps it if the queue filter has since
+        hidden rows below it."""
+        if state is None:
+            return
+        scroll, row = state
+        table = self._events_table
+        # Current cell first: it scrolls the row into view, which would
+        # otherwise undo the scroll position set right after.
+        if 0 <= row < table.rowCount() and not table.isRowHidden(row):
+            table.setCurrentCell(row, 0)
+        table.verticalScrollBar().setValue(scroll)
+
+    def _build_view(self) -> None:
         self.meta = QuizMeta.load(quiz_dir(self.quiz_name) / META_FILENAME)
         results = load_quiz_results(quiz_dir(self.quiz_name) / RESULTS_FILENAME)
         summary = full_summary(self.quiz_name, results)
@@ -205,6 +232,7 @@ class QuizDetailWindow(QMainWindow):
             f"Timing {_ms(summary['mean_timing_error_s'])}<br>"
             f"<i>Double-click an event row to play back its keypress and correct the detected finger.</i>"
         )
+        header.setObjectName("header")
         header.setWordWrap(True)
 
         events_table = self._build_events_table(results)
@@ -229,15 +257,26 @@ class QuizDetailWindow(QMainWindow):
         self._filter_to_review(queue_check.isChecked())
 
         bottom = QHBoxLayout()
-        bottom.addWidget(self._build_confusion_box(summary), 1)
-        bottom.addWidget(self._build_stats_box(summary), 1)
+        bottom.setSpacing(12)
+        # The confusion box is only as wide as its (fixed-size) matrix, and
+        # only as tall as it needs - AlignTop stops it being stretched to
+        # the height of the stats box beside it, which is what filled it
+        # with empty space. The stats box takes everything left over.
+        bottom.addWidget(self._build_confusion_box(summary), 0, Qt.AlignmentFlag.AlignTop)
+        bottom.addWidget(self._build_stats_box(summary), 1, Qt.AlignmentFlag.AlignTop)
 
         central = QWidget()
+        central.setStyleSheet(STYLE_SHEET)  # re-applied: _build() replaces this widget
         layout = QVBoxLayout(central)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
         layout.addWidget(header)
         layout.addWidget(queue_check)
-        layout.addWidget(events_table, 3)
-        layout.addLayout(bottom, 2)
+        # Both bottom boxes now size to their own contents, so the spare
+        # height goes to the event table - more events on screen instead of
+        # padding under two boxes that have nothing more to say.
+        layout.addWidget(events_table, 1)
+        layout.addLayout(bottom, 0)
         self.setCentralWidget(central)  # deletes the previous central widget
 
     # ------------------------------------------------------------------
@@ -322,7 +361,7 @@ class QuizDetailWindow(QMainWindow):
                          "—", "—", "—", "timeout", "", "", validity_text]
                 tint: Optional[QColor] = COLOR_TIMEOUT
             else:
-                finger_text, finger_tip, finger_tint = _finger_cell(r)
+                finger_text, finger_tip, finger_tint = finger_cell(r)
                 cells = [
                     str(r.index),
                     r.target_note_name,
@@ -349,11 +388,11 @@ class QuizDetailWindow(QMainWindow):
                 item = QTableWidgetItem(text)
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
                 if tint is not None:
-                    item.setBackground(tint)
+                    tint_item(item, tint)
                 # Borderline p(target) overrides the row tint on its own
                 # cell - it's the audit priority signal.
                 if borderline and col == 6:
-                    item.setBackground(COLOR_BORDERLINE)
+                    tint_item(item, COLOR_BORDERLINE)
                     item.setToolTip(
                         f"Within ±{BORDERLINE_MARGIN:.2f} of the θ={FINGER_PROBABILITY_THRESHOLD:.2f} "
                         "threshold - verdict could flip; check this event in the review video."
@@ -362,7 +401,7 @@ class QuizDetailWindow(QMainWindow):
                 # rather than leaving a ✓ next to a different finger.
                 if col == COL_ACTUAL_FINGER and finger_tip is not None:
                     if finger_tint is not None:
-                        item.setBackground(finger_tint)
+                        tint_item(item, finger_tint)
                     item.setToolTip(finger_tip)
                 # On a corrected event the verdict is the reviewer's exact
                 # match, so p(target) beside it is the detector's old score
@@ -375,7 +414,7 @@ class QuizDetailWindow(QMainWindow):
                         "this."
                     )
                 if col == COL_REVIEW and review_text:
-                    item.setBackground(COLOR_TO_REVIEW if to_review else COLOR_REVIEWED)
+                    tint_item(item, COLOR_TO_REVIEW if to_review else COLOR_REVIEWED)
                     item.setToolTip(
                         "Failed the finger rule and nobody has ruled on it yet - double-click the "
                         "row to watch the keypress. Events below "
@@ -385,7 +424,7 @@ class QuizDetailWindow(QMainWindow):
                         "A human has watched this event in the review window."
                     )
                 if manual and col == 9:
-                    item.setBackground(COLOR_MANUAL)
+                    tint_item(item, COLOR_MANUAL)
                     item.setToolTip(
                         "Actual Finger was hand-corrected in the event review window: it no longer "
                         "matches the stored softmax argmax (the probabilities are kept unmodified as "
@@ -398,7 +437,7 @@ class QuizDetailWindow(QMainWindow):
                             "every statistic (RT and accuracy). Right-click to restore."
                         )
                     elif suspected:
-                        item.setBackground(COLOR_SUSPECTED)
+                        tint_item(item, COLOR_SUSPECTED)
                         item.setToolTip(
                             f"RT < {CARRYOVER_RT_THRESHOLD_S * 1000:.0f} ms - too fast for a reaction "
                             "to this cue; likely the tail of the previous event's presses. Check the "
@@ -415,6 +454,7 @@ class QuizDetailWindow(QMainWindow):
         order = ["L5", "L4", "L3", "L2", "L1", "R1", "R2", "R3", "R4", "R5"]
         cols = order + ["?"]
         table = QTableWidget(len(order), len(cols))
+        table.setObjectName("confusion")  # compact cell padding - see quiz_style
         table.setHorizontalHeaderLabels(cols)
         table.setVerticalHeaderLabels(order)
         table.horizontalHeaderItem(len(order)).setToolTip(
@@ -422,7 +462,19 @@ class QuizDetailWindow(QMainWindow):
             "detected at that moment (hand not visible / tracking failed)."
         )
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        # Every cell holds a one- or two-digit count, so the columns can be
+        # square and the whole 10x11 grid fits with no scrolling - the
+        # point of the matrix is the pattern around the diagonal, which you
+        # can't see through a viewport showing six rows. Sizes come from
+        # the font, not constants, so it still fits under a Windows or
+        # Linux UI font.
+        fm = table.fontMetrics()
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        table.verticalHeader().setDefaultSectionSize(fm.height() + 6)
+        table.horizontalHeader().setDefaultSectionSize(fm.horizontalAdvance("R5") + 16)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         near_ties = 0
         for i, target in enumerate(order):
             row_counts = confusion.get(target, {})
@@ -438,10 +490,10 @@ class QuizDetailWindow(QMainWindow):
                     # position: an off-diagonal cell whose events all
                     # cleared the threshold is a near-tie, not an error.
                     if actual is None:
-                        item.setBackground(COLOR_UNRESOLVED)
+                        tint_item(item, COLOR_UNRESOLVED)
                         item.setToolTip("No fingertip detected at the keypress - counts as incorrect.")
                     elif passed == count:
-                        item.setBackground(COLOR_CORRECT if actual == target else COLOR_NEAR_TIE)
+                        tint_item(item, COLOR_CORRECT if actual == target else COLOR_NEAR_TIE)
                         if actual != target:
                             near_ties += count
                             item.setToolTip(
@@ -449,7 +501,7 @@ class QuizDetailWindow(QMainWindow):
                                 f"θ = {FINGER_PROBABILITY_THRESHOLD:.2f} - scored as the right finger."
                             )
                     else:
-                        item.setBackground(COLOR_WRONG_FINGER_CELL)
+                        tint_item(item, COLOR_WRONG_FINGER_CELL)
                         near_ties += passed
                         item.setToolTip(
                             f"{passed} of {count} still cleared θ = {FINGER_PROBABILITY_THRESHOLD:.2f} "
@@ -465,11 +517,45 @@ class QuizDetailWindow(QMainWindow):
             f"of the mass (amber, {near_ties} here) - those are the events the table above prints "
             "as \"R3 (≈R2)\". Red failed the rule, grey is unresolved."
         )
+        note.setObjectName("note")
         note.setWordWrap(True)
+        self._confusion_table = table
+        self._confusion_note = note
+        QTimer.singleShot(0, self._fit_confusion_table)
+
         layout = QVBoxLayout(box)
-        layout.addWidget(table)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(8)
+        layout.addWidget(table, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(note)
+        layout.addStretch(1)
         return box
+
+    def _fit_confusion_table(self) -> None:
+        """Freeze the matrix at exactly the size of its own cells, so all
+        ten rows and eleven columns are on screen at once - the pattern
+        around the diagonal is the whole point, and it can't be read
+        through a viewport showing six rows.
+
+        Deferred to the event loop rather than done in _build(): the
+        header sizes are only real once Qt has polished and laid the table
+        out, and measuring them earlier cropped the last column and the R5
+        row. Always refits the current table, so the rebuild after a
+        correction is safe."""
+        t = self._confusion_table
+        t.setFixedSize(
+            t.verticalHeader().width()
+            + sum(t.columnWidth(c) for c in range(t.columnCount()))
+            + 2 * t.frameWidth(),
+            t.horizontalHeader().height()
+            + sum(t.rowHeight(r) for r in range(t.rowCount()))
+            + 2 * t.frameWidth(),
+        )
+        # Wrap the caption to the matrix's own width. Left to itself the
+        # label asks for the width of its longest unbroken run, which blew
+        # the box out sideways and left a field of empty space beside the
+        # matrix.
+        self._confusion_note.setFixedWidth(t.width())
 
     def _build_stats_box(self, summary: dict) -> QGroupBox:
         box = QGroupBox("Distribution / trend / audit stats")
@@ -520,5 +606,6 @@ class QuizDetailWindow(QMainWindow):
         label.setWordWrap(True)
         label.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout = QVBoxLayout(box)
+        layout.setContentsMargins(12, 14, 12, 12)
         layout.addWidget(label)
         return box
