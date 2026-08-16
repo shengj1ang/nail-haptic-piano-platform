@@ -1,0 +1,11 @@
+{
+  "method": "start-times",
+  "fps": 30.0,
+  "frame0_epoch": 1786710871.731332,
+  "flash_on_frame": null,
+  "flash_off_frame": null,
+  "detected_pulse_s": null,
+  "expected_pulse_s": null,
+  "led_vs_start_times_offset_s": null,
+  "reason": "detected pulse 0.600s doesn't match software 0.800s"
+}

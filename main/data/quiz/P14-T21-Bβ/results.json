@@ -33,7 +33,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 1,
@@ -69,7 +69,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 2,
@@ -105,7 +105,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 3,
@@ -120,8 +120,8 @@
     "keypress_time": 1786706041.665765,
     "timing_error_s": 0.7702088356018066,
     "note_correct": true,
-    "actual_finger": "L3",
-    "finger_correct": false,
+    "actual_finger": "L4",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.0002406549978320624,
       "R2": 2.2776356022697306e-05,
@@ -140,8 +140,8 @@
       224
     ],
     "validity": "valid",
-    "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_corrected": true,
+    "finger_reviewed": true
   },
   {
     "index": 4,
@@ -177,7 +177,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 5,
@@ -213,7 +213,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 6,
@@ -228,8 +228,8 @@
     "keypress_time": 1786706045.224834,
     "timing_error_s": 0.7599530220031738,
     "note_correct": true,
-    "actual_finger": "R3",
-    "finger_correct": false,
+    "actual_finger": "R4",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.013317598307324402,
       "R2": 0.17760269344136378,
@@ -248,8 +248,8 @@
       222
     ],
     "validity": "valid",
-    "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_corrected": true,
+    "finger_reviewed": true
   },
   {
     "index": 7,
@@ -285,7 +285,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 8,
@@ -300,8 +300,8 @@
     "keypress_time": 1786706048.001905,
     "timing_error_s": 0.9018189907073975,
     "note_correct": true,
-    "actual_finger": "L2",
-    "finger_correct": false,
+    "actual_finger": "L3",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 2.010803741302218e-06,
       "R2": 1.7848599525206132e-07,
@@ -320,8 +320,8 @@
       217
     ],
     "validity": "valid",
-    "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_corrected": true,
+    "finger_reviewed": true
   },
   {
     "index": 9,
@@ -357,7 +357,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 10,
@@ -393,7 +393,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 11,
@@ -429,7 +429,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 12,
@@ -465,7 +465,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 13,
@@ -480,8 +480,8 @@
     "keypress_time": 1786706054.482761,
     "timing_error_s": 0.9443378448486328,
     "note_correct": true,
-    "actual_finger": "L3",
-    "finger_correct": false,
+    "actual_finger": "L4",
+    "finger_correct": true,
     "finger_probabilities": {
       "R1": 0.002023179361499647,
       "R2": 0.00029593964574887863,
@@ -500,8 +500,8 @@
       229
     ],
     "validity": "valid",
-    "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_corrected": true,
+    "finger_reviewed": true
   },
   {
     "index": 14,
@@ -537,7 +537,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 15,
@@ -573,7 +573,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 16,
@@ -609,7 +609,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 17,
@@ -645,7 +645,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 18,
@@ -681,7 +681,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 19,
@@ -717,7 +717,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 20,
@@ -753,7 +753,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 21,
@@ -789,7 +789,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 22,
@@ -825,7 +825,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 23,
@@ -861,7 +861,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 24,
@@ -897,7 +897,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 25,
@@ -933,7 +933,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 26,
@@ -969,7 +969,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 27,
@@ -1005,7 +1005,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 28,
@@ -1041,7 +1041,7 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   },
   {
     "index": 29,
@@ -1077,6 +1077,6 @@
     ],
     "validity": "valid",
     "finger_corrected": false,
-    "finger_reviewed": false
+    "finger_reviewed": true
   }
 ]
