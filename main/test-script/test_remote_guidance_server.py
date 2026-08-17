@@ -490,6 +490,76 @@ class RecordingAndSessionTests(_ServerCase):
         ).json()
         self.assertEqual(stored["guidance_mode"], "haptic")
 
+    def _ready(self, session_id, guidance_mode):
+        self.app.state.ctx._write_row(
+            "performance",
+            {
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "room_id": self.room["room_id"],
+                "sender_user_id": self.student["user_id"],
+                "sender_role": "student",
+                "seq": 1,
+                "type": "recording.ready",
+                "payload": {"guidance_mode": guidance_mode, "channels": [guidance_mode]},
+            },
+        )
+
+    def _stored_mode(self, session_id):
+        return self.client.get(
+            f"/api/v1/sessions/{session_id}", headers=self.auth(self.teacher)
+        ).json()["guidance_mode"]
+
+    def test_a_finished_session_keeps_the_mode_it_was_run_under(self):
+        """The student announces readiness for the next lesson before the
+        teacher has opened it, and that announcement still carries the id
+        of the lesson that just ended. Applying it rewrote the finished
+        lesson's condition with the coming one's - three lessons back to
+        back each recorded the next one's condition, and only the
+        student's own meta.json disagreed."""
+        session = self.client.post(
+            f"/api/v1/rooms/{self.room['room_id']}/sessions",
+            json={"mode": "live"},
+            headers=self.auth(self.teacher),
+        ).json()
+        session_id = session["session_id"]
+        self._ready(session_id, "both")
+        self.assertEqual(self._stored_mode(session_id), "both")
+
+        dbm.set_session_state(self.app.state.ctx.db, session_id, "finished")
+        self._ready(session_id, "visual")
+
+        self.assertEqual(self._stored_mode(session_id), "both")
+
+    def test_a_stopped_session_keeps_the_mode_it_was_run_under(self):
+        session = self.client.post(
+            f"/api/v1/rooms/{self.room['room_id']}/sessions",
+            json={"mode": "live"},
+            headers=self.auth(self.teacher),
+        ).json()
+        session_id = session["session_id"]
+        self._ready(session_id, "haptic")
+        dbm.set_session_state(self.app.state.ctx.db, session_id, "stopped")
+        self._ready(session_id, "both")
+
+        self.assertEqual(self._stored_mode(session_id), "haptic")
+
+    def test_a_running_session_still_takes_the_students_correction(self):
+        """The student re-announces once the session id is known, and may
+        legitimately have changed the choice between the two. Only a
+        session that is over is closed to this."""
+        session = self.client.post(
+            f"/api/v1/rooms/{self.room['room_id']}/sessions",
+            json={"mode": "live"},
+            headers=self.auth(self.teacher),
+        ).json()
+        session_id = session["session_id"]
+        self._ready(session_id, "visual")
+        dbm.set_session_state(self.app.state.ctx.db, session_id, "running")
+        self._ready(session_id, "both")
+
+        self.assertEqual(self._stored_mode(session_id), "both")
+
     def test_summary_names_the_student_as_the_source(self):
         """The server must never present a number it computed itself as
         the session result."""

@@ -24,6 +24,10 @@ from .database import Database
 
 LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 
+# A session in one of these is over: nothing a client says afterwards
+# describes it any more (see _apply_student_guidance_mode).
+CLOSED_SESSION_STATES = frozenset({"stopped", "finished"})
+
 
 def configure_logging(level: int = logging.INFO) -> None:
     logging.basicConfig(level=level, format=LOG_FORMAT)
@@ -105,7 +109,20 @@ class ServerContext:
             dbm.set_session_state(self.db, session_id, state)
 
     def _apply_student_guidance_mode(self, row: dict) -> None:
-        """Store the modality reported by the student, never a teacher default."""
+        """Store the modality reported by the student, never a teacher default.
+
+        Only while the session is still open. A student that presses
+        "Ready for guidance" for the *next* lesson before the teacher has
+        created it stamps that announcement with the session id it still
+        holds - the one that just ended - and this used to rewrite the
+        finished lesson's modality with the coming one's. Three lessons
+        back to back therefore recorded each other's conditions, shifted
+        by one, and nothing said so: the column is only read afterwards,
+        by which time the student's own meta.json is the only thing that
+        disagrees with it.
+
+        The announcement itself is still stored. It was really sent, and
+        a row saying so is not the thing that was wrong."""
         if row.get("type") != ws.TYPE_RECORDING_READY or row.get("sender_role") != dbm.ROLE_STUDENT:
             return
         guidance_mode = (row.get("payload") or {}).get("guidance_mode")
@@ -113,8 +130,18 @@ class ServerContext:
             return
         session_id = row.get("session_id")
         session = dbm.get_session(self.db, session_id) if session_id else None
-        if session is not None and session["room_id"] == row.get("room_id"):
-            dbm.set_session_guidance_mode(self.db, session_id, guidance_mode)
+        if session is None or session["room_id"] != row.get("room_id"):
+            return
+        if session["state"] in CLOSED_SESSION_STATES:
+            self.log.warning(
+                "ignoring a %s guidance mode for session %s, which is already %s - it belongs to a "
+                "later session",
+                guidance_mode,
+                session_id,
+                session["state"],
+            )
+            return
+        dbm.set_session_guidance_mode(self.db, session_id, guidance_mode)
 
 
 def create_app(config: Optional[ServerConfig] = None, db: Optional[Database] = None) -> FastAPI:

@@ -31,6 +31,7 @@ off edges must agree.
 """
 
 import json
+import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -54,6 +55,13 @@ DETECTION_FILENAME = "sync_detect.json"  # audit trail of the anchor a video ana
 # analysis reuses it instead of re-detecting, so a manual correction is
 # never silently overwritten.
 ALIGN_FILENAME = "sync_align.json"
+# How far a saved alignment's frame 0 may sit from the recording's own
+# start time, on top of the recording's length, before it is treated as
+# belonging to a different recording. Generous on purpose: rejecting a
+# real manual correction would be worse than the drift it guards against.
+ALIGNMENT_DRIFT_MARGIN_S = 5.0
+
+log = logging.getLogger("app.sync_led")
 
 
 @dataclass
@@ -116,6 +124,45 @@ def load_sync_alignment(raw_dir: Path) -> Optional[SyncAnchor]:
         return None
 
 
+def alignment_belongs_to(anchor: SyncAnchor, sync: SyncInfo, video_path: Path) -> bool:
+    """Could this saved alignment have been made for this recording?
+
+    A saved alignment outranks everything, which is right for a manual
+    correction and catastrophic for one left behind by a *different*
+    recording: every event maps to a frame index far outside the video,
+    no hands are found there, and the pass returns "no finger" for the
+    whole session without erroring. That happened - see REMOTE_GUIDANCE.md
+    trap 11 - when a session folder was reused and kept the previous
+    session's sync_align.json, 145 seconds adrift of a 40-second video.
+
+    The test is deliberately loose. Frame 0's content can legitimately
+    predate video_start_time (the LED flash resolves a real offset of up
+    to a second or so), so only a gap larger than the recording itself,
+    plus a margin, is treated as proof that the two do not belong
+    together. A genuine alignment can never be that far out."""
+    if not sync.video_start_time or not anchor.frame0_epoch:
+        return True
+    drift_s = abs(anchor.frame0_epoch - sync.video_start_time)
+    duration_s = _video_duration_s(video_path)
+    if duration_s is None:
+        return drift_s <= ALIGNMENT_DRIFT_MARGIN_S
+    return drift_s <= duration_s + ALIGNMENT_DRIFT_MARGIN_S
+
+
+def _video_duration_s(video_path: Path) -> Optional[float]:
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        if not cap.isOpened():
+            return None
+        fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+        frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
+    finally:
+        cap.release()
+    if fps <= 0 or frames <= 0:
+        return None
+    return frames / fps
+
+
 def resolve_sync_anchor(
     video_path: Path,
     sync: SyncInfo,
@@ -125,11 +172,22 @@ def resolve_sync_anchor(
     """The anchor an analysis should use: a saved sync_align.json wins
     (manual corrections must never be overridden by re-detection);
     otherwise detect the flash now and - when the detection passes its
-    self-checks - persist it as an "auto" alignment for next time."""
+    self-checks - persist it as an "auto" alignment for next time.
+
+    A saved alignment that cannot belong to this recording is the one
+    exception - it is ignored rather than obeyed, and says so."""
     raw_dir = Path(video_path).parent
     saved = load_sync_alignment(raw_dir)
     if saved is not None:
-        return saved
+        if alignment_belongs_to(saved, sync, video_path):
+            return saved
+        log.warning(
+            "%s holds an alignment for a different recording (frame 0 at %.3f, this video starts at "
+            "%.3f) - ignoring it and re-detecting",
+            raw_dir / ALIGN_FILENAME,
+            saved.frame0_epoch,
+            sync.video_start_time,
+        )
     anchor = compute_sync_anchor(video_path, sync, keyboard_profile_name, data_dir)
     if anchor.method == "led":
         auto = SyncAnchor(**{**asdict(anchor), "method": "auto"})

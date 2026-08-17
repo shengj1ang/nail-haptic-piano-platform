@@ -28,13 +28,13 @@ that same moment, and a failure to find it is a warning rather than a
 refusal. "Connect LED" stays on the page as a manual override for
 checking the wiring beforehand.
 
-Session names come from the teacher unless one is typed here. The teacher
-generates `remote-<epoch>` and records the same lesson under
-`data/music/<that name>/`, so leaving the box empty puts the two halves of
-one lesson under one name on both machines. Because this client usually
-starts recording *before* the teacher opens the session, the folder is
-renamed once at the end rather than being left half-written under two
-names - see `_rename_to_teacher_session_name()`.
+A session is named by the teacher and by nobody else. "Ready for guidance"
+opens the camera, MediaPipe, the keyboard, the LED strip and the cue
+outputs, and stops there; the teacher's `session.start` brings the name and
+the instant to begin, and only then is a video writer opened, under
+`data/quiz/<that name>/`. The teacher records the same lesson under
+`data/music/<that name>/`, so the two halves share one name from the first
+frame and nothing is renamed afterwards.
 
 Which camera, MIDI port and keyboard profile this client uses is set from
 its own **Settings** button (remote_guidance/settings_window.py), not
@@ -67,7 +67,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -98,6 +97,7 @@ from app.music_recording import RawMidiRecorder, SyncInfo, save_raw_midi_log
 from app.profiles import DATA_DIR as PROFILE_DATA_DIR
 from app.quiz import (
     META_FILENAME,
+    QUIZ_DATA_DIR,
     RAW_MIDI_FILENAME,
     RAW_NOTES_FILENAME,
     RAW_SYNC_FILENAME,
@@ -159,6 +159,25 @@ SYNC_LED_PIXELS = [key[0] for key in WHITE_LEDS[:5]]
 
 COL_SEQ, COL_TARGET, COL_ACTUAL, COL_RT, COL_NET, COL_QUEUE, COL_RESULT = range(7)
 
+# One line per session, outside every session folder, written before the
+# first frame and again once the folder is closed.
+#
+# A session folder is otherwise the only record that a session happened:
+# if it never appears, or stops being there, nothing on this machine says
+# what was opened or where. That is not a hypothetical - it is why this
+# file exists. The log is append-only, is never read by the application,
+# and no failure to write it can stop a lesson.
+SESSION_LOG_FILENAME = "_sessions.log"
+
+
+def append_session_log(line: str) -> None:
+    try:
+        path = QUIZ_DATA_DIR / SESSION_LOG_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {line}\n")
+    except OSError:
+        log.exception("could not append to %s", SESSION_LOG_FILENAME)
 
 
 class StudentRemoteWindow(QMainWindow, StageWindow):
@@ -195,13 +214,10 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self._pending_recording_start: Optional[Dict[str, Any]] = None
         self.session_id: Optional[str] = None
         self.session_name = ""
-        # The name the teacher gave this session (remote-<epoch>), and
-        # whether this client's own name was generated rather than typed.
-        # Together they decide whether the two machines' folders can be
-        # made to agree - see _adopt_teacher_session_name().
-        self.teacher_session_name: Optional[str] = None
-        self._session_name_is_auto = False
-        self._pending_session_name: Optional[str] = None
+        # Counting the lesson in. The teacher names the instant both
+        # ends open their writers; this is what is left to wait.
+        self._countdown_timer: Optional[QTimer] = None
+        self._countdown_left = 0
         self.cue = None
         self.last_hands: Dict[str, Any] = {}
 
@@ -306,13 +322,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         index = self.guidance_combo.findData(self.remote.student.default_guidance_mode)
         self.guidance_combo.setCurrentIndex(max(index, 0))
 
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("leave empty to use the teacher's name for the session")
-        self.name_edit.setToolTip(
-            "The folder under data/quiz/. Left empty, this session takes the teacher's remote-<epoch> name, "
-            "so it matches the lesson the teacher recorded under data/music/. Type one to override it."
-        )
-
         self.timeout_spin = QDoubleSpinBox()
         self.timeout_spin.setRange(1.0, 30.0)
         self.timeout_spin.setSingleStep(0.5)
@@ -328,13 +337,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.record_check = QCheckBox("Record video + MIDI (needed for the final finger pass)")
         self.record_check.setChecked(self.remote.student.record_video)
 
-        self.led_btn = QPushButton("Connect LED")
-        self.led_btn.setToolTip(
-            "Optional - the strip is found and connected automatically when a session starts. This is for "
-            "checking the wiring beforehand."
-        )
-        self.led_btn.clicked.connect(self._toggle_led)
-        self.led_status = QLabel("LED: auto-connects at start")
+        self.led_status = QLabel("LED: connects with Ready for guidance")
 
         self.start_btn = QPushButton("Ready for guidance")
         self.start_btn.setProperty("role", "primary")
@@ -361,16 +364,12 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         response_row.addWidget(QLabel("Instrument:"))
         response_row.addWidget(self.timbre_combo, 1)
         setup.addLayout(response_row)
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Session name:"))
-        name_row.addWidget(self.name_edit, 1)
-        setup.addLayout(name_row)
         setup.addWidget(self.record_check)
-        led_row = QHBoxLayout()
-        led_row.addWidget(self.led_status, 1)
-        led_row.addWidget(self.led_btn)
-        setup.addLayout(led_row)
+        setup.addWidget(self.led_status)
         setup.addStretch(1)
+        self.lesson_label = QLabel("Recording starts when the teacher begins the lesson.")
+        self.lesson_label.setWordWrap(True)
+        setup.addWidget(self.lesson_label)
         session_actions = QHBoxLayout()
         session_actions.addWidget(self.start_btn, 1)
         session_actions.addWidget(self.stop_btn)
@@ -483,6 +482,12 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 annotate=lambda frame, hands: draw_hands(frame, hands),
                 name="remote-student-vision",
                 max_fps=self.cfg.camera.fps or 30,
+                # What gets recorded is the camera's own frame, exactly as
+                # the local quiz records it - draw_hands() paints the
+                # skeleton, the joints and the finger labels over the
+                # hands, and the offline pass has to find those same hands
+                # again in the recording.
+                keep_raw=True,
             )
             self._vision_worker.start()
 
@@ -517,7 +522,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             return str(exc)
         self.led_connected = True
         self.led_status.setText(f"LED: connected on {self.led.port}")
-        self.led_btn.setText("Disconnect LED")
         return None
 
     def _ensure_led(self) -> None:
@@ -531,30 +535,11 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 f"LED strip not found ({problem}) - running without the key backlight cue.", "warn"
             )
 
-    def _toggle_led(self) -> None:
-        """Manual override, for checking the wiring before a session."""
-        if self.led_connected:
-            if self.led_mapper is not None:
-                self.led_mapper.clear_all()
-            self.led.close()
-            self.led_connected = False
-            self.led_status.setText("LED: not connected")
-            self.led_btn.setText("Connect LED")
-            return
-        problem = self._connect_led()
-        if problem is not None:
-            QMessageBox.warning(self, "LED connection failed", problem)
-
-    # ------------------------------------------------------------------
-    # Network
-    # ------------------------------------------------------------------
-
     def enter_session(self, room: dict) -> None:
         """Reaching the session page opens the WebSocket and nothing
         else. The camera, MediaPipe and the MIDI port are claimed by
         "Ready for guidance" (see _start_session), using the MIDI port
-        saved in this client's Settings. The LED stays on its own manual
-        button."""
+        saved in this client's Settings - the LED strip included."""
         self.room = room
         self.room_label.setText(room_summary(room))
         self.persist_connection(self.remote, room)
@@ -677,10 +662,13 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             STUDENT_STATUS_STYLES["ok" if state == "connected" else "warn"]
         )
 
-    def _send(self, type_: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def _send(self, type_: str, payload: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None) -> None:
+        """session_id names an older session explicitly - the offline
+        finger pass reports against the lesson it analysed, which may no
+        longer be the current one by the time it finishes."""
         if self.bridge is None:
             return
-        self.bridge.send(type_, payload, session_id=self.session_id)
+        self.bridge.send(type_, payload, session_id=session_id or self.session_id)
 
     def _on_message(self, envelope: Dict[str, Any]) -> None:
         """Runs on the GUI thread (queued signal from the network
@@ -713,8 +701,16 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         if self.session is not None:
             return
         self.workspace_tabs.setCurrentIndex(self.practice_tab_index)
-        self._pending_session_name = None
-        name = self._resolve_session_name()
+        # The last lesson's id and name must not survive into this one.
+        # Announcing readiness before the teacher has opened the session
+        # is the normal order, and carrying the previous lesson's name
+        # into that moment is exactly how a second lesson used to be
+        # recorded on top of the first. Cleared on the bridge too:
+        # send() falls back to the client's own copy when handed None.
+        self.session_id = None
+        self.session_name = ""
+        if self.bridge is not None:
+            self.bridge.session_id = None
         guidance_mode = self.guidance_combo.currentData()
 
         problems = self.remote.serial_port_problems()
@@ -749,13 +745,13 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         self._open_audio()
 
-        self.session_name = name
         self.raw_events = []
         self.table.setRowCount(0)
         self.led_on_time = self.led_off_time = None
-
-        if self.record_check.isChecked():
-            self._start_recording(name)
+        # Not recorded yet, and deliberately: the camera, MediaPipe, the
+        # keyboard, the LED strip and the cue outputs are all up, but the
+        # video writer waits for the teacher to begin the lesson. Only
+        # then does this session have a name to be written under.
 
         self.session = StudentSession(
             timeout_s=self.timeout_spin.value(),
@@ -772,15 +768,17 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        for widget in (self.guidance_combo, self.name_edit, self.timeout_spin, self.record_check):
+        for widget in (self.guidance_combo, self.timeout_spin, self.record_check):
             widget.setEnabled(False)
         # Devices are open now; changing which ones to open is meaningless
         # until this session ends.
         self.set_settings_enabled(False)
 
         self.cue.show_message("Waiting for the teacher...")
+        self.lesson_label.setText("Devices ready. Recording starts when the teacher begins the lesson.")
         self._set_status(
-            f"Ready - guidance mode {guidance_mode}, channels: {', '.join(self.cue.enabled_channels) or 'none'}.",
+            f"Ready - guidance mode {guidance_mode}, channels: {', '.join(self.cue.enabled_channels) or 'none'}."
+            " Not recording yet.",
             "ok",
         )
         # Tell the teacher the student is standing by, with what. If the
@@ -803,7 +801,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 "recording_video": self.video_writer is not None,
                 # The name this session will be saved under, which is not
                 # necessarily the one it started under.
-                "session_name": self._final_session_name(),
+                "session_name": self.session_name or None,
             },
         )
 
@@ -826,25 +824,80 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             ),
         )
 
-    def _start_recording(self, name: str) -> None:
+    def _start_recording(self, name: str) -> bool:
+        """Open the video writer for this session. False means the student
+        chose not to run without one.
+
+        A camera that produces nothing used to leave a line on the status
+        bar and let the lesson start anyway. Nobody reads the status bar
+        while playing, and by the time the session is over the recording
+        it needed is unrecoverable - so a session that cannot record now
+        asks, and defaults to not starting."""
         raw = quiz_raw_dir(name)
         raw.mkdir(parents=True, exist_ok=True)
         self.video_path = raw / RAW_VIDEO_FILENAME
+        if self.video_path.is_file() and self.video_path.stat().st_size > 0:
+            # Belt and braces. Names now come from the teacher and are
+            # made fresh per lesson, so this should be unreachable - but
+            # opening a VideoWriter truncates whatever is at the path, and
+            # a lesson recorded over another lesson is unrecoverable. It
+            # happened: the previous session's name outlived it, and each
+            # lesson was written over the one before.
+            append_session_log(f"{name}: REFUSED to reopen an existing {self.video_path}")
+            QMessageBox.critical(
+                self,
+                "That session already has a recording",
+                f"{self.video_path} already exists and is not empty.\n\n"
+                "Opening it again would destroy it, so this session will not be recorded. Nothing has "
+                "been changed on disk.",
+            )
+            return False
         if self._vision_worker is not None:
-            frame = self._vision_worker.wait_for_frame(timeout=3.0).frame
+            snapshot = self._vision_worker.wait_for_frame(timeout=3.0)
+            # The recording's own frame decides the writer's size.
+            frame = snapshot.raw_frame if snapshot.raw_frame is not None else snapshot.frame
         else:
             frame = self.camera.read() if self.camera else None
         if frame is None:
-            self._set_status("Camera not available - continuing without video (no final finger pass).", "warn")
-            return
+            append_session_log(f"{name}: camera produced no frame, no video writer opened")
+            return self._confirm_without_video(
+                "The camera produced no frame, so this session cannot be recorded."
+            )
         h, w = frame.shape[:2]
         fps = self.cfg.camera.fps or 30
-        self.video_writer = cv2.VideoWriter(str(self.video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+        writer = cv2.VideoWriter(str(self.video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+        if not writer.isOpened():
+            # An unopened writer swallows every write() silently and
+            # leaves a zero-byte file behind, which is exactly the
+            # failure this whole path exists to stop being silent about.
+            writer.release()
+            append_session_log(f"{name}: VideoWriter refused to open {self.video_path}")
+            return self._confirm_without_video(
+                f"The video file could not be opened for writing:\n\n{self.video_path}"
+            )
+        self.video_writer = writer
         self._video_fps = fps
         self._frames_written = 0
         self.video_start_time = time.time()
+        append_session_log(f"{name}: recording to {self.video_path} ({w}x{h} @ {fps}fps)")
+        self._set_status(f"Recording to {self.video_path}", "ok")
         if self.led_connected:
             QTimer.singleShot(LED_FLASH_DELAY_MS, self._flash_leds_on)
+        return True
+
+    def _confirm_without_video(self, problem: str) -> bool:
+        answer = QMessageBox.critical(
+            self,
+            "This session cannot be recorded",
+            f"{problem}\n\n"
+            "Without a video there is no recorded finger pass and no footage to review by hand: "
+            "the live finger verdicts would be all this session ever has, and nothing can "
+            "re-create them afterwards.\n\n"
+            "Start the session anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _flash_leds_on(self) -> None:
         """The clapperboard mark app.sync_led looks for. Same procedure as
@@ -865,55 +918,20 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         for strip, idx in SYNC_LED_PIXELS[1:]:
             self.led.set_pixel(strip, idx, 0, 0, 0, 0)
 
-    def _resolve_session_name(self) -> str:
-        """What to call this session's data/quiz/ folder.
-
-        An empty box means "name this after the session", and the session
-        is the teacher's to name: its remote-<epoch> is also what the
-        teacher's own recording of the lesson is called. Only when the
-        teacher has not said yet does this client generate the same shape
-        of name itself - and _adopt_teacher_session_name() then puts the
-        two back together when it does arrive."""
-        typed = self.name_edit.text().strip()
-        self._session_name_is_auto = not typed
-        return sanitize_quiz_name(typed or self.teacher_session_name or f"remote-{int(time.time())}")
-
-    def _adopt_teacher_session_name(self, name: str) -> str:
-        """Take the teacher's name for this session where it can be taken,
-        and say on the status line what was decided.
-
-        Three cases, and only the middle one needs any work:
-
-        * nothing running yet - remembered, and _start_session() uses it;
-        * running under a generated name - the folder is already open and
-          being written to, so the rename waits until the video writer is
-          released in _finish_session();
-        * running under a name somebody typed - left alone. A typed name is
-          a decision (a participant id, a retake), and silently replacing
-          it with remote-<epoch> would lose it.
-        """
-        self.teacher_session_name = name
-        if self.session is None or name == self.session_name:
-            return ""
-        if not self._session_name_is_auto:
-            return (
-                f" The teacher calls it {name!r}; this client keeps the name you typed "
-                f"({self.session_name!r})."
-            )
-        self._pending_session_name = name
-        return f" Saving as data/quiz/{name}/, the name the teacher's own recording has."
-
-    def _final_session_name(self) -> str:
-        """What this session's folder will be called once it is saved."""
-        return self._pending_session_name or self.session_name
-
     def _on_remote_session_start(self, envelope: Dict[str, Any]) -> None:
+        """The teacher has begun the lesson. This is where a session gets
+        its name, and - after the count-in - its recording.
+
+        The name arrives; it is never invented here and never carried
+        over from the last lesson. data/quiz/<name>/ and the teacher's
+        data/music/<name>/ are the two halves of one lesson and are
+        written under one name from the first frame, so nothing has to be
+        renamed afterwards and no lesson can be opened on top of another."""
         payload = envelope.get("payload") or {}
         self.session_id = envelope.get("session_id")
         if self.bridge is not None:
             self.bridge.session_id = self.session_id
-        teacher_name = sanitize_quiz_name(payload.get("session_name") or "") if payload.get("session_name") else ""
-        name_note = self._adopt_teacher_session_name(teacher_name) if teacher_name else ""
+        name = sanitize_quiz_name(payload.get("session_name") or "")
         if self.session is None:
             self._set_status(
                 "The teacher started a session, but this client is not ready yet - press "
@@ -926,7 +944,58 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         # Repeat the ready message now that session_id is available; the
         # teacher's session.start deliberately contains no modality.
         self._announce_ready()
-        self._set_status(f"Session started by the teacher ({payload.get('mode', 'live')})." + name_note, "ok")
+        self._set_status(f"Lesson started by the teacher ({payload.get('mode', 'live')}).", "ok")
+        if name:
+            self._schedule_recording(name, payload.get("start_at_unix_ns"))
+
+    def _schedule_recording(self, name: str, start_at_wall_ns: Any) -> None:
+        """Open the writer at the instant the teacher named, not on
+        arrival.
+
+        The teacher sends a wall-clock moment a few seconds out and
+        counts the same seconds off itself. Mapping it through this
+        machine's own monotonic clock - the same arithmetic
+        _on_recording_start() already uses for pre-recorded playback -
+        means the two writers open together even though only the delay,
+        never the absolute time, is comparable across machines."""
+        if self.video_writer is not None:
+            return
+        self.session_name = name
+        if not self.record_check.isChecked():
+            self.lesson_label.setText(f"Lesson {name} - recording is switched off for this session.")
+            return
+        delay_ns = 0
+        if start_at_wall_ns:
+            delay_ns = max(0, int(start_at_wall_ns) - wall_ns())
+        self._countdown_left = int(round(delay_ns / 1e9))
+        self._tick_countdown()
+        if delay_ns <= 0:
+            self._begin_recording(name)
+            return
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._tick_countdown)
+        self._countdown_timer.start()
+        QTimer.singleShot(int(delay_ns / 1e6), lambda: self._begin_recording(name))
+
+    def _tick_countdown(self) -> None:
+        if self._countdown_left > 0:
+            self.lesson_label.setText(f"Recording starts in {self._countdown_left}...")
+            self.cue.show_message(f"Starting in {self._countdown_left}") if self.cue else None
+            self._countdown_left -= 1
+
+    def _begin_recording(self, name: str) -> None:
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
+        if self.session is None or self.video_writer is not None:
+            return
+        if not self._start_recording(name):
+            self._set_status("Continuing without a recording, as chosen.", "warn")
+            return
+        self.lesson_label.setText(f"Recording data/quiz/{name}/")
+        if self.cue is not None:
+            self.cue.show_message("Waiting for the teacher...")
 
     def _on_pause(self) -> None:
         if self.session is not None:
@@ -1198,12 +1267,16 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         if worker is not None:
             snapshot = worker.snapshot()
-            frame = snapshot.frame
             if snapshot.sequence > self._vision_sequence:
                 self._vision_sequence = snapshot.sequence
                 self.last_hands = snapshot.hands
-                if frame is not None:
-                    self.view.set_frame(frame)
+                if snapshot.frame is not None:
+                    # The overlaid copy is for the person watching only.
+                    self.view.set_frame(snapshot.frame)
+            # The recording takes the camera's frame at capture rate, so a
+            # slow tracking pass costs preview latency and never a
+            # duplicated - visibly frozen - stretch of video.
+            frame = snapshot.raw_frame if snapshot.raw_frame is not None else snapshot.frame
         else:
             # Synchronous fallback for headless/injected tests. A real
             # session always creates LatestVisionWorker in _ensure_camera.
@@ -1256,13 +1329,17 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         # not the live device, so this cannot cut it short.
         self._release_camera()
 
-        # After the writer is released and before anything is saved: the
-        # folder can only be moved while nothing is holding a file in it.
-        rename_note = self._rename_to_teacher_session_name()
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
 
         results = session.results()
         summary = summarize(results)
         self._save_session(session, results, summary, midi_start)
+        # After the writer is closed and the folder is written: the last
+        # moment at which every path is final and the first at which the
+        # answer cannot still change.
+        recording_problem = self._verify_recording()
 
         # Provisional summary first, so the teacher sees the outcome
         # immediately; the final one follows the offline pass below.
@@ -1279,52 +1356,62 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         self.stop_btn.setEnabled(False)
         self.start_btn.setEnabled(True)
-        for widget in (self.guidance_combo, self.name_edit, self.timeout_spin, self.record_check):
+        for widget in (self.guidance_combo, self.timeout_spin, self.record_check):
             widget.setEnabled(True)
         self.set_settings_enabled(True)
         self._set_status(
-            f"Session finished ({reason}). {len(results)} events saved to data/quiz/{self.session_name}/."
-            + rename_note,
-            "warn" if rename_note else "ok",
+            f"Session finished ({reason}). {len(results)} events saved to data/quiz/{self.session_name}/.",
+            "ok",
         )
+        self.lesson_label.setText("Recording starts when the teacher begins the lesson.")
         self.workspace_tabs.setCurrentIndex(self.results_tab_index)
 
-        self._run_final_pass(session, results)
+        # Bound now rather than read later: the pass takes minutes, and
+        # the next lesson may well have started by the time it reports.
+        self._run_final_pass(session, results, self.session_id)
 
-    def _rename_to_teacher_session_name(self) -> str:
-        """Move this session's folder onto the teacher's name for it, and
-        report anything that stopped it.
-
-        The student normally presses "Ready for guidance" before the
-        teacher opens the session, so recording starts under a name
-        generated here and the teacher's arrives afterwards. Everything is
-        still written under one name - the move happens once, at the end,
-        with no file open - and an existing folder is never overwritten:
-        the local name simply stands, and the caller says so."""
-        target = self._pending_session_name
-        self._pending_session_name = None
-        if not target or not self.session_name or target == self.session_name:
-            return ""
-
-        source_dir = quiz_dir(self.session_name)
-        target_dir = quiz_dir(target)
-        if target_dir.exists():
-            return (
-                f" data/quiz/{target}/ already exists, so this stays under {self.session_name!r} and the "
-                "two machines' folder names differ."
+        # Last, so the session is fully saved and sent before anything
+        # blocks: the finger pass above runs on its own thread and is not
+        # held up by this box.
+        if recording_problem:
+            QMessageBox.critical(
+                self,
+                "This session has no video",
+                f"The session was saved, but its recording is not on disk:\n\n{recording_problem}\n\n"
+                "Nothing can re-create it. This session's finger verdicts are the live ones and "
+                "cannot be reviewed by hand. Check the camera before running the next session.",
             )
-        if source_dir.exists():
-            try:
-                source_dir.rename(target_dir)
-            except OSError as exc:
-                return (
-                    f" Could not rename data/quiz/{self.session_name}/ to {target}/ ({exc}) - keeping the "
-                    "local name."
-                )
-            if self.video_path is not None:
-                self.video_path = quiz_raw_dir(target) / self.video_path.name
-        self.session_name = target
-        return ""
+
+    def _verify_recording(self) -> str:
+        """What is wrong with this session's video, or "" if it is there.
+
+        Checked on disk rather than inferred from the writer: an
+        unopened writer, a camera that stopped producing frames and a
+        folder that never appeared all end the same way - a session that
+        looks finished and has nothing to review - and all three are
+        invisible until somebody goes looking, which is too late."""
+        if not self.record_check.isChecked() or not self.session_name:
+            return ""
+        problem, note = self._recording_state()
+        append_session_log(f"{self.session_name}: {note}")
+        return problem
+
+    def _recording_state(self) -> tuple:
+        directory = quiz_dir(self.session_name)
+        if not directory.is_dir():
+            return f"{directory} was never created.", f"FOLDER MISSING {directory}"
+        video = quiz_raw_dir(self.session_name) / RAW_VIDEO_FILENAME
+        if not video.is_file():
+            return f"{video} does not exist.", f"VIDEO MISSING {video}"
+        size = video.stat().st_size
+        if size <= 0:
+            return f"{video} is empty (0 bytes).", f"VIDEO EMPTY {video}"
+        if self._frames_written <= 0:
+            return (
+                f"{video} exists but no frames were ever written into it.",
+                f"VIDEO HAS NO FRAMES {video}",
+            )
+        return "", f"saved {video} ({size / 1e6:.1f} MB, {self._frames_written} frames)"
 
     def _save_session(self, session: StudentSession, results, summary, midi_start) -> None:
         """Writes the standard data/quiz/<name>/ layout, so every
@@ -1370,7 +1457,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             analyzed=False,
         ).save(directory / META_FILENAME)
 
-    def _run_final_pass(self, session: StudentSession, results) -> None:
+    def _run_final_pass(self, session: StudentSession, results, session_id: Optional[str] = None) -> None:
         """Re-judge the fingers from the recorded video with
         app.offline.analyze_recording (through the shared AnalyzeWorker),
         then send the final results. Skipped silently when nothing was
@@ -1393,7 +1480,9 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
 
         worker = AnalyzeWorker(video, notes, self.cfg.active_keyboard_profile, sync_path=raw / RAW_SYNC_FILENAME)
         worker.progress.connect(self._on_analyze_progress)
-        worker.succeeded.connect(lambda matches: self._on_final_matches(session, responded, matches))
+        worker.succeeded.connect(
+            lambda matches: self._on_final_matches(session, responded, matches, session_id)
+        )
         worker.failed.connect(self._on_analyze_failed)
         worker.finished.connect(lambda w=worker: self._release_analyze_worker(w))
         self._analyze_worker = worker
@@ -1427,12 +1516,20 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.progress.setVisible(False)
         self._set_status(f"Final finger pass failed: {message} - provisional verdicts stand.", "warn")
 
-    def _on_final_matches(self, session: StudentSession, responded: List[RemoteEvent], matches: List[Any]) -> None:
+    def _on_final_matches(
+        self,
+        session: StudentSession,
+        responded: List[RemoteEvent],
+        matches: List[Any],
+        session_id: Optional[str] = None,
+    ) -> None:
         self.progress.setVisible(False)
         for event, match in zip(responded, matches):
             updated = session.apply_offline_match(event.index, match)
             if updated is not None:
-                self._send(TYPE_PERFORMANCE_RESPONSE, updated.response_payload(STAGE_FINAL))
+                self._send(
+                    TYPE_PERFORMANCE_RESPONSE, updated.response_payload(STAGE_FINAL), session_id=session_id
+                )
 
         results = session.results()
         summary = summarize(results)
@@ -1455,6 +1552,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 "event_count": len(results),
                 "summary": summary,
             },
+            session_id=session_id,
         )
         self._set_status(
             f"Final results sent. Finger accuracy {(summary['finger_accuracy'] or 0) * 100:.0f}%.", "ok"

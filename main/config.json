@@ -51,8 +51,8 @@
   "remote_guidance": {
     "schema_version": 1,
     "network": {
-      "server_url": "http://127.0.0.1:18765",
-      "username": "demoteacher",
+      "server_url": "https://95.179.234.23",
+      "username": "demostudent",
       "room_id": "9c5aa7a1-cbd7-4149-914d-1fa89d32e065",
       "join_code": "FH77NZ",
       "verify_tls": true,
@@ -63,7 +63,7 @@
     },
     "student": {
       "camera": {
-        "index": 1,
+        "index": 0,
         "width": 1280,
         "height": 720,
         "fps": 30,
@@ -71,7 +71,7 @@
         "flip_horizontal": true
       },
       "midi": {
-        "port_name": "SE25 MIDI1 #2"
+        "port_name": "SE25 MIDI1"
       },
       "keyboard_profile": "white-city-lab-20260717",
       "led": {

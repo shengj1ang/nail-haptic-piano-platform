@@ -58,10 +58,11 @@ stores each upload as a new recording row with a new uuid, and the
 student downloads that JSON into memory. Even when both clients run from
 the same checkout, neither client writes back to `data/music/` or
 `data/sequence/`, so the source is not overwritten. The student's
-performance is a separate artefact under `data/quiz/<session name>/`;
-reusing an existing session name can overwrite the files in that quiz
-folder, so use a unique session name when the earlier result must be
-kept.
+performance is a separate artefact under `data/quiz/<session name>/`.
+That name is made by the teacher, once per lesson, at **Begin lesson**,
+so two lessons cannot share a folder; the student has no session-name
+field and invents nothing. `_start_recording()` also refuses outright to
+open a video writer over a file that already exists - see trap 11.
 
 Both modes come from the report's "Tele-training Guidance Modes".
 
@@ -414,16 +415,23 @@ pass, because `list_songs()` treats its presence as "this song finished
 saving" - a lesson whose pass fails keeps its raw capture and is simply
 not listed.
 
-**The name is generated once, by the teacher**, and travels in
-`session.start`. The student uses it for its own folder whenever its
-session-name box was left empty, which makes the two halves of a lesson
-pairable without consulting the relay. A *typed* student name always wins -
-it is a participant id or a retake, and losing it would be worse than two
-folder names that differ - and the client says so on the status line.
-Because the student usually presses **Ready for guidance** before the
-teacher opens the session, its folder is created under a locally generated
-`remote-<epoch>` and renamed once at the end, after the video writer is
-released; an existing folder is never overwritten.
+**The name is generated once, by the teacher, at Begin lesson**, and
+travels in `session.start` together with the instant both ends start
+recording. The student uses it verbatim; it has no session-name field and
+invents nothing, so the two halves of a lesson are pairable without
+consulting the relay and neither folder is ever renamed.
+
+This replaced a design in which the student generated its own name at
+**Ready for guidance** and the folder was renamed at the end. The name it
+used was the last name the teacher had sent, and that field outlived the
+session it belonged to - so a second lesson opened its video writer on the
+first lesson's `performance.mp4`, truncated it, and then renamed the whole
+folder. Running *n* lessons left one folder, named after the last, and the
+`sync_align.json` of the previous lesson sitting in it. Three things stop
+it now: the name is made per lesson and cleared by `_stop()`; recording
+only begins on `session.start`, by which time the name is known;
+`_start_recording()` refuses outright to open a writer over a file that
+already exists (trap 11).
 
 Two things the teacher's copy is not:
 
@@ -556,10 +564,10 @@ only the WebSocket. The camera, MediaPipe and the MIDI port saved in that
 role's Settings are claimed by an explicit hardware action:
 `_start_live_session()` on the teacher, `_start_session()` on the
 student, or **Record a new song...** in the teacher's Recording library
-workspace. The teacher's explicit **Connect MIDI** also claims its MIDI port.
-The first two release on stop/leave/close; the integrated recording
-wizard owns and releases its camera/MIDI/LED/audio for its own window
-lifetime.
+workspace. Each opens *all* of that role's hardware - the teacher's MIDI
+port included, and the student's LED strip included. The first two
+release on stop/leave/close; the integrated recording wizard owns and
+releases its camera/MIDI/LED/audio for its own window lifetime.
 
 This used to happen in `enter_session()`, which meant a client held the
 camera through the whole of setup and locked out every other tool. Three
@@ -569,18 +577,19 @@ things now depend on the later open, so do not move it back:
   Session page repeats a MIDI combo or Refresh button; startup reads
   `cfg.midi.port_name` from the saved per-role config.
 - The teacher's `_open_detector()` is idempotent and returns a bool;
-  `_connect_midi()` opens it lazily, so the manual **Connect MIDI**
-  button still works before a session.
+  `_connect_midi()` opens it lazily, so arming a session opens the camera
+  and the keyboard in one step.
 - A MIDI failure at start **warns and continues**: pre-recorded playback
   needs no teacher hardware, so it must not be blocked by a missing
   keyboard.
 
-The student's LED strip stays on its own **Connect LED** button - the
-sync flash wants checking before a session, not during one.
+The student's LED strip is connected by **Ready for guidance** along with
+everything else; there is no separate **Connect LED** button, and no
+separate **Connect MIDI** on the teacher. Both did what arming a session
+already does, and each was one more piece of state to get wrong.
 
-The teacher's **Connect MIDI** button and **Chord detection** checkbox
-share the first row of the Live controls card; Instrument and the session
-actions remain in that same compact card. The removed MIDI
+**Chord detection** owns the first row of the Live controls card;
+Instrument and the session actions remain in that same compact card. The removed MIDI
 selector/Refresh row must not be reintroduced; changing the port belongs
 in Settings.
 
@@ -643,8 +652,9 @@ onto either window timer or restore serial-first visual ordering.
 ### Teacher workspaces and recording wizard
 
 The teacher Session stage contains a `QTabWidget` with exactly three
-pages. **Live studio** owns Connect MIDI, Chord detection, Timbre, the live
-session controls and bounded camera preview. **Recording library** owns
+pages. **Live studio** owns Chord detection, Timbre, the two-stage session
+controls (**Start live session**, then **Begin lesson**) and bounded
+camera preview. **Recording library** owns
 the song picker, Refresh, Upload, playback mode, Trigger, its own
 pause/resume/stop controls, and **Record a new song...**. **Student
 results** owns the event table and student-computed summary, so neither
@@ -672,7 +682,7 @@ and save.
 The wizard opens the configured Teacher camera when its window opens;
 MIDI, LED sync and local audio are claimed only by **Start recording**.
 While it is open, the Teacher Client locks Settings, Change room and Live
-hardware controls; any detector opened earlier by manual **Connect MIDI**
+hardware controls; any detector opened earlier by **Start live session**
 is closed first. Closing the wizard stops polling and releases camera,
 MIDI, LED, audio and video writer. Completing it refreshes the picker and
 selects the new `music/<song>` entry.
@@ -795,7 +805,7 @@ This is the normal way to determine which identically named keyboard is
 session. Changing the selected port, refreshing the list, Save, Cancel
 and window close all stop its timer and call
 `MidiListener.close()` so Settings cannot retain the keyboard and make a
-later **Ready for guidance** / **Connect MIDI** fail.
+later **Ready for guidance** / **Start live session** fail.
 
 The MIDI port control is a **non-editable `QComboBox`**, not a line edit.
 Refresh replaces its choices with `list_input_ports()`. If the saved or
@@ -957,9 +967,15 @@ them once (either client's *Create account* button does it, or see
 `server/README.md` § "The demo accounts").
 
 Teacher creates a room → reads the join code → student joins → teacher
-**Start live session** → student **Ready for guidance**. Those last two
-presses open the live-session devices and their local key-audio streams
-(unless `Mute` is selected). Pick each role's **Timbre** on its Session
+**Start live session** → student **Ready for guidance** → teacher **Begin
+lesson**. The first two presses open each role's devices and local
+key-audio stream (unless `Mute` is selected) and nothing more: no session
+exists on the relay and nothing is recorded. **Begin lesson** - enabled
+only once the devices are up *and* the student has announced itself -
+names the lesson, creates the relay session and sends `session.start`
+carrying `session_name`, `start_at_unix_ns` and `lead_ms`. Both ends count
+the same `teacher.lesson_lead_s` seconds (default 3) off that one wall
+stamp and open their video writers together. Pick each role's **Timbre** on its Session
 page; the choices are the same as Student Quiz. For the recorded path, the
 teacher's explicit **Record a new song...** action opens the private
 Teacher wizard and claims its devices until the wizard closes.
@@ -1110,6 +1126,35 @@ Each of these cost real debugging time. They all have tests now.
     is.
 
 ---
+
+11. **A folder name that outlives its session gets written into twice.**
+    The student named its own folder at **Ready for guidance** from
+    `teacher_session_name` - the last name the teacher had sent - and that
+    field was never cleared. Pressing Ready for lesson *n+1* before the
+    teacher had opened it therefore reused lesson *n*'s name;
+    `cv2.VideoWriter` truncates whatever is at the path it is handed, so
+    lesson *n*'s video was destroyed at the moment lesson *n+1* started,
+    and the end-of-session rename then moved the folder onto lesson
+    *n+1*'s name. **Running *n* lessons back to back left exactly one
+    folder, named after the last one.** Nothing failed, nothing warned:
+    every lesson looked like it had saved.
+
+    It also left the previous lesson's `sync_align.json` in the surviving
+    folder, and a saved alignment outranks `sync.json` - so the offline
+    finger pass mapped every event onto a frame index far past the end of
+    the video it actually had, found no hands there, and returned
+    `actual_finger: null` for every event with no error anywhere. A
+    session with 100% key accuracy and 0% finger accuracy on a recording
+    that plainly shows the hands is the fingerprint.
+
+    Three independent fixes, because one was clearly not enough: the name
+    is made per lesson at **Begin lesson** and cleared by `_stop()`;
+    recording starts on `session.start`, by which point the name is known,
+    so no folder is ever renamed; and `_start_recording()` refuses to open
+    a writer over an existing non-empty `performance.mp4` and says so in a
+    blocking dialog. `data/quiz/_sessions.log` records every open and
+    close with its absolute path, which is how this was finally caught.
+
 
 ## 10. Known gaps and what is not verified
 
