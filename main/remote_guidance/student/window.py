@@ -370,6 +370,15 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.lesson_label = QLabel("Recording starts when the teacher begins the lesson.")
         self.lesson_label.setWordWrap(True)
         setup.addWidget(self.lesson_label)
+        # Whether this machine is writing a video is otherwise only in the
+        # status line, which nobody reads while playing. Hidden until the
+        # writer is actually open, so it never claims a recording that is
+        # not running.
+        self.recording_chip = QLabel("")
+        self.recording_chip.setObjectName("recordingChip")
+        self.recording_chip.setWordWrap(True)
+        self.recording_chip.setVisible(False)
+        setup.addWidget(self.recording_chip)
         session_actions = QHBoxLayout()
         session_actions.addWidget(self.start_btn, 1)
         session_actions.addWidget(self.stop_btn)
@@ -712,9 +721,16 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         if self.bridge is not None:
             self.bridge.session_id = None
         guidance_mode = self.guidance_combo.currentData()
+        # Off from the press itself, not from the far end of the device
+        # setup below: opening the camera, MediaPipe and the MIDI port
+        # takes long enough that a still-live button reads as "nothing
+        # happened" and gets pressed again. Every path that gives up
+        # before the session exists puts it back.
+        self.start_btn.setEnabled(False)
 
         problems = self.remote.serial_port_problems()
         if problems and wants_haptic(guidance_mode):
+            self.start_btn.setEnabled(True)
             QMessageBox.warning(self, "Serial port conflict", problems[0])
             return
 
@@ -729,6 +745,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             self.cue = self._build_cue(guidance_mode)
         except Exception as exc:  # noqa: BLE001
             self._release_camera()
+            self.start_btn.setEnabled(True)
             QMessageBox.warning(self, "Could not start the cue", str(exc))
             return
 
@@ -740,6 +757,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
             self.cue = None
             # Nothing started, so give the camera back too.
             self._release_camera()
+            self.start_btn.setEnabled(True)
             QMessageBox.warning(self, "MIDI connection failed", str(exc))
             return
 
@@ -766,7 +784,6 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         )
         self.session.start()
 
-        self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         for widget in (self.guidance_combo, self.timeout_spin, self.record_check):
             widget.setEnabled(False)
@@ -823,6 +840,12 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
                 else None
             ),
         )
+
+    def _set_recording_indicator(self, name: str = "") -> None:
+        """Say, in one unmissable place, whether this machine is writing a
+        recording right now. An empty name means it is not."""
+        self.recording_chip.setVisible(bool(name))
+        self.recording_chip.setText(f"\u25cf  RECORDING  \u2014  data/quiz/{name}/" if name else "")
 
     def _start_recording(self, name: str) -> bool:
         """Open the video writer for this session. False means the student
@@ -881,6 +904,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.video_start_time = time.time()
         append_session_log(f"{name}: recording to {self.video_path} ({w}x{h} @ {fps}fps)")
         self._set_status(f"Recording to {self.video_path}", "ok")
+        self._set_recording_indicator(name)
         if self.led_connected:
             QTimer.singleShot(LED_FLASH_DELAY_MS, self._flash_leds_on)
         return True
@@ -963,6 +987,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.session_name = name
         if not self.record_check.isChecked():
             self.lesson_label.setText(f"Lesson {name} - recording is switched off for this session.")
+            self._set_recording_indicator()
             return
         delay_ns = 0
         if start_at_wall_ns:
@@ -993,7 +1018,9 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         if not self._start_recording(name):
             self._set_status("Continuing without a recording, as chosen.", "warn")
             return
-        self.lesson_label.setText(f"Recording data/quiz/{name}/")
+        # The folder is named by the chip beside it; this line stays the
+        # lesson's own state.
+        self.lesson_label.setText(f"Lesson {name} is running.")
         if self.cue is not None:
             self.cue.show_message("Waiting for the teacher...")
 
@@ -1321,6 +1348,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         if self.video_writer is not None:
             self.video_writer.release()
             self.video_writer = None
+        self._set_recording_indicator()
         if self.cue is not None:
             self.cue.close()
             self.cue = None

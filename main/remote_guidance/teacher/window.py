@@ -160,6 +160,19 @@ HEADERS = [
 ]
 
 
+def _set_highlight(button: QPushButton, on: bool) -> None:
+    """Move the accent onto the one button that is the next step.
+
+    The role is a Qt stylesheet property, so it only takes effect after
+    the widget is re-polished."""
+    role = "primary" if on else ""
+    if button.property("role") == role:
+        return
+    button.setProperty("role", role)
+    button.style().unpolish(button)
+    button.style().polish(button)
+
+
 class TeacherRemoteWindow(QMainWindow, StageWindow):
     def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None):
         super().__init__()
@@ -184,7 +197,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.session_active = False
         self.session_mode: Optional[str] = None
         # The name both ends use for this session - see the module
-        # docstring. Made once, by "Begin lesson", and cleared when the
+        # docstring. Made once, by "Start teaching", and cleared when the
         # session ends: a name that outlives its session is how a second
         # lesson used to be written into the first one's folder.
         self.session_name: Optional[str] = None
@@ -306,14 +319,19 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         )
         self.record_check.setChecked(self.remote.teacher.record_video)
 
-        # Two stages, deliberately. "Start live session" claims this
-        # machine's camera and keyboard and waits; "Begin lesson" is the
-        # moment the lesson exists - it names the session, creates it on
-        # the relay, and starts both ends recording together.
-        self.live_btn = QPushButton("Start live session")
+        # Two stages, deliberately. "Get ready" claims this machine's
+        # camera and keyboard and waits; "Start teaching" is the moment
+        # the lesson exists - it names the session, creates it on the
+        # relay, and starts both ends recording together. Only ever one
+        # of them is the next step, and _sync_guidance_controls() keeps
+        # the accent on whichever one that is.
+        self.live_btn = QPushButton("Get ready")
+        self.live_btn.setToolTip(
+            "Opens this machine's camera and MIDI keyboard and waits. No lesson exists yet, and nothing "
+            "is recorded."
+        )
         self.live_btn.clicked.connect(self._start_live_session)
-        self.begin_btn = QPushButton("Begin lesson")
-        self.begin_btn.setProperty("role", "primary")
+        self.begin_btn = QPushButton("Start teaching")
         self.begin_btn.setToolTip(
             "Names the session, opens it on the relay and starts recording on both machines after a "
             "short count-in."
@@ -348,6 +366,14 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         live.addWidget(self.student_ready_label)
         live.addWidget(self.live_btn)
         live.addWidget(self.begin_btn)
+        # Whether the lesson is being written to data/music is otherwise
+        # only in the status line, which is the last place anyone looks
+        # while teaching. Hidden unless a writer is actually open.
+        self.recording_chip = QLabel("")
+        self.recording_chip.setObjectName("recordingChip")
+        self.recording_chip.setWordWrap(True)
+        self.recording_chip.setVisible(False)
+        live.addWidget(self.recording_chip)
 
         live_transport_row = QHBoxLayout()
         live_transport_row.addWidget(self.pause_btn)
@@ -430,7 +456,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
         # -- live view -------------------------------------------------
         self.view = ImageView(max_size=(560, 360))
-        self.detect_label = header_label("Press Start live session to open the camera and MIDI keyboard.")
+        self.detect_label = header_label("Press Get ready to open the camera and MIDI keyboard.")
         self.detect_label.setObjectName("mutedText")
         self.detect_label.setStyleSheet("")
 
@@ -535,7 +561,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._refresh_songs()
         self._sync_guidance_controls()
         self.detect_label.setText(
-            "Camera and MIDI open when you press Start live session."
+            "Camera and MIDI open when you press Get ready."
         )
 
     def leave_session(self) -> None:
@@ -573,7 +599,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def _open_detector(self) -> bool:
         """Claim the camera and MediaPipe, if they are not already open.
 
-        Idempotent, because both Start live session and the manual
+        Idempotent, because both Get ready and the manual
         Connect MIDI button call it. A camera failure is reported and
         not raised: the teacher can still trigger a pre-recorded
         sequence, and note-only guidance still works from MIDI alone."""
@@ -699,6 +725,15 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         # student says it is ready: beginning without it would record a
         # lesson only one end of which exists.
         self.begin_btn.setEnabled(idle and not wizard_open and self.live_armed and self.student_ready)
+        # Stage two exists only before a lesson: once one is running the
+        # button can do nothing, and leaving it on screen invites the
+        # press it will not answer.
+        self.begin_btn.setVisible(idle)
+        # The accent marks the next step and nothing else, so "done" and
+        # "not yet" both read as spent at a glance.
+        _set_highlight(self.live_btn, self.live_btn.isEnabled())
+        _set_highlight(self.begin_btn, self.begin_btn.isEnabled())
+        self._update_recording_indicator()
         self.chord_check.setEnabled(not wizard_open and (idle or live_active))
         # Whether the lesson is being recorded is fixed for its length -
         # the writer is opened once, with the session.
@@ -844,7 +879,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             # devices are up.
             self._set_status(
                 "No MIDI keyboard connected - live cues need one. Choose a port in Settings, then "
-                "press Start live session again.",
+                "press Get ready again.",
                 "warn",
             )
         elif not self.student_ready:
@@ -925,6 +960,17 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         )
         self._sync_guidance_controls()
 
+    def _update_recording_indicator(self) -> None:
+        """Say, in one unmissable place, whether this machine is writing a
+        recording right now. It follows the writer, not the checkbox: a
+        lesson whose camera failed is not recording, whatever was asked
+        for."""
+        recorder = self.live_recorder
+        self.recording_chip.setVisible(recorder is not None)
+        self.recording_chip.setText(
+            f"\u25cf  RECORDING  \u2014  data/music/{recorder.song_name}/" if recorder is not None else ""
+        )
+
     def _begin_countdown(self, lead_s: float) -> None:
         """Count the lesson in, then open this end's writer.
 
@@ -957,6 +1003,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         if self.record_check.isChecked():
             self._start_live_recording(self.session_name)
         recorder = self.live_recorder
+        self._update_recording_indicator()
         self._set_status(
             "Lesson running. Play a key to guide the student."
             + (f" Recording to data/music/{recorder.song_name}/." if recorder is not None else ""),
@@ -974,7 +1021,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         Never fatal: a lesson with no camera is still a lesson, and the
         student's own recording is unaffected either way."""
         # Creating the relay session can fail after the devices are open,
-        # which leaves Start live session pressable again. Close whatever
+        # which leaves Get ready pressable again. Close whatever
         # the previous attempt opened rather than leaking its writer.
         self._finish_live_recording()
         if self.detector is None:
@@ -1021,6 +1068,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         raw log, note log, sync marks and score.mid now; fingering.json and
         meta.json when the offline pass over the video comes back."""
         recorder, self.live_recorder = self.live_recorder, None
+        self._update_recording_indicator()
         if recorder is None:
             return
         recorder.stop()
@@ -1138,10 +1186,10 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._send(TYPE_RECORDING_STOP, {})
         self.session_active = False
         self.session_mode = None
-        # The name dies with the lesson it named. The next Begin lesson
+        # The name dies with the lesson it named. The next Start teaching
         # makes a new one; nothing may inherit this one.
         self.session_name = None
-        self.detect_label.setText("Camera and MIDI released. Start live session opens them again.")
+        self.detect_label.setText("Camera and MIDI released. Get ready opens them again.")
         self._set_status("Stop sent. Waiting for the student's results...", "idle")
         # Symmetric with the start: guiding is over, so the camera and
         # the MIDI port go back. Starting again reopens them. Last, so
@@ -1252,7 +1300,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
 
     def _send_guidance(self, actions) -> None:
         if self.session_id is None:
-            self.detect_label.setText("Detected a note, but no session is running - press Start live session.")
+            self.detect_label.setText("Detected a note, but no session is running - press Get ready.")
             return
         payload = guidance_payload(actions, timeout_s=self.remote.student.default_timeout_s)
         # Stamped on the teacher's own monotonic clock, before the send,
@@ -1323,7 +1371,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
             self._sync_guidance_controls()
             self._set_status(
                 "Student ready."
-                + ("" if self.live_armed else " Press Start live session to open this machine's devices."),
+                + ("" if self.live_armed else " Press Get ready to open this machine's devices."),
                 "ok",
             )
         elif msg_type == TYPE_PRESENCE:

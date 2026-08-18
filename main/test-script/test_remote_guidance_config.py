@@ -2418,6 +2418,25 @@ class _FakeSession:
         self.access_token = "t"
 
 
+class ClientStyleSheetTests(unittest.TestCase):
+    """A button that can no longer be pressed has to look like it."""
+
+    def test_a_disabled_highlighted_button_stops_looking_highlighted(self):
+        """A role attribute and a pseudo-class weigh the same in Qt's
+        stylesheets, so whichever rule comes last wins. With the accent
+        rules last, a disabled primary button kept the full accent
+        background - which is how a pressed "Ready for guidance" went on
+        looking unpressed."""
+        from remote_guidance.client_styles import STUDENT_STYLE_SHEET, TEACHER_STYLE_SHEET
+
+        for sheet in (TEACHER_STYLE_SHEET, STUDENT_STYLE_SHEET):
+            accent = sheet.index('QPushButton[role="primary"] {')
+            dimmed = sheet.index('QPushButton[role="primary"]:disabled')
+            self.assertGreater(dimmed, accent)
+            self.assertGreater(sheet.index('QPushButton[role="danger"] {'), -1)
+            self.assertIn('QLabel#recordingChip', sheet)
+
+
 class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
     @classmethod
     def make_window(cls):
@@ -2438,6 +2457,7 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         "recorded_guidance_page", "results_guidance_page", "record_song_btn", "recording_pause_btn",
         "recording_resume_btn", "recording_stop_btn", "song_refresh_btn", "stages", "stage_label",
         "role_label", "camera_panel", "results_tab_index", "record_check", "progress",
+        "recording_chip",
     )
 
     def test_a_lesson_names_itself_when_it_begins_not_when_devices_open(self):
@@ -2445,7 +2465,7 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         and the student's data/quiz/remote-<epoch>/ are two halves of the
         same session, and neither end invents its own name for it.
 
-        Made at Begin lesson rather than at Start live session, because a
+        Made at Start teaching rather than at Get ready, because a
         name that exists before the lesson does is a name the next lesson
         can inherit - which is how a second lesson came to be recorded
         into the first one's folder."""
@@ -2787,7 +2807,7 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         self.assertFalse(hasattr(self.window, "_refresh_ports"))
 
     def test_there_is_no_separate_connect_midi_action(self):
-        """Start live session opens the keyboard. A second button that
+        """Get ready opens the keyboard. A second button that
         did the same thing was one more state to get wrong, and nothing
         it offered was not already part of arming a session."""
         self.assertFalse(hasattr(self.window, "midi_btn"))
@@ -2806,10 +2826,77 @@ class TeacherWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
             self.window._sync_guidance_controls()
             self.assertIs(
                 self.window.begin_btn.isEnabled(), expected,
-                f"armed={armed} ready={ready} should leave Begin lesson {'on' if expected else 'off'}",
+                f"armed={armed} ready={ready} should leave Start teaching {'on' if expected else 'off'}",
             )
         self.window.live_armed = self.window.student_ready = False
         self.window._sync_guidance_controls()
+
+    def test_the_accent_marks_the_one_step_that_is_next(self):
+        """Two staged buttons with no other difference between them left
+        the teacher guessing which one the session was waiting on. Only
+        the pressable one is highlighted, so a spent step and a step that
+        is not reachable yet both read as spent."""
+        old = (self.window.session_active, self.window.live_armed, self.window.student_ready)
+        self.window.recording_wizard = None
+        try:
+            for active, armed, ready, highlighted in (
+                (False, False, False, self.window.live_btn),
+                (False, True, False, None),
+                (False, True, True, self.window.begin_btn),
+                (True, True, True, None),
+            ):
+                self.window.session_active, self.window.session_mode = active, "live" if active else None
+                self.window.live_armed, self.window.student_ready = armed, ready
+                self.window._sync_guidance_controls()
+                for button in (self.window.live_btn, self.window.begin_btn):
+                    self.assertEqual(
+                        button.property("role") == "primary", button is highlighted,
+                        f"active={active} armed={armed} ready={ready}: {button.text()!r}",
+                    )
+                    self.assertEqual(button.property("role") == "primary", button.isEnabled())
+        finally:
+            self.window.session_active, self.window.live_armed, self.window.student_ready = old
+            self.window.session_mode = None
+            self.window._sync_guidance_controls()
+
+    def test_start_teaching_leaves_the_screen_once_the_lesson_is_running(self):
+        """It can do nothing while a lesson is on, and a button that
+        answers nothing is one the teacher presses twice wondering why."""
+        old = (self.window.session_active, self.window.live_armed, self.window.student_ready)
+        try:
+            self.window.session_active, self.window.session_mode = False, None
+            self.window.live_armed = self.window.student_ready = True
+            self.window._sync_guidance_controls()
+            self.assertFalse(self.window.begin_btn.isHidden())
+            self.window.session_active, self.window.session_mode = True, "live"
+            self.window._sync_guidance_controls()
+            self.assertTrue(self.window.begin_btn.isHidden())
+            self.assertFalse(self.window.begin_btn.isEnabled())
+        finally:
+            self.window.session_active, self.window.live_armed, self.window.student_ready = old
+            self.window.session_mode = None
+            self.window._sync_guidance_controls()
+
+    def test_the_teacher_is_told_while_the_lesson_is_being_recorded(self):
+        """The status line says it once and is then written over. Whether
+        this machine is writing data/music has to be readable at any
+        moment of the lesson, and it follows the writer rather than the
+        checkbox: a lesson whose camera failed is not being recorded."""
+        from types import SimpleNamespace
+
+        old = self.window.live_recorder
+        try:
+            self.window.live_recorder = SimpleNamespace(song_name="remote-1760000000")
+            self.window._update_recording_indicator()
+            self.assertFalse(self.window.recording_chip.isHidden())
+            self.assertIn("remote-1760000000", self.window.recording_chip.text())
+            self.assertIn("RECORDING", self.window.recording_chip.text())
+            self.window.live_recorder = None
+            self.window._update_recording_indicator()
+            self.assertTrue(self.window.recording_chip.isHidden())
+        finally:
+            self.window.live_recorder = old
+            self.window._update_recording_indicator()
 
     def test_teacher_offers_the_quiz_timbres(self):
         from note_audio import DEFAULT_TIMBRE, TIMBRES
@@ -3020,7 +3107,7 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
         "room_label", "guidance_combo", "timeout_spin", "timbre_combo", "record_check",
         "lesson_label", "led_status", "start_btn", "stop_btn", "workspace_tabs", "practice_page",
         "results_page", "practice_tab_index", "results_tab_index", "role_label", "camera_panel", "stages",
-        "stage_label",
+        "stage_label", "recording_chip",
     )
 
     def test_practice_and_results_have_separate_workspaces(self):
@@ -3051,6 +3138,84 @@ class StudentWindowLayoutTests(_ClientStageChecks, unittest.TestCase):
     def test_session_page_does_not_repeat_the_settings_midi_picker(self):
         self.assertFalse(hasattr(self.window, "port_combo"))
         self.assertFalse(hasattr(self.window, "_refresh_ports"))
+
+    def test_ready_for_guidance_goes_off_with_the_press(self):
+        """Opening the camera, MediaPipe and the MIDI port takes seconds.
+        A button still lit through all of it reads as "nothing happened"
+        and gets pressed again - and there is no other sign on this page
+        that the student has announced itself."""
+        from unittest import mock
+
+        old = (self.window.session, self.window.cue, self.window.midi_recorder)
+        cue = mock.MagicMock(enabled_channels=["visual"])
+        try:
+            self.window.start_btn.setEnabled(True)
+            with mock.patch.object(self.window.remote, "serial_port_problems", return_value=[]), \
+                    mock.patch.object(self.window, "_ensure_led"), \
+                    mock.patch.object(self.window, "_ensure_camera"), \
+                    mock.patch.object(self.window, "_build_cue", return_value=cue), \
+                    mock.patch("remote_guidance.student.window.RawMidiRecorder"), \
+                    mock.patch.object(self.window, "_open_audio"), \
+                    mock.patch.object(self.window, "_send"):
+                self.window._start_session()
+            self.assertFalse(self.window.start_btn.isEnabled())
+            self.assertTrue(self.window.stop_btn.isEnabled())
+        finally:
+            if self.window.session is not None:
+                self.window.session.stop()
+            self.window.session, self.window.cue, self.window.midi_recorder = old
+            self.window.set_settings_enabled(True)
+            for widget in (self.window.guidance_combo, self.window.timeout_spin, self.window.record_check):
+                widget.setEnabled(True)
+
+    def test_a_start_that_never_happened_gives_the_button_back(self):
+        """The press is not what makes the session - a busy serial port,
+        a camera that will not open or a missing keyboard all end it
+        before there is one. The button has to come back, or the student
+        cannot try again after fixing the cable."""
+        from unittest import mock
+
+        cue = mock.MagicMock(enabled_channels=["visual"])
+        failures = (
+            {"serial_port_problems": ["port busy"]},
+            {"ensure_camera": RuntimeError("no camera")},
+            {"midi": RuntimeError("no port")},
+        )
+        old_index = self.window.guidance_combo.currentIndex()
+        try:
+            # Haptic, so the serial port conflict is the student's problem.
+            self.window.guidance_combo.setCurrentIndex(self.window.guidance_combo.findData("haptic"))
+            for case in failures:
+                self.window.start_btn.setEnabled(True)
+                with mock.patch.object(
+                    self.window.remote, "serial_port_problems",
+                    return_value=case.get("serial_port_problems", []),
+                ), mock.patch.object(self.window, "_ensure_led"), mock.patch.object(
+                    self.window, "_ensure_camera", side_effect=case.get("ensure_camera")
+                ), mock.patch.object(
+                    self.window, "_build_cue", return_value=cue
+                ), mock.patch(
+                    "remote_guidance.student.window.RawMidiRecorder", side_effect=case.get("midi")
+                ), mock.patch(
+                    "remote_guidance.student.window.QMessageBox.warning"
+                ) as warning:
+                    self.window._start_session()
+                self.assertTrue(warning.called, case)
+                self.assertIsNone(self.window.session, case)
+                self.assertTrue(self.window.start_btn.isEnabled(), case)
+        finally:
+            self.window.guidance_combo.setCurrentIndex(old_index)
+
+    def test_the_student_is_told_while_it_is_recording(self):
+        """Same reason as the teacher's: the one line saying a writer is
+        open scrolls away, and the student cannot tell a recorded lesson
+        from an unrecorded one while playing it."""
+        self.window._set_recording_indicator("remote-1760000000")
+        self.assertFalse(self.window.recording_chip.isHidden())
+        self.assertIn("remote-1760000000", self.window.recording_chip.text())
+        self.assertIn("RECORDING", self.window.recording_chip.text())
+        self.window._set_recording_indicator()
+        self.assertTrue(self.window.recording_chip.isHidden())
 
     def test_student_offers_the_quiz_timbres(self):
         from note_audio import DEFAULT_TIMBRE, TIMBRES

@@ -151,6 +151,24 @@ QPushButton[role="danger"]:hover {{
     background: #51282e;
     border-color: #df737d;
 }}
+/* Last, and deliberately: a role attribute and a pseudo-class carry the
+   same weight in Qt's stylesheets, so the rules above would otherwise
+   win over QPushButton:disabled and leave a dead highlighted button
+   looking exactly like a live one. */
+QPushButton[role="primary"]:disabled, QPushButton[role="danger"]:disabled {{
+    color: #676e77;
+    background: {surface};
+    border-color: {border};
+    font-weight: 600;
+}}
+QLabel#recordingChip {{
+    color: #ffdadd;
+    background: #4a1d22;
+    border: 1px solid #b3434f;
+    border-radius: 8px;
+    padding: 5px 9px;
+    font-weight: 700;
+}}
 QTabWidget::pane {{
     background: {surface};
     border: 1px solid {border};

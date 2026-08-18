@@ -132,7 +132,7 @@ class TeacherConfig:
     # session page, which is where it is chosen per session - same
     # arrangement as the student's record_video.
     record_video: bool = True
-    # How long "Begin lesson" waits before both ends start recording.
+    # How long "Start teaching" waits before both ends start recording.
     # The student has its camera and MediaPipe already running by then -
     # this is the moment to sit still and let both video writers open on
     # the same agreed instant rather than whenever each machine got round

@@ -808,7 +808,7 @@ then **choose a room**, then the session itself:
 1. *Teacher*: sign in (or create an account), type a room name, read off
    the join code the relay gives back.
 2. *Student*: sign in, type that code.
-3. The teacher presses **Start live session**, the student presses
+3. The teacher presses **Get ready**, the student presses
    **Ready for guidance**, and any key the teacher plays cues the student.
    The order of those first two presses does not matter. Each person's
    own physical key presses also play locally in their client.
@@ -858,8 +858,8 @@ offered to a real account.
 
 **No camera, MIDI port or audio output is opened until an explicit
 hardware action is pressed.** Signing in, choosing a room and sitting on
-the session page touch no hardware; the devices are claimed by **Start
-live session** / **Ready for guidance** (or the teacher's manual
+the session page touch no hardware; the devices are claimed by **Get
+ready** / **Ready for guidance** (or the teacher's manual
 **Connect MIDI**) and handed straight back when the session/MIDI check
 stops, on **Change room** and on close. `Mute` does not open audio at all.
 The student's LED strip is the exception - it has its own Connect button,
