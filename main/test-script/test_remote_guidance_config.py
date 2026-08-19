@@ -15,7 +15,10 @@ Run from main/:  python -m pytest test-script/test_remote_guidance_config.py
 """
 
 import json
+import math
 import os
+import shutil
+import statistics
 import sys
 import tempfile
 import time
@@ -1129,6 +1132,221 @@ class SelfContainedLatencyBenchmarkTests(unittest.TestCase):
         self.assertTrue(args.teacher_username)
         self.assertEqual(args.student_username, "demostudent")
 
+    def test_pacing_modes_share_one_mean_and_stay_in_range(self):
+        """Switching pacing must change the spacing pattern and nothing
+        else - not the probe rate, not the expected run length."""
+        from remote_guidance.tools.latency_benchmark import (
+            POISSON_MAX_INTERVAL_FACTOR,
+            BenchmarkConfig,
+            LatencyBenchmark,
+        )
+
+        fixed = LatencyBenchmark(None, BenchmarkConfig(interval_s=0.5, interval_mode="fixed"))
+        self.assertEqual({fixed.next_interval() for _ in range(20)}, {0.5})
+
+        uniform = LatencyBenchmark(
+            None, BenchmarkConfig(interval_s=0.5, interval_mode="uniform", interval_jitter=0.4, interval_seed=1)
+        )
+        draws = [uniform.next_interval() for _ in range(400)]
+        self.assertTrue(all(0.3 <= d <= 0.7 for d in draws))
+        self.assertGreater(len(set(draws)), 1)
+        self.assertAlmostEqual(sum(draws) / len(draws), 0.5, delta=0.03)
+
+        poisson = LatencyBenchmark(
+            None, BenchmarkConfig(interval_s=0.5, interval_mode="poisson", interval_seed=1)
+        )
+        draws = [poisson.next_interval() for _ in range(4000)]
+        self.assertTrue(all(0.0 < d <= 0.5 * POISSON_MAX_INTERVAL_FACTOR for d in draws))
+        # Truncating the tail costs a little of the mean, but not much.
+        self.assertAlmostEqual(sum(draws) / len(draws), 0.5, delta=0.05)
+
+    def test_pacing_is_reproducible_from_the_recorded_seed(self):
+        """A randomised run is only defensible if it can be repeated, so
+        the seed is drawn once and written into summary.json."""
+        from remote_guidance.tools.latency_benchmark import BenchmarkConfig, LatencyBenchmark
+
+        drawn = LatencyBenchmark(None, BenchmarkConfig(interval_mode="poisson"))
+        self.assertIsNotNone(drawn.config.interval_seed)
+        self.assertIsNotNone(drawn.summarize()["pacing"]["seed"])
+
+        repeat = LatencyBenchmark(
+            None, BenchmarkConfig(interval_mode="poisson", interval_seed=drawn.config.interval_seed)
+        )
+        self.assertEqual(
+            [drawn.next_interval() for _ in range(10)],
+            [repeat.next_interval() for _ in range(10)],
+        )
+
+    def test_a_nonsense_pacing_is_refused_rather_than_silently_fixed(self):
+        from remote_guidance.tools.latency_benchmark import BenchmarkConfig, LatencyBenchmark
+
+        with self.assertRaises(ValueError):
+            LatencyBenchmark(None, BenchmarkConfig(interval_mode="sometimes"))
+        with self.assertRaises(ValueError):
+            LatencyBenchmark(None, BenchmarkConfig(interval_mode="uniform", interval_jitter=1.0))
+
+    def test_pacing_description_states_the_actual_range(self):
+        """The operator is shown a range, not a mode name - the window
+        renders its Pacing row with this same function."""
+        from remote_guidance.tools.latency_benchmark import BenchmarkConfig, describe_pacing
+
+        self.assertEqual(describe_pacing(BenchmarkConfig(interval_s=0.5)), "500 ms intervals (fixed)")
+        self.assertIn(
+            "250-750 ms",
+            describe_pacing(BenchmarkConfig(interval_s=0.5, interval_mode="uniform", interval_jitter=0.5)),
+        )
+        poisson = describe_pacing(BenchmarkConfig(interval_s=0.5, interval_mode="poisson", interval_seed=7))
+        self.assertIn("mean 500 ms", poisson)
+        self.assertIn("capped at 2500 ms", poisson)
+        self.assertIn("seed 7", poisson)
+
+    def test_realised_spacing_is_reported_next_to_the_requested_one(self):
+        """Sleep-based pacing pays each send's cost on top of its wait,
+        so the run records what the gaps really were."""
+        from remote_guidance.tools.latency_benchmark import BenchmarkConfig, LatencyBenchmark, ProbeSample
+
+        benchmark = LatencyBenchmark(None, BenchmarkConfig(interval_s=0.5, interval_mode="uniform"))
+        # Real epoch stamps: a zero sent_wall_ns means "never sent", and
+        # pacing_summary is right to leave those out of the gaps.
+        base_ns = 1_700_000_000_000_000_000
+        for seq, sent_ms in enumerate((0, 400, 1000)):
+            sample = ProbeSample(seq=seq, probe_id=f"p{seq}", sent_wall_ns=base_ns + sent_ms * 1_000_000)
+            benchmark.samples[sample.probe_id] = sample
+            benchmark.order.append(sample.probe_id)
+
+        pacing = benchmark.pacing_summary()
+        self.assertEqual(pacing["mode"], "uniform")
+        self.assertEqual(pacing["gaps"], 2)
+        self.assertAlmostEqual(pacing["nominal_mean_ms"], 500.0)
+        self.assertAlmostEqual(pacing["realised_min_ms"], 400.0)
+        self.assertAlmostEqual(pacing["realised_max_ms"], 600.0)
+        self.assertAlmostEqual(pacing["realised_mean_ms"], 500.0)
+
+    def test_cli_rejects_a_jitter_that_is_not_a_fraction(self):
+        import contextlib
+        import io
+
+        from remote_guidance.tools.latency_benchmark import main as cli_main
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(cli_main(["--server", "http://127.0.0.1:1", "--interval-jitter", "1.4"]), 2)
+        self.assertIn("--interval-jitter", stderr.getvalue())
+
+    def test_external_mode_creates_its_own_room_unless_one_is_given(self):
+        """The operator never has to make a room by hand: --room-id is the
+        exception, not the requirement it used to be."""
+        from remote_guidance.tools.latency_benchmark import build_parser
+
+        args = build_parser().parse_args(["--external-student"])
+        self.assertTrue(args.external_student)
+        self.assertEqual(args.room_id, "")
+        self.assertGreater(args.wait_for_student, 0)
+
+        args = build_parser().parse_args(["--external-student", "--room-id", "room-7"])
+        self.assertEqual(args.room_id, "room-7")
+
+    def test_a_room_id_without_external_student_is_refused(self):
+        """Built-in mode makes its own room, so a room id passed with it
+        can only mean the caller expected something else to happen."""
+        import contextlib
+        import io
+
+        from remote_guidance.tools.latency_benchmark import main as cli_main
+
+        # The refusal happens before any client is built; the dead server
+        # and the supplied passwords keep a regression here from reaching
+        # the network or blocking on a getpass prompt.
+        argv = [
+            "--server", "http://127.0.0.1:1", "--room-id", "room-7",
+            "--password", "unused", "--student-password", "unused",
+        ]
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(cli_main(argv), 2)
+        self.assertIn("--room-id", stderr.getvalue())
+
+    def test_created_room_is_named_and_reports_its_join_code(self):
+        from remote_guidance.tools.latency_benchmark import create_benchmark_room
+
+        class FakeApi:
+            def __init__(self):
+                self.names = []
+
+            def create_room(self, name):
+                self.names.append(name)
+                return {"room_id": "room-1", "join_code": "ABC123", "name": name}
+
+        api = FakeApi()
+        room = create_benchmark_room(api)
+        self.assertEqual(room, {"room_id": "room-1", "join_code": "ABC123"})
+        self.assertIn("latency benchmark", api.names[0].lower())
+
+    def test_membership_readback_names_both_roles(self):
+        """A run whose two endpoints sat in different rooms would lose
+        every probe, so the confirmed membership is printed, not assumed."""
+        from remote_guidance.tools.latency_benchmark import format_room_members
+
+        text = format_room_members(
+            [
+                {"role": "teacher", "username": "demoteacher", "online": True},
+                {"role": "student", "username": "demostudent", "online": False},
+            ]
+        )
+        self.assertEqual(text, "teacher demoteacher, student demostudent (offline)")
+        self.assertEqual(format_room_members([]), "none")
+
+    def test_a_failed_membership_readback_does_not_abandon_the_run(self):
+        """Both joins already succeeded at this point; losing the
+        confirmation line is not worth losing the measurement over."""
+        import contextlib
+        import io
+
+        from remote_guidance.network_client import RemoteApiError
+        from remote_guidance.tools.latency_benchmark import report_room_membership
+
+        class FailingApi:
+            def room_members(self, room_id):
+                raise RemoteApiError("403 forbidden")
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            report_room_membership(FailingApi(), "room-1")
+        self.assertIn("403 forbidden", out.getvalue())
+
+    def test_presence_wait_ignores_the_built_in_student(self):
+        """In built-in mode the student seat is ours, and its own arrival
+        must not be mistaken for a real Student Client joining."""
+        from remote_guidance.tools.latency_benchmark import StudentPresenceWatcher
+
+        watcher = StudentPresenceWatcher(ignore_username="demostudent")
+        watcher.on_message(
+            {
+                "type": "presence",
+                "payload": {
+                    "members": [
+                        {"role": "teacher", "username": "demoteacher"},
+                        {"role": "student", "username": "demostudent"},
+                    ]
+                },
+            }
+        )
+        self.assertFalse(watcher.joined)
+        self.assertFalse(watcher.wait(0.0))
+
+        watcher.on_message({"type": "presence", "payload": {"members": [{"role": "student", "username": "lab2"}]}})
+        self.assertTrue(watcher.joined)
+        self.assertEqual(watcher.student_username, "lab2")
+
+    def test_presence_wait_ignores_non_presence_traffic(self):
+        from remote_guidance.tools.latency_benchmark import StudentPresenceWatcher
+
+        watcher = StudentPresenceWatcher()
+        watcher.on_message({"type": "latency.probe", "payload": {"members": [{"role": "student", "username": "x"}]}})
+        watcher.on_message({"type": "presence", "payload": {}})
+        watcher.on_message({"type": "presence", "payload": {"members": [{"role": "teacher", "username": "t"}]}})
+        self.assertFalse(watcher.joined)
+
     def test_expected_socket_close_is_not_reported_as_a_connection_failure(self):
         from remote_guidance.network_client import ClientCallbacks, RemoteWebSocketClient
 
@@ -1151,7 +1369,7 @@ class SelfContainedLatencyBenchmarkTests(unittest.TestCase):
 
         from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
 
-        app = QApplication.instance() or QApplication([])
+        self.app = QApplication.instance() or QApplication([])
         remote = rgc.RemoteGuidanceConfig()
         remote.network.username = "demostudent"  # last normal client on this machine
         window = LatencyBenchmarkWindow(remote=remote)
@@ -1162,7 +1380,12 @@ class SelfContainedLatencyBenchmarkTests(unittest.TestCase):
         self.assertNotIn("--external-student", args)
         self.assertNotIn("--room-id", args)
         self.assertIn("--student-username", args)
-        self.assertFalse(window.room_edit.isEnabled())
+        # The room is this window's job, not the operator's: no box to
+        # fill in, and the row explains what Start will create.
+        self.assertTrue(window.room_edit.isHidden())
+        self.assertTrue(window.room_edit_label.isHidden())
+        self.assertEqual(window.room_edit.text(), "")
+        self.assertIn("created automatically", window.room_status.text())
         self.assertTrue(window.student_username_edit.isEnabled())
         self.assertFalse(window.trigger_check.isEnabled())
         self.assertTrue(window.synced_check.isChecked())
@@ -1172,12 +1395,587 @@ class SelfContainedLatencyBenchmarkTests(unittest.TestCase):
         window.external_check.setChecked(True)
         args = window.build_arguments()
         self.assertIn("--external-student", args)
-        self.assertIn("--room-id", args)
-        self.assertTrue(window.room_edit.isEnabled())
+        # Still no room to pick by hand - the child creates one and shows
+        # its join code for the real Student Client.
+        self.assertNotIn("--room-id", args)
+        self.assertFalse(window.room_edit.isHidden())
+        self.assertIn("created automatically", window.room_status.text())
         self.assertFalse(window.student_username_edit.isEnabled())
         self.assertTrue(window.trigger_check.isEnabled())
         self.assertFalse(window.synced_check.isChecked())
         self.assertIn("NTP", window.synced_check.text())
+
+        # An existing room is still reachable for a Student Client that
+        # has already joined one.
+        window.room_edit.setText("room-7")
+        self.assertIn("--room-id", window.build_arguments())
+
+        # Going back to built-in mode must not leave that room id armed.
+        window.external_check.setChecked(False)
+        self.assertEqual(window.room_edit.text(), "")
+        self.assertNotIn("--room-id", window.build_arguments())
+
+    def test_window_offers_randomised_pacing_and_shows_its_range(self):
+        """The operator picks a pacing mode and is shown the range it
+        produces, rendered from the benchmark's own description."""
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
+
+        self.app = QApplication.instance() or QApplication([])
+        window = LatencyBenchmarkWindow(remote=rgc.RemoteGuidanceConfig())
+        self.addCleanup(window.deleteLater)
+
+        # Fixed stays the default, so an existing run is reproduced by
+        # pressing Start and changing nothing.
+        self.assertEqual(window.pacing_combo.currentData(), "fixed")
+        self.assertFalse(window.jitter_spin.isEnabled())
+        self.assertIn("500 ms intervals (fixed)", window.pacing_range.text())
+        args = window.build_arguments()
+        self.assertIn("--interval-mode", args)
+        self.assertEqual(args[args.index("--interval-mode") + 1], "fixed")
+        self.assertNotIn("--interval-jitter", args)
+
+        window.pacing_combo.setCurrentIndex(1)
+        window.jitter_spin.setValue(20)
+        self.assertEqual(window.pacing_combo.currentData(), "uniform")
+        self.assertTrue(window.jitter_spin.isEnabled())
+        self.assertIn("400-600 ms", window.pacing_range.text())
+        args = window.build_arguments()
+        self.assertEqual(args[args.index("--interval-mode") + 1], "uniform")
+        self.assertEqual(args[args.index("--interval-jitter") + 1], "0.2")
+
+        # A randomised run only keeps its duration on average.
+        self.assertIn("on average", window.estimate_label.text())
+
+        window.pacing_combo.setCurrentIndex(2)
+        self.assertEqual(window.pacing_combo.currentData(), "poisson")
+        self.assertFalse(window.jitter_spin.isEnabled())
+        self.assertIn("capped at", window.pacing_range.text())
+        self.assertNotIn("--interval-jitter", window.build_arguments())
+
+        # The range must follow the interval, not just the mode.
+        window.pacing_combo.setCurrentIndex(1)
+        window.interval_spin.setValue(0.25)
+        self.assertIn("200-300 ms", window.pacing_range.text())
+
+    def _write_quiz(self, root, participant, trial, reaction_times, **overrides):
+        """One quiz folder in the layout app.quiz.load_quiz_results reads."""
+        directory = root / f"{participant}-T{trial:02d}-B\u03b2"
+        directory.mkdir(parents=True, exist_ok=True)
+        cue = 1784133982.0
+        events = []
+        for index, rt in enumerate(reaction_times):
+            event = {
+                "index": index,
+                "target_note": 64,
+                "target_note_name": "E4",
+                "target_key_id": 9,
+                "target_finger": "R2",
+                "cue_onset_time": cue + index * 3.0,
+                "timed_out": False,
+                "keypress_time": cue + index * 3.0 + rt,
+                "timing_error_s": rt,
+                "validity": "valid",
+            }
+            event.update(overrides)
+            events.append(event)
+        (directory / "results.json").write_text(json.dumps(events), encoding="utf-8")
+        return directory
+
+    def _lognormal_rts(self, median, log_sigma, n=120):
+        """A deterministic lognormal sample, laid out on the
+        distribution's own quantiles.
+
+        Not random draws: this recovers the median and sigma from a
+        fraction of the trials a random sample would need, which keeps
+        the fixture small - and it removes the seed as something that
+        could quietly make an assertion flaky."""
+        normal = statistics.NormalDist()
+        return [median * math.exp(log_sigma * normal.inv_cdf((i + 0.5) / n)) for i in range(n)]
+
+    def test_human_pacing_is_fitted_to_whichever_participants_exist(self):
+        """The study grows past P14, so the model has to be measured at
+        run time - a constant would keep describing 14 people forever."""
+        from remote_guidance.tools.latency_benchmark import clear_pacing_cache, measure_human_pacing
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+        for participant in ("P01", "P02", "P03"):
+            self._write_quiz(root, participant, 1, self._lognormal_rts(0.8, 0.35))
+
+        clear_pacing_cache()
+        fit = measure_human_pacing(root)
+        self.assertEqual(fit.participant_count, 3)
+        self.assertEqual(fit.trials, 360)
+        self.assertAlmostEqual(fit.median_s, 0.8, delta=0.03)
+        self.assertAlmostEqual(fit.log_sigma, 0.35, delta=0.03)
+        self.assertIn("3 participants", fit.source)
+
+        # A participant recorded later moves the fit, with no code change.
+        self._write_quiz(root, "P20", 1, self._lognormal_rts(2.0, 0.35))
+        clear_pacing_cache()
+        moved = measure_human_pacing(root)
+        self.assertEqual(moved.participant_count, 4)
+        self.assertGreater(moved.median_s, fit.median_s)
+
+    def test_human_fit_uses_the_quiz_module_definition_of_a_usable_trial(self):
+        """Not its own: a second definition of "valid trial" in this
+        codebase would eventually disagree with the study's analysis."""
+        from remote_guidance.tools.latency_benchmark import clear_pacing_cache, measure_human_pacing
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+        self._write_quiz(root, "P01", 1, self._lognormal_rts(0.7, 0.3))
+        # None of these may reach the fit: timed out, manually confirmed
+        # carry-over, and the press-before-cue artefact (no logarithm).
+        self._write_quiz(root, "P01", 2, [0.4] * 50, timed_out=True)
+        self._write_quiz(root, "P01", 3, [0.05] * 50, validity="invalid_carryover")
+        self._write_quiz(root, "P01", 4, [-0.2] * 50)
+        # An unreadable quiz is skipped, not fatal.
+        broken = root / "P02-T01-B\u03b2"
+        broken.mkdir()
+        (broken / "results.json").write_text("{not json", encoding="utf-8")
+
+        clear_pacing_cache()
+        fit = measure_human_pacing(root)
+        self.assertEqual(fit.trials, 120)
+        self.assertEqual(fit.participant_count, 1)
+        self.assertAlmostEqual(fit.median_s, 0.7, delta=0.05)
+
+    def test_human_fit_falls_back_rather_than_fitting_a_handful_of_trials(self):
+        from remote_guidance.tools.latency_benchmark import (
+            FALLBACK_HUMAN_LOG_SIGMA,
+            FALLBACK_HUMAN_MEDIAN_S,
+            MIN_HUMAN_TRIALS,
+            clear_pacing_cache,
+            measure_human_pacing,
+        )
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+
+        clear_pacing_cache()
+        empty = measure_human_pacing(root / "no-quiz-data-here")
+        self.assertEqual(empty.median_s, FALLBACK_HUMAN_MEDIAN_S)
+        self.assertEqual(empty.log_sigma, FALLBACK_HUMAN_LOG_SIGMA)
+        self.assertIn("fallback", empty.source)
+
+        self._write_quiz(root, "P01", 1, [0.7] * (MIN_HUMAN_TRIALS - 1))
+        clear_pacing_cache()
+        self.assertIn("fallback", measure_human_pacing(root).source)
+
+    def test_human_pacing_draws_match_the_fit_it_was_given(self):
+        from remote_guidance.tools.latency_benchmark import (
+            BenchmarkConfig,
+            LatencyBenchmark,
+            expected_interval_s,
+            human_pacing_for,
+        )
+
+        config = BenchmarkConfig(interval_s=0.672, interval_mode="human", human_log_sigma=0.441,
+                                 interval_seed=3)
+        benchmark = LatencyBenchmark(None, config)
+        draws = sorted(benchmark.next_interval() for _ in range(20000))
+        percentile_at = lambda q: draws[int(q * len(draws))]  # noqa: E731
+
+        self.assertTrue(all(d > 0 for d in draws))
+        self.assertAlmostEqual(percentile_at(0.05), 0.672 * math.exp(-1.645 * 0.441), delta=0.02)
+        self.assertAlmostEqual(percentile_at(0.50), 0.672, delta=0.02)
+        self.assertAlmostEqual(percentile_at(0.95), 0.672 * math.exp(1.645 * 0.441), delta=0.05)
+        # Right-skewed, like reaction times themselves - not symmetric.
+        self.assertGreater(percentile_at(0.95) - percentile_at(0.5), percentile_at(0.5) - percentile_at(0.05))
+        # A lognormal's mean is above its median, and the run-length
+        # estimate must use the mean or it under-states by minutes.
+        self.assertGreater(expected_interval_s(config), config.interval_s)
+        self.assertAlmostEqual(expected_interval_s(config), sum(draws) / len(draws), delta=0.02)
+        self.assertEqual(human_pacing_for(config).source, "sigma given on the command line")
+
+    def test_the_fit_recomputes_when_a_participant_is_added_and_not_otherwise(self):
+        """Cached against a fingerprint of the quiz folder, so it is not
+        something anyone has to remember to invalidate."""
+        from remote_guidance.tools.latency_benchmark import (
+            cached_human_pacing,
+            clear_pacing_cache,
+            measure_human_pacing,
+        )
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+        clear_pacing_cache()
+        self._write_quiz(root, "P01", 1, self._lognormal_rts(0.8, 0.35))
+        self._write_quiz(root, "P02", 1, self._lognormal_rts(0.8, 0.35))
+
+        self.assertIsNone(cached_human_pacing(root), "nothing is fitted until it is asked for")
+        first = measure_human_pacing(root)
+        self.assertIsNotNone(cached_human_pacing(root))
+        self.assertIs(measure_human_pacing(root), first, "a second read reuses the fit")
+
+        self._write_quiz(root, "P03", 1, self._lognormal_rts(0.8, 0.35))
+        self.assertIsNone(cached_human_pacing(root), "new data invalidates it by itself")
+        self.assertEqual(measure_human_pacing(root).participant_count, 3)
+
+    def test_the_fit_reports_progress_while_it_reads(self):
+        from remote_guidance.tools.latency_benchmark import clear_pacing_cache, measure_human_pacing
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+        for participant in ("P01", "P02"):
+            self._write_quiz(root, participant, 1, self._lognormal_rts(0.8, 0.35))
+
+        steps = []
+        clear_pacing_cache()
+        measure_human_pacing(root, progress=lambda done, total, message: steps.append((done, total, message)))
+        self.assertGreaterEqual(len(steps), 3)
+        self.assertTrue(all(0 < done <= total for done, total, _ in steps))
+        self.assertEqual([done for done, _, _ in steps], sorted(done for done, _, _ in steps))
+        self.assertIn("P01", " ".join(message for _, _, message in steps))
+
+    def test_a_cancelled_analysis_stops_where_it_was_asked_to(self):
+        """The GUI cancels cooperatively - the callback raises - and a
+        half-read corpus must not be cached as if it were a fit."""
+        from remote_guidance.tools.latency_benchmark import (
+            cached_human_pacing,
+            clear_pacing_cache,
+            measure_human_pacing,
+        )
+
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        self.addCleanup(clear_pacing_cache)
+        for participant in ("P01", "P02", "P03"):
+            self._write_quiz(root, participant, 1, self._lognormal_rts(0.8, 0.35))
+
+        class Stop(Exception):
+            pass
+
+        def give_up(done, total, message):
+            if done > 1:
+                raise Stop
+
+        clear_pacing_cache()
+        with self.assertRaises(Stop):
+            measure_human_pacing(root, progress=give_up)
+        self.assertIsNone(cached_human_pacing(root))
+
+    def test_human_pacing_samples_per_participant_not_from_one_pooled_blob(self):
+        """Pooling every trial mixes within-person spread with
+        between-person differences; drawing a participant first
+        reproduces both."""
+        from remote_guidance.tools.latency_benchmark import (
+            BenchmarkConfig,
+            HumanPacing,
+            LatencyBenchmark,
+            ParticipantPacing,
+        )
+
+        # Two very different people, each individually tight.
+        fit = HumanPacing(
+            median_s=0.6,
+            log_sigma=0.5,
+            participants=[
+                ParticipantPacing("P01", median_s=0.3, log_sigma=0.05, trials=500),
+                ParticipantPacing("P02", median_s=1.2, log_sigma=0.05, trials=500),
+            ],
+            trials=1000,
+            source="test",
+        )
+        benchmark = LatencyBenchmark(None, BenchmarkConfig(interval_s=0.6, interval_mode="human",
+                                                           interval_seed=5))
+        benchmark.human_pacing = fit
+        draws = [benchmark.next_interval() for _ in range(4000)]
+
+        # Bimodal around the two participants' medians, which a single
+        # pooled lognormal could not produce.
+        fast = [d for d in draws if d < 0.6]
+        slow = [d for d in draws if d >= 0.6]
+        self.assertGreater(len(fast), 1000)
+        self.assertGreater(len(slow), 1000)
+        self.assertAlmostEqual(statistics.median(fast), 0.3, delta=0.05)
+        self.assertAlmostEqual(statistics.median(slow), 1.2, delta=0.1)
+
+    def test_the_analysis_line_never_triggers_a_corpus_scan(self):
+        """A page of past results must not stall on fitting anything, so
+        the scale reference comes from the run itself or from a fit
+        already in hand."""
+        from remote_guidance.tools.latency_benchmark import analyse_summary, clear_pacing_cache
+
+        self.addCleanup(clear_pacing_cache)
+        clear_pacing_cache()
+        summary = {
+            "counts": {"attempted": 100, "warmup": 0, "lost": 0, "loss_rate": 0.0},
+            "metrics": {"transport_rtt": {"median_ms": 40.0, "p95_ms": 60.0, "p99_ms": 70.0, "max_ms": 80.0}},
+        }
+        # No pacing block and nothing cached: the line is simply absent.
+        self.assertNotIn("for scale", " | ".join(analyse_summary(summary)))
+
+        # A human-paced run carries the population it used, and that is
+        # the right reference for it even years later.
+        summary["pacing"] = {"mode": "human", "nominal_mean_ms": 664.0,
+                             "human": {"median_s": 0.664, "source": "measured from 14 participants"}}
+        text = " | ".join(analyse_summary(summary))
+        self.assertIn("664 ms median reaction time", text)
+        self.assertIn("measured from 14 participants", text)
+
+    def test_a_run_records_which_population_it_was_paced_like(self):
+        """"Measured from 14 participants" and "from 20" are different
+        claims, so the run carries the one it used."""
+        from remote_guidance.tools.latency_benchmark import BenchmarkConfig, LatencyBenchmark
+
+        benchmark = LatencyBenchmark(None, BenchmarkConfig(interval_mode="human"))
+        human = benchmark.pacing_summary()["human"]
+        self.assertIn("participant_count", human)
+        self.assertIn("participants", human)
+        self.assertIn("trials", human)
+        self.assertIn("source", human)
+        # The evidence for the model travels with the run too.
+        self.assertIn("families", human)
+        self.assertIn("median_ci", human)
+        self.assertEqual(human["log_sigma"], benchmark.human_pacing.log_sigma)
+        # What was asked for stays None - "fit it" - so a later read of
+        # this config cannot mistake the fit for an operator's choice.
+        self.assertIsNone(benchmark.config.human_log_sigma)
+        self.assertNotIn("human", LatencyBenchmark(None, BenchmarkConfig()).pacing_summary())
+
+    def test_the_cli_leaves_the_interval_unset_for_the_mode_to_resolve(self):
+        from remote_guidance.tools.latency_benchmark import build_parser
+
+        # None means "use this mode's own default" - fixed keeps the
+        # platform interval, human takes the fitted participant median.
+        self.assertIsNone(build_parser().parse_args([]).interval)
+        self.assertIsNone(build_parser().parse_args(["--interval-mode", "human"]).interval)
+        self.assertAlmostEqual(build_parser().parse_args(["--interval", "0.2"]).interval, 0.2)
+
+    def test_analysis_describes_the_run_without_grading_it(self):
+        from remote_guidance.tools.latency_benchmark import analyse_summary
+
+        summary = {
+            "counts": {"attempted": 1000, "warmup": 20, "lost": 3, "loss_rate": 0.003},
+            "metrics": {"transport_rtt": {"median_ms": 36.6, "p95_ms": 150.1, "p99_ms": 258.0, "max_ms": 446.7}},
+            "pacing": {"mode": "human", "nominal_mean_ms": 672.0, "realised_mean_ms": 742.0, "seed": 99},
+            "config": {"built_in_student": True},
+        }
+        text = " | ".join(analyse_summary(summary))
+        self.assertIn("1000 measured probes, 3 lost (0.30%)", text)
+        self.assertIn("median 36.6 ms", text)
+        self.assertIn("4.1x the median", text)
+        self.assertIn("--interval-seed 99", text)
+        self.assertIn("not Student UI or hardware", text)
+        # Reports the shape; does not pronounce on whether it is good.
+        for verdict in ("acceptable", "too slow", "fine", "bad", "good enough"):
+            self.assertNotIn(verdict, text.lower())
+
+    def test_analysis_survives_a_run_that_recorded_nothing(self):
+        from remote_guidance.tools.latency_benchmark import analyse_summary
+
+        self.assertEqual(analyse_summary({}), [])
+        self.assertEqual(analyse_summary({"counts": {"attempted": 0}, "metrics": {}}), [])
+
+    def test_results_page_lists_past_runs_newest_first(self):
+        import json as json_module
+
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import BenchmarkResultsPage
+
+        self.app = QApplication.instance() or QApplication([])
+        results = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, results, True)
+        for run_id in ("20260101-000000", "20260817-225801"):
+            (results / run_id).mkdir()
+            (results / run_id / "summary.json").write_text(
+                json_module.dumps(
+                    {
+                        "counts": {"attempted": 10, "warmup": 2, "lost": 0, "loss_rate": 0.0},
+                        "metrics": {"transport_rtt": {"n": 10, "median_ms": 12.0, "p95_ms": 20.0,
+                                                      "p99_ms": 22.0, "max_ms": 25.0}},
+                        "pacing": {"mode": "fixed", "nominal_mean_ms": 500.0},
+                    }
+                )
+            )
+        # A folder with no summary.json is an interrupted run, not a result.
+        (results / "20260818-000000").mkdir()
+
+        page = BenchmarkResultsPage(results_dir=results)
+        self.addCleanup(page.deleteLater)
+        self.assertEqual(page.run_ids(), ["20260817-225801", "20260101-000000"])
+        self.assertEqual(page.run_list.currentItem().text(), "20260817-225801")
+
+        shown = page.summary_text.toPlainText()
+        self.assertIn("20260817-225801", shown)
+        self.assertIn("Analysis", shown)
+        self.assertIn("median 12.0 ms", shown)
+        self.assertIn("transport_rtt", shown)  # the run's own summary table
+        # No latency.png in this run, which is not an error.
+        self.assertIn("no figures", page.plot_label.text())
+
+        # Refresh keeps the run being read rather than jumping to newest.
+        page.run_list.setCurrentRow(1)
+        page.reload()
+        self.assertEqual(page.run_list.currentItem().text(), "20260101-000000")
+        page.show_newest()
+        self.assertEqual(page.run_list.currentItem().text(), "20260817-225801")
+
+    def test_results_page_offers_every_figure_a_run_wrote(self):
+        """A run writes an overview plus per-question figures now; the
+        page has to let the reader reach the ones that are not first."""
+        import json as json_module
+
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import BenchmarkResultsPage
+
+        self.app = QApplication.instance() or QApplication([])
+        results = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, results, True)
+        run = results / "20260817-225801"
+        run.mkdir()
+        (run / "summary.json").write_text(json_module.dumps({"counts": {"attempted": 5}, "metrics": {}}))
+        # Written out of order, and with a PDF beside each PNG.
+        for name in ("latency_jitter.png", "latency.png", "latency_hops.png", "latency.pdf"):
+            (run / name).write_bytes(b"")
+
+        page = BenchmarkResultsPage(results_dir=results)
+        self.addCleanup(page.deleteLater)
+        names = [page.figure_combo.itemText(i) for i in range(page.figure_combo.count())]
+        # PNGs only - the PDF is for the thesis, not for this pane - and
+        # the overview leads.
+        self.assertEqual(names, ["latency.png", "latency_hops.png", "latency_jitter.png"])
+        self.assertEqual(page.figure_combo.currentText(), "latency.png")
+
+    def test_figures_only_claim_two_link_states_when_there_are_two(self):
+        """The overview shades episodes of an elevated state. On a link
+        that does not have one, it must not invent it."""
+        import random as random_module
+
+        from remote_guidance.tools.latency_plots import episodes, split_states
+
+        rng = random_module.Random(4)
+        one_state = [rng.gauss(35, 4) for _ in range(500)]
+        self.assertIsNone(split_states(one_state), "a single-state link must not be split")
+
+        two_states = [rng.gauss(35, 4) for _ in range(300)] + [rng.gauss(140, 8) for _ in range(200)]
+        split = split_states(two_states)
+        self.assertIsNotNone(split)
+        low, high, boundary = split
+        self.assertAlmostEqual(low, 35, delta=4)
+        self.assertAlmostEqual(high, 140, delta=8)
+        self.assertTrue(low < boundary < high)
+
+        # A lone spike is not an episode; a sustained stretch is.
+        flags = [False] * 10 + [True] + [False] * 10 + [True] * 6 + [False] * 5
+        self.assertEqual(episodes(flags), [(21, 27)])
+
+    def test_results_page_is_calm_about_an_empty_or_broken_results_dir(self):
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import BenchmarkResultsPage
+
+        self.app = QApplication.instance() or QApplication([])
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, empty, True)
+
+        page = BenchmarkResultsPage(results_dir=empty / "not-created-yet")
+        self.addCleanup(page.deleteLater)
+        self.assertEqual(page.run_ids(), [])
+        self.assertIn("No finished runs", page.summary_text.toPlainText())
+
+        (empty / "20260101-000000").mkdir()
+        (empty / "20260101-000000" / "summary.json").write_text("{not json")
+        broken = BenchmarkResultsPage(results_dir=empty)
+        self.addCleanup(broken.deleteLater)
+        self.assertIn("could not read summary.json", broken.summary_text.toPlainText())
+
+    def test_window_shows_the_results_page_after_a_successful_run(self):
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
+
+        self.app = QApplication.instance() or QApplication([])
+        window = LatencyBenchmarkWindow(remote=rgc.RemoteGuidanceConfig())
+        self.addCleanup(window.deleteLater)
+
+        self.assertEqual([window.tabs.tabText(i) for i in range(window.tabs.count())],
+                         ["Benchmark", "Past results"])
+        self.assertEqual(window.tabs.currentIndex(), 0)
+
+        window._on_finished(1, None)
+        self.assertEqual(window.tabs.currentIndex(), 0, "a failed run stays on the log that explains it")
+        window._on_finished(0, None)
+        self.assertIs(window.tabs.currentWidget(), window.results_page)
+
+    def test_selecting_human_pacing_analyses_behind_a_progress_dialog(self):
+        """The fit reads every participant's every trial. Whatever that
+        grows to, it must not happen on the GUI thread."""
+        import time as time_module
+
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
+        from remote_guidance.tools.latency_benchmark import cached_human_pacing, clear_pacing_cache
+
+        self.app = QApplication.instance() or QApplication([])
+        self.addCleanup(clear_pacing_cache)
+        clear_pacing_cache()
+
+        window = LatencyBenchmarkWindow(remote=rgc.RemoteGuidanceConfig())
+        self.addCleanup(window.deleteLater)
+        # Opening the window fits nothing - not even the results page's
+        # analysis line may trigger it.
+        self.assertIsNone(cached_human_pacing())
+
+        window.pacing_combo.setCurrentIndex(3)
+        self.assertEqual(window.pacing_combo.currentData(), "human")
+        self.assertIn("analysing", window.pacing_range.text())
+        self.assertIsNotNone(window._pacing_dialog)
+        self.assertTrue(window._pacing_worker.isRunning())
+
+        deadline = time_module.time() + 60
+        while window._pacing_worker is not None and time_module.time() < deadline:
+            self.app.processEvents()
+            time_module.sleep(0.01)
+        self.assertIsNone(window._pacing_worker, "the analysis never finished")
+        self.assertIsNone(window._pacing_dialog, "the progress dialog was left open")
+
+        fit = cached_human_pacing()
+        self.assertIsNotNone(fit)
+        self.assertAlmostEqual(window.interval_spin.value(), fit.median_s, places=3)
+        self.assertIn("human reaction time", window.pacing_range.text())
+        self.assertIn(str(fit.participant_count), window.pacing_range.text())
+
+        # Already fitted, so re-selecting is instant and starts nothing.
+        window.pacing_combo.setCurrentIndex(0)
+        window.pacing_combo.setCurrentIndex(3)
+        self.assertIsNone(window._pacing_worker)
+
+    def test_window_reports_the_room_its_run_created(self):
+        from PySide6.QtWidgets import QApplication
+
+        from remote_guidance.tools.benchmark_window import LatencyBenchmarkWindow
+
+        self.app = QApplication.instance() or QApplication([])
+        window = LatencyBenchmarkWindow(remote=rgc.RemoteGuidanceConfig())
+        self.addCleanup(window.deleteLater)
+
+        for line in (
+            "room: created 2549395a",
+            "room: join code FJXP7Z",
+            "room: members confirmed: teacher demoteacher, student demostudent",
+        ):
+            window._note_room_line(line)
+        status = window.room_status.text()
+        self.assertIn("2549395a", status)
+        self.assertIn("FJXP7Z", status)
+        self.assertIn("teacher demoteacher, student demostudent", status)
+
+        # Starting another run must not show the previous room's id.
+        window._reset_room_status()
+        self.assertNotIn("2549395a", window.room_status.text())
 
 
 class OneWayEstimateTests(unittest.TestCase):

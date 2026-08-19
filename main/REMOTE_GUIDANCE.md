@@ -97,7 +97,7 @@ starts them with `QProcess.startDetached` (see
 | `qt_bridge.py` | 104 | The only place the network layer meets Qt - turns callbacks into signals |
 | `cue_outputs.py` | 349 | `CompositeCueOutput`, `LedKeyCue`, `build_student_cue`; paints visual first so serial cannot hold it hostage, while cue-ready remains the last enabled channel (§4.1, §4.11) |
 | `gui_common.py` | 571 | `SignInPanel`, `RoomPanel`, `ApiCallWorker`, `StageWindow` mixin |
-| `client_styles.py` | 373 | Tele-training-only launcher-style QSS; warm Teacher and cool Student palettes shared by each role's main window and Settings, including explicit role-colored dropdown/spin arrows and checked-state ticks from `assets/` |
+| `client_styles.py` | 355 | Tele-training-only launcher-style QSS; warm Teacher and cool Student palettes shared by each role's main window and Settings, including explicit role-colored dropdown/spin arrows and checked-state ticks from `assets/` |
 | `settings_window.py` | 559 | `RemoteSettingsDialog` - role-themed two-column Camera / Keyboard+MIDI workspace; non-editable detected-port dropdown with saved-offline preservation, temporary press-a-key MIDI identification/release, profile preview, and duplicate-name warning |
 | `launcher_actions.py` | 116 | `ProcessSpec`s and health check for launcher section 8 |
 | `setup_store.py` | 180 | **The isolation rules.** Profile folders the setup wizard may create and write; no Qt, no config |
@@ -106,14 +106,15 @@ starts them with `QProcess.startDetached` (see
 | `midi_mapping_wizard.py` | 473 | Tele-training's copy of Initial Setup's two-page Middle C check → live camera/key-highlight mapping flow; it lists and writes only marked Tele-training profiles (§4.12) |
 | `vision_worker.py` | 194 | Latest-only background camera + MediaPipe loop shared by the two clients; keeps native vision calls off both GUI/network fast paths, and optionally carries an unannotated copy of each frame for recording (§4.13) |
 | `student/session.py` | 551 | **The core.** Event model, queueing, all timing rules. No Qt, no hardware |
-| `student/window.py` | 1613 | Student GUI: compact cyan role bar plus separate Practice/Results workspaces; devices in, Qt signals out; owns the visual/haptic/both choice and Quiz-style local MIDI audio/timbre, announces readiness, and defers an early recorded trigger until ready |
+| `student/window.py` | 1485 | Student GUI: compact cyan role bar plus separate Practice/Results workspaces; devices in, Qt signals out; owns the visual/haptic/both choice and Quiz-style local MIDI audio/timbre, announces readiness, and defers an early recorded trigger until ready |
 | `teacher/live_detector.py` | 314 | Background camera/HandTracker snapshot + one latency-first non-blocking MIDI reader → finger matching plus note-on/off events for local audio; `set_raw_capture()` adds the unannotated frame a recording needs |
 | `teacher/live_recorder.py` | 359 | Writes a live lesson to `data/music/remote-<epoch>/` in the Song Recording Wizard's layout, from the detector's own camera/MIDI output. No Qt (§4.13) |
 | `teacher/recording_import.py` | 160 | `data/music`/`data/sequence` → uploadable recording |
 | `teacher/recording_wizard.py` | 635 | Tele-training-private three-page Teacher recording flow; fixed Teacher Settings devices, amber UI, section 3-compatible capture/fingering/save pipeline, and complete close-time release |
-| `teacher/window.py` | 1504 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
-| `tools/latency_benchmark.py` | 740 | Self-contained two-login/two-WebSocket benchmark CLI with built-in Student responder, automatic temporary room lifecycle, plus explicit external-Student mode |
-| `tools/benchmark_window.py` | 302 | GUI wrapper around that CLI (runs it as a QProcess); defaults to Relay + Benchmark only and feeds both passwords over stdin |
+| `teacher/window.py` | 1348 | Teacher GUI; compact amber role bar plus separate Live/Library/Results workspaces, Quiz-style local MIDI audio/timbre, private Teacher Recording Wizard, and session control without choosing the student's rendering mode |
+| `tools/latency_benchmark.py` | 1489 | Self-contained two-login/two-WebSocket benchmark CLI with built-in Student responder; creates and closes its own room in **both** modes, reads the membership back, waits on `presence` for a real Student Client in external mode, and paces probes fixed/uniform/Poisson/human from a recorded seed, and analyses a finished run |
+| `tools/latency_plots.py` | 353 | The run's report figures (PNG + vector PDF): overview with elevated-state episodes and an ECDF, hop decomposition, IPDV, and transport against the participants' measured reaction time. Describes, never grades |
+| `tools/benchmark_window.py` | 802 | GUI wrapper around that CLI (runs it as a QProcess); defaults to Relay + Benchmark only, feeds both passwords over stdin, reports the room each run created instead of asking for one, shows the interval range its pacing choice produces, and carries a second page that reads back every past run's summary, analysis and plot |
 
 ### `server/` - the relay
 
@@ -127,7 +128,7 @@ certificate generation).
 
 | File | Lines | Covers |
 |---|---:|---|
-| `test-script/test_remote_guidance_config.py` | 4244 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats and self-contained two-role benchmark controls/responder, launcher actions, GUI staging plus main-window/Settings role themes, visible spin/tick controls and workspace separation, MIDI dropdown/empty-scan preservation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, message handling, and the teacher's lesson recording: wizard-format save, epoch stamps, lead-in-corrected duration, unannotated frames, cue-before-archive tick ordering and the shared session name |
+| `test-script/test_remote_guidance_config.py` | 4877 | Config compat, role isolation, serial clash, composite cue, session timing, latency stats and self-contained two-role benchmark controls/responder plus automatic benchmark-room lifecycle, membership read-back, student-presence wait fixed/uniform/Poisson/human probe pacing, the human fit tracking whichever participants exist, its per-participant sampling, progress reporting and cancellation, and the results page's listing/analysis/empty-and-broken handling, launcher actions, GUI staging plus main-window/Settings role themes, visible spin/tick controls and workspace separation, MIDI dropdown/empty-scan preservation, private Teacher recording-wizard isolation/device source/release, camera/profile preview, temporary MIDI test/release lifecycle, shared MIDI/audio routing, background vision/latency ordering, audio release, message handling, and the teacher's lesson recording: wizard-format save, epoch stamps, lead-in-corrected duration, unannotated frames, cue-before-archive tick ordering and the shared session name |
 | `test-script/test_remote_guidance_server.py` | 878 | Passwords, tokens, authorization, WebSocket relay, persistence, and student-owned guidance mode |
 | `test-script/test_remote_guidance_e2e.py` | 575 | Real server + fake teacher + fake student |
 | `test-script/test_midi_ports.py` | 318 | `app.midi` port identity: two identical keyboards stay two keyboards (§9.8). Platform-wide, but this module is what needs it |
@@ -1002,13 +1003,168 @@ python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
 ```
 
 `latency_benchmark.main()` logs in both accounts, creates a temporary
-room, joins the built-in Student, opens both real
-`RemoteWebSocketClient`s, and closes (never deletes) the room during
+room, joins the built-in Student to it with the room's own join code,
+opens both real `RemoteWebSocketClient`s, reads the membership back from
+the relay once both sockets are up (`room: members confirmed: teacher ...,
+student ...` - a benchmark whose endpoints sat in different rooms would
+just lose every probe), and closes (never deletes) the room during
 cleanup. The built-in responder sends `latency.received` immediately and
-owns no Qt/hardware. `--external-student --room-id ...` is the explicit
-legacy/physical path for measuring the real Student UI/LED/haptic
-dispatch; `--trigger-cue` is refused in built-in mode so a simulated
-reply cannot be mislabelled as hardware timing.
+owns no Qt/hardware.
+
+**Picking a room is never the operator's job.** `--external-student`
+creates the room here too, prints its join code for the real Student
+Client, and blocks until the relay's `presence` frame shows a student in
+the room (`--wait-for-student`, default 180 s) - probing an empty room
+would score every early probe as transport loss. `--room-id` is the one
+manual escape hatch, for a Student Client already sitting in a room of
+its own, and is refused in built-in mode. The GUI mirrors this: no room
+box in built-in mode, just a Room row that fills in with the id, join
+code and confirmed membership as the child process reports them via its
+`room:` lines. `--trigger-cue` is still refused in built-in mode so a
+simulated reply cannot be mislabelled as hardware timing.
+
+**Probe pacing** (`--interval-mode`, default `fixed`). A fixed 500 ms
+period samples the same phase of anything periodic in the path - relay
+heartbeats, Wi-Fi power-save windows, scheduler ticks - on every single
+probe, and biases the result by however that phase happens to line up.
+`uniform` jitters each wait by `--interval-jitter` (default ±50 %) of the
+interval; `poisson` draws it from an exponential distribution, which is
+what RFC 2330 § 11.1 recommends for unbiased network sampling, truncated
+at 5× the mean so one draw cannot stall a run. All three modes have the
+same **mean**, so the probe count, rate and expected duration do not
+change with the choice - only the spacing pattern does. The seed is drawn
+once and recorded in `summary.json` (`pacing.seed`), so a randomised run
+can be repeated exactly with `--interval-seed`; that block also reports
+the *realised* min/mean/max spacing, because the loop sleeps after each
+send and so pays that probe's send cost on top of its wait. The window
+shows the resulting range live ("Each wait: 300-700 ms intervals...")
+from `describe_pacing()`, the same function the CLI prints.
+
+`human` is the mode that paces probes like the platform is actually
+driven - cue out, person reacts, next cue - and `measure_human_pacing()`
+fits it to **every trial of every participant, at run time**.
+
+**What it reads.** Every `data/quiz/P*-T*/results.json`, through
+`app.quiz`'s own loader, validity rule and reaction-time field
+(`timing_error_s`), so this cannot drift from what the study's analysis
+counts: a trial is usable when it neither timed out nor was manually
+invalidated as carry-over. Non-positive reaction times (the
+press-before-cue artefact) have no logarithm and are dropped. `TEST-*`
+and `remote-*` folders are not participants; the participant number is
+never assumed to stop at 14.
+
+**What it fits.** Three things, because "all the data" should mean the
+analysis as well as the sample:
+
+- **per participant, then pooled.** Pooling every trial into one
+  distribution mixes within-person variability with between-person
+  differences and *inflates sigma*: 0.441 pooled against 0.424 averaged
+  over participants, whose medians run 503-767 ms. `human` mode
+  therefore samples **hierarchically** - draw a participant, then draw
+  from that participant's own lognormal, rescaled so the group median
+  lands on the requested interval. One pooled lognormal would blur both
+  spreads into a single wrong middle.
+- **which family, not which family we assumed.** Lognormal is fitted
+  against ex-Gaussian and shifted lognormal and wins on this data
+  (KS 0.029 vs 0.062; AIC lower by 112 than ex-Gaussian). Shifted
+  lognormal scores AIC 8 *better* still - and its fitted shift is
+  10.9 ms, 1.6 % of the median, for a whole extra parameter, which is
+  why the sampler stays two-parameter. The table is recorded and printed
+  rather than summarised as a winner, because the pooled comparison is
+  not what the probes are drawn from.
+- **how certain.** A `BOOTSTRAP_RESAMPLES` bootstrap over the pooled
+  log-RTs: at 14 participants the median's 95 % interval is 659-670 ms
+  and sigma's is 0.436-0.447. Seeded, so the interval is a property of
+  the data and does not move between two reads of the same corpus.
+
+scipy is optional - without it the pooled and per-participant fits still
+happen and only the family table and interval are skipped.
+
+**Why it is not a constant.** The participant set grows. P01-P14's
+numbers would go on describing 14 people long after P20 was recorded,
+without ever looking wrong. `FALLBACK_HUMAN_*` apply only with no quiz
+data at all (a fresh checkout, a copied-out deployment) or fewer than
+`MIN_HUMAN_TRIALS`, where a fit describes the sample rather than human
+reaction time. The fitted median is also human mode's default
+`--interval`, so `--interval-mode human` alone reproduces the
+participants' spacing.
+
+**Cost and caching.** The whole analysis - 378 quiz folders, 11,335
+reaction times, three family fits, 2000 bootstrap resamples - takes
+about 0.7 s. It is cached against a *fingerprint* of the quiz folder
+(file count, sizes, mtimes), so recording a participant invalidates it
+by itself and nobody has to remember to; `clear_pacing_cache()` and the
+results page's Refresh force it. `app.quiz` is imported inside the
+function, not at module scope: it reaches the finger-matching stack and
+so numpy, and this module is otherwise free of that weight.
+
+**Reporting progress.** `measure_human_pacing(progress=...)` calls back
+with `(done, total, message)`. The CLI prints those lines before dialling
+anything, so a slow corpus is visibly the fit rather than a stalled
+connection. The window runs the analysis on `_PacingAnalysisWorker`
+behind a cancellable `QProgressDialog` the moment **Human** is selected -
+not because 0.7 s needs a progress bar, but because the window must not
+be the thing that decides how long the study's data takes to read.
+Cancellation is cooperative (the progress callback raises; a QThread
+cannot be safely killed) and returns the mode to Fixed rather than
+leaving Human selected with nothing behind it. **Nothing else may
+trigger the fit**: `analyse_summary()` takes its scale reference from the
+run's own recorded population first and a cached fit second, precisely so
+opening the results page cannot stall on a corpus scan.
+
+Each run records the population it was paced against in `summary.json` →
+`pacing.human` (median, sigma, per-participant table, trials, families,
+intervals, source) - "measured from 14 participants" and "from 20" are
+different claims. `config.human_log_sigma` stays `null` there, meaning
+*fit it*; the fitted value is never written back, so a later read of that
+config cannot mistake the fit for an operator's own choice. A lognormal's
+mean is above its median (742 ms at the current fit), which is why
+`expected_interval_s()` exists: a 1000-probe human-paced run takes
+~12.6 min, not the ~11.2 min the median would suggest.
+
+### Report figures
+
+`latency_plots.py` writes each run's figures as **PNG and vector PDF** -
+the same figure, so the printed one cannot drift from the one on screen.
+They follow print rules (~9 pt type, one text width, no chart junk) and
+**one measure per axis - never a second y-scale**. Colour is assigned by
+job from three validated categorical slots, and every series carries a
+direct label as well, so identity never rests on colour alone.
+
+| Figure | The question it answers |
+|---|---|
+| `latency` | How did the round trip behave over the run, and what is its distribution? Time series with elevated-state episodes shaded, beside an **ECDF** - a histogram's bins bury exactly the tail a real-time path is judged on |
+| `latency_hops` | Where is the time spent? Teacher→relay against the whole round trip, on one log axis; the gap between the curves is the student leg |
+| `latency_jitter` | How much does it move? Consecutive-probe variation (RFC 3393 IPDV), which is closer to what a cue is felt as than absolute delay |
+| `latency_human` | Does it matter? The transport distribution beside the participants' fitted reaction time, on one axis |
+
+Two rules these follow. **They describe and do not grade**: no "too
+slow" threshold is drawn, because that is a requirement rather than a
+property of the measurement - where scale is needed the comparison drawn
+is the study's own reaction time, and the reader concludes. And
+`split_states()` **only claims two link states when there are two** -
+one-dimensional two-means, accepted only if the centres differ by 2x and
+neither holds under a tenth of the probes, with single-probe flickers
+excluded from the shading by a minimum run length. On the first run
+against the deployed relay this found a base state at 34 ms and an
+elevated one at 142 ms, in episodes of a few seconds each, with both hops
+moving together - i.e. on the shared access link rather than in the relay.
+
+### The window's second page
+
+`BenchmarkResultsPage` lists every folder under
+`data/remote_guidance/latency/` that has a `summary.json` (newest first;
+one without is an interrupted run, not a result) and shows that run's
+`analyse_summary()` readings, its own `format_summary()` table and its
+`latency.png`, scaled down to the pane but never up. It recomputes
+nothing - the numbers are the ones the run wrote. A finished run switches
+the window to this page, because after eight minutes the result should
+not have to be gone looking for; a *failed* run does not, since the log
+on the first page is what explains it. `analyse_summary()` describes the
+distribution's shape and scale and deliberately passes no verdict on it -
+the single outside number it brings in is the P01-P14 median reaction
+time above, because a transport delay only means something next to the
+human delay it is added to.
 
 Tests:
 
@@ -1270,7 +1426,7 @@ remain unverified:
 - Wire the photodiode/accelerometer rig into the reserved columns.
 - Multi-student rooms (routing + teacher UI).
 - Token refresh + a clearer reconnect UX.
-- Trim `student/window.py` (1613 lines) - the session-page building and
+- Trim `student/window.py` (1485 lines) - the session-page building and
   the recording/analysis plumbing could split out.
 - Give an unanalysed `data/music/` folder a way back into the fingering
   pass, which would also cover a wizard recording abandoned before save.

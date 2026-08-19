@@ -545,14 +545,40 @@ python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
 
 This default run is self-contained: the benchmark authenticates both
 existing accounts, creates a temporary room, joins and connects its own
-simulated Student WebSocket, then closes the room without deleting its
-database record. Only the relay and benchmark processes need to be open.
-Use `--external-student --room-id <id>` only when a real Student Client
-and its UI/LED/haptic dispatch are intentionally part of the measurement.
+simulated Student WebSocket, reads the room's membership back from the
+relay so the run shows both accounts really were in one room, then closes
+the room without deleting its database record. Only the relay and
+benchmark processes need to be open.
+
+No room ever has to be created or pasted in by hand. `--external-student`
+creates the room here as well, prints its join code for a real Student
+Client, and waits (`--wait-for-student`, default 180 s) until a `presence`
+frame shows a student in the room before it starts probing. Use it only
+when a real Student Client and its UI/LED/haptic dispatch are
+intentionally part of the measurement. `--room-id <id>` is for the single
+case where that Student Client has already joined a room of its own.
 
 Defaults follow the report's benchmark: **1000 probes at 500 ms
 intervals over one persistent WebSocket per endpoint**, with warm-up samples
-recorded separately and excluded from the statistics. Results land in
+recorded separately and excluded from the statistics.
+
+`--interval-mode` chooses how the probes are spaced. The default `fixed`
+period is easy to describe but samples the same phase of anything
+periodic in the path on every probe; `uniform` jitters each wait by
+`--interval-jitter` of the interval, and `poisson` draws it from an
+exponential distribution (RFC 2330 § 11.1, truncated at 5x the mean).
+`human` paces probes like a person being cued. It is fitted at run time
+to every trial of whichever participants are in `data/quiz/` (at 14
+participants: median 664 ms, log-sigma 0.441 over 11,335 trials, ~0.7 s),
+and samples hierarchically - a participant, then that participant's own
+lognormal - because pooling every trial inflates sigma. The fitted median
+is also its default interval. Lognormal is checked against ex-Gaussian
+and shifted lognormal rather than assumed, and a bootstrap interval is
+reported with it; the CLI prints progress while it reads. Each run
+records the population it used in `summary.json`. The first three modes
+share one mean, so only the spacing pattern changes; `human` has its own
+median and a mean above it. The pacing seed is recorded in
+`summary.json` and can be replayed with `--interval-seed`. Results land in
 `data/remote_guidance/latency/<run_id>/` as `samples.csv`,
 `summary.json` and `latency.png`.
 

@@ -1,0 +1,81 @@
+{
+  "config": {
+    "count": 1000,
+    "interval_s": 0.5,
+    "warmup": 20,
+    "ack_timeout_s": 5.0,
+    "trigger_cue": false,
+    "clocks_synced": true,
+    "built_in_student": true,
+    "note": 60,
+    "finger": "R1"
+  },
+  "counts": {
+    "attempted": 1000,
+    "warmup": 20,
+    "acknowledged": 1000,
+    "lost": 0,
+    "loss_rate": 0.0
+  },
+  "clock_offset": {
+    "offset_ns": 1167760.25,
+    "offset_ms": 1.16776025,
+    "uncertainty_ns": 9047375.0,
+    "uncertainty_ms": 9.047375,
+    "best_rtt_ns": 18094750,
+    "samples": 1020,
+    "synchronised": true,
+    "method": "four-timestamp exchange (not NTP)"
+  },
+  "metrics": {
+    "transport_rtt": {
+      "label": "transport_rtt",
+      "n": 1000,
+      "lost": 0,
+      "loss_rate": 0.0,
+      "min_ms": 18.137459,
+      "mean_ms": 75.820849831,
+      "sd_ms": 59.68606345511299,
+      "median_ms": 36.564271,
+      "p95_ms": 150.0705,
+      "p99_ms": 258.005459,
+      "max_ms": 446.696584,
+      "caveat": "PRIMARY transport metric: both stamps from the teacher's own monotonic clock."
+    },
+    "teacher_to_server_ack": {
+      "label": "teacher_to_server_ack",
+      "n": 1000,
+      "lost": 0,
+      "loss_rate": 0.0,
+      "min_ms": 9.08525,
+      "mean_ms": 38.343638528999996,
+      "sd_ms": 34.23959892237327,
+      "median_ms": 18.6514785,
+      "p95_ms": 78.045083,
+      "p99_ms": 131.264958,
+      "max_ms": 326.284417,
+      "caveat": "Round trip to the relay only - isolates the teacher->server hop."
+    },
+    "one_way": {
+      "label": "one_way_shared_host_clock",
+      "n": 1000,
+      "lost": 0,
+      "loss_rate": 0.0,
+      "min_ms": 9.301,
+      "mean_ms": 38.223012,
+      "sd_ms": 34.179195709073895,
+      "median_ms": 18.5935,
+      "p95_ms": 77.834,
+      "p99_ms": 131.155,
+      "max_ms": 326.174,
+      "caveat": "Built-in teacher and student endpoints share one host clock, so this is the measured teacher-send -> simulated-student-receive duration through the relay. It does not include a real Student UI or hardware."
+    }
+  },
+  "notes": [
+    "Transport RTT is the primary metric; it needs no clock synchronisation.",
+    "Built-in teacher and student endpoints share one host clock, so this is the measured teacher-send -> simulated-student-receive duration through the relay. It does not include a real Student UI or hardware.",
+    "All cue timings are software dispatch/render moments, not physical LED/actuator onset."
+  ],
+  "run_id": "20260817-225801",
+  "written_at": 1787003881.153346
+}
