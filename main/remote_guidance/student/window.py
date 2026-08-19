@@ -343,7 +343,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.start_btn.setProperty("role", "primary")
         self.start_btn.setEnabled(False)
         self.start_btn.clicked.connect(self._start_session)
-        self.stop_btn = QPushButton("End session")
+        self.stop_btn = QPushButton("Stop")
         self.stop_btn.setProperty("role", "danger")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(lambda: self._finish_session(reason="stopped by the student"))
