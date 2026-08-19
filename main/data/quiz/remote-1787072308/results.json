@@ -1,0 +1,157 @@
+[
+  {
+    "index": 0,
+    "target_note": 60,
+    "target_note_name": "C4",
+    "target_key_id": 7,
+    "target_finger": "L1",
+    "cue_onset_time": 1787072315.8748257,
+    "timed_out": false,
+    "actual_note": 60,
+    "actual_key_id": 7,
+    "keypress_time": 1787072318.319565,
+    "timing_error_s": 2.455761875,
+    "note_correct": true,
+    "actual_finger": "L1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.4166770674686326,
+      "L2": 0.4166770674686326,
+      "L3": 0.16101899788696855,
+      "L4": 0.005525366365413177,
+      "L5": 0.00010150081035301802
+    },
+    "target_finger_probability": 0.4166770674686326,
+    "actual_finger_point": [
+      582,
+      237
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 1,
+    "target_note": 60,
+    "target_note_name": "C4",
+    "target_key_id": 7,
+    "target_finger": "L1",
+    "cue_onset_time": 1787072321.148059,
+    "timed_out": false,
+    "actual_note": 60,
+    "actual_key_id": 7,
+    "keypress_time": 1787072322.636288,
+    "timing_error_s": 1.503383375,
+    "note_correct": true,
+    "actual_finger": "L1",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "L1": 0.4643756841602418,
+      "L2": 0.4643756841602418,
+      "L3": 0.06896880481203053,
+      "L4": 0.0022382123465323127,
+      "L5": 4.161452095366549e-05
+    },
+    "target_finger_probability": 0.4643756841602418,
+    "actual_finger_point": [
+      577,
+      232
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 2,
+    "target_note": 67,
+    "target_note_name": "G4",
+    "target_key_id": 11,
+    "target_finger": "R3",
+    "cue_onset_time": 1787072327.5862403,
+    "timed_out": false,
+    "actual_note": 67,
+    "actual_key_id": 11,
+    "keypress_time": 1787072329.200625,
+    "timing_error_s": 1.625562917,
+    "note_correct": true,
+    "actual_finger": "R3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "R1": 0.0008180744922514874,
+      "R2": 0.2021016562856039,
+      "R3": 0.6446907985436434,
+      "R4": 0.14900563825461413,
+      "R5": 0.0033838324238870832
+    },
+    "target_finger_probability": 0.6446907985436434,
+    "actual_finger_point": [
+      783,
+      235
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 3,
+    "target_note": 69,
+    "target_note_name": "A4",
+    "target_key_id": 12,
+    "target_finger": "R3",
+    "cue_onset_time": 1787072331.292441,
+    "timed_out": false,
+    "actual_note": 69,
+    "actual_key_id": 12,
+    "keypress_time": 1787072332.619232,
+    "timing_error_s": 1.342254166,
+    "note_correct": true,
+    "actual_finger": "R3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "R1": 0.0005155199341743949,
+      "R2": 0.15586476405506725,
+      "R3": 0.6320627860283616,
+      "R4": 0.20786184083234835,
+      "R5": 0.003695089150048236
+    },
+    "target_finger_probability": 0.6320627860283616,
+    "actual_finger_point": [
+      818,
+      232
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  },
+  {
+    "index": 4,
+    "target_note": 67,
+    "target_note_name": "G4",
+    "target_key_id": 11,
+    "target_finger": "R3",
+    "cue_onset_time": 1787072335.2598648,
+    "timed_out": false,
+    "actual_note": 67,
+    "actual_key_id": 11,
+    "keypress_time": 1787072336.569164,
+    "timing_error_s": 1.311134125,
+    "note_correct": true,
+    "actual_finger": "R3",
+    "finger_correct": true,
+    "finger_probabilities": {
+      "R1": 0.00042129253157906547,
+      "R2": 0.13428205057169645,
+      "R3": 0.6390242751012648,
+      "R4": 0.2170097846028902,
+      "R5": 0.009262597192569486
+    },
+    "target_finger_probability": 0.6390242751012648,
+    "actual_finger_point": [
+      763,
+      234
+    ],
+    "validity": "valid",
+    "finger_corrected": false,
+    "finger_reviewed": false
+  }
+]
