@@ -20,7 +20,9 @@ mean timing error, finger accuracy) are computed by summarize() and saved
 to meta.json.
 """
 
+import datetime
 import json
+import re
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -58,6 +60,28 @@ def list_quizzes(data_dir: Path = QUIZ_DATA_DIR) -> List[str]:
     if not data_dir.exists():
         return []
     return sorted(p.name for p in data_dir.iterdir() if (p / META_FILENAME).exists())
+
+
+# Remote-guidance quizzes are foldered as "remote-<epoch-seconds>" (no
+# participant/trial code to name them by). The raw name is unreadable at a
+# glance, so the UI shows the capture time in the local timezone instead -
+# keeping the real folder name only as a hover tooltip / identity key.
+_REMOTE_QUIZ_RE = re.compile(r"^remote-(\d+)$")
+
+
+def quiz_display_name(quiz_name: str) -> str:
+    """Human-readable label for a quiz name. For remote-guidance quizzes
+    ("remote-<epoch>") this is "remote-YYYY-MM-DD HH:MM" in the local
+    timezone; every other name is returned unchanged. Never use the result
+    as a filesystem key - it's for display only (see quiz_dir())."""
+    m = _REMOTE_QUIZ_RE.match(quiz_name)
+    if not m:
+        return quiz_name
+    try:
+        when = datetime.datetime.fromtimestamp(int(m.group(1)))
+    except (ValueError, OSError, OverflowError):
+        return quiz_name
+    return f"remote-{when.strftime('%Y-%m-%d %H:%M')}"
 
 
 @dataclass

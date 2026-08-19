@@ -69,6 +69,7 @@ from ..quiz import (
     needs_finger_review,
     note_name,
     quiz_dir,
+    quiz_display_name,
     quiz_raw_dir,
     save_quiz_results,
     save_quiz_summary,
@@ -143,7 +144,10 @@ class QuizDetailWindow(QMainWindow):
     def __init__(self, quiz_name: str):
         super().__init__()
         self.quiz_name = quiz_name
-        self.setWindowTitle(f"Quiz Detail - {quiz_name}")
+        # Identity stays quiz_name (folder key); only the label is the
+        # readable remote-<epoch> -> local-time form (see quiz_display_name).
+        self.quiz_label = quiz_display_name(quiz_name)
+        self.setWindowTitle(f"Quiz Detail - {self.quiz_label}")
         # Tall enough that the fixed-height confusion matrix underneath
         # still leaves the event table a usable number of rows.
         self.resize(1100, 880)
@@ -226,7 +230,7 @@ class QuizDetailWindow(QMainWindow):
         summary = full_summary(self.quiz_name, results)
 
         header = QLabel(
-            f"<b>{self.quiz_name}</b> — guidance {self.meta.guidance_type}, song {self.meta.song_name}, "
+            f"<b>{self.quiz_label}</b> — guidance {self.meta.guidance_type}, song {self.meta.song_name}, "
             f"{self.meta.note_count} events, {'analyzed' if self.meta.analyzed else 'not analyzed'}<br>"
             f"Key Accuracy {_pct(summary['note_accuracy'])} | FA main {_pct(summary['fa_main'])} | "
             f"FA|key {_pct(summary['fa_key'])} | NoteAcc|finger {_pct(summary['fa_finger'])} | "
@@ -234,6 +238,8 @@ class QuizDetailWindow(QMainWindow):
             f"<i>Double-click an event row to play back its keypress and correct the detected finger.</i>"
         )
         header.setObjectName("header")
+        if self.quiz_label != self.quiz_name:
+            header.setToolTip(self.quiz_name)  # raw remote-<epoch> folder name
         header.setWordWrap(True)
 
         events_table = self._build_events_table(results)

@@ -66,6 +66,7 @@ from ..quiz import (
     list_quizzes,
     load_quiz_results,
     quiz_dir,
+    quiz_display_name,
     quiz_raw_dir,
     save_quiz_results,
 )
@@ -90,6 +91,12 @@ COL_OFFSET = 2  # aligned flash frame vs software timestamps, in seconds
 COL_SYNC_BTN = 3  # per-row Video Sync button
 COL_STATUS = 4
 METRIC_COL0 = 5  # first metric column
+
+# The Quiz cell shows quiz_display_name() (readable for "remote-<epoch>"
+# folders), but everything downstream - the detail window, quiz_dir(),
+# _row_of() - keys off the real folder name, so keep it on the item rather
+# than reading the possibly-reformatted display text back out.
+ROLE_QUIZ_NAME = Qt.ItemDataRole.UserRole + 1
 
 
 def _pct(x) -> str:
@@ -344,7 +351,13 @@ class QuizAnalysisWindow(QMainWindow):
         self.table.setRowCount(0)
         self.table.setRowCount(len(quizzes))
         for row, name in enumerate(quizzes):
-            quiz_item = QTableWidgetItem(name)
+            display = quiz_display_name(name)
+            quiz_item = QTableWidgetItem(display)
+            quiz_item.setData(ROLE_QUIZ_NAME, name)
+            # For remote-<epoch> quizzes the cell shows the local capture
+            # time; hovering reveals the raw folder name it stands for.
+            if display != name:
+                quiz_item.setToolTip(name)
             quiz_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             quiz_item.setCheckState(Qt.CheckState.Checked if name == check_only else Qt.CheckState.Unchecked)
             self.table.setItem(row, COL_QUIZ, quiz_item)
@@ -405,17 +418,26 @@ class QuizAnalysisWindow(QMainWindow):
             offset = align.led_vs_start_times_offset_s
             self.table.item(row, COL_OFFSET).setText(f"{offset:+.3f} s" if offset is not None else "?")
 
+    def _quiz_name(self, row: int) -> str:
+        """The real folder name for a row (not the reformatted display
+        text shown for remote-<epoch> quizzes)."""
+        return self.table.item(row, COL_QUIZ).data(ROLE_QUIZ_NAME)
+
     def _row_of(self, name: str) -> Optional[int]:
         for row in range(self.table.rowCount()):
-            if self.table.item(row, COL_QUIZ).text() == name:
+            if self._quiz_name(row) == name:
                 return row
         return None
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()
         for row in range(self.table.rowCount()):
-            name = self.table.item(row, COL_QUIZ).text().lower()
-            self.table.setRowHidden(row, bool(needle) and needle not in name)
+            # Match either the real folder name or the shown label, so a
+            # "P02" filter still works and a date typed against a remote
+            # quiz's displayed time matches too.
+            item = self.table.item(row, COL_QUIZ)
+            haystack = f"{self._quiz_name(row)}\n{item.text()}".lower()
+            self.table.setRowHidden(row, bool(needle) and needle not in haystack)
 
     def _row_analyzed(self, row: int) -> bool:
         return bool(self.table.item(row, COL_QUIZ).data(Qt.ItemDataRole.UserRole))
@@ -441,7 +463,7 @@ class QuizAnalysisWindow(QMainWindow):
 
     def _checked_names(self) -> List[str]:
         return [
-            self.table.item(row, COL_QUIZ).text()
+            self._quiz_name(row)
             for row in range(self.table.rowCount())
             if self.table.item(row, COL_QUIZ).checkState() == Qt.CheckState.Checked
         ]
@@ -608,7 +630,7 @@ class QuizAnalysisWindow(QMainWindow):
                                    missing_video_message(len(missing_video)))
 
     def _open_detail(self, row: int, _col: int) -> None:
-        name = self.table.item(row, COL_QUIZ).text()
+        name = self._quiz_name(row)
         try:
             detail = QuizDetailWindow(name)
         except Exception as e:
