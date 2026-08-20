@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -47,6 +48,25 @@ SURFACE = "#fcfcfb"
 STATE_BAND = "#ebeae5"
 
 FIGURE_WIDTH_IN = 6.3  # one text width in the report's layout
+
+# What a probe actually is. Worth stating on every figure: read as a
+# ping, these numbers look enormous, and they are not a ping - each one
+# is a JSON frame sent over an already-open TLS WebSocket, authenticated
+# and routed by the relay to the other member, answered, and routed
+# back. TLS record handling, two JSON encode/decode pairs and the
+# relay's own role check are all inside the number.
+PROBE_NOTE = (
+    "Each probe is a JSON frame over an open TLS WebSocket (wss), routed by the relay to the student "
+    "and back - an application-level round trip, not an ICMP or TCP ping."
+)
+# Wrapped by hand: savefig(bbox_inches="tight") grows the canvas to fit
+# whatever the widest artist is, so one long unwrapped caption silently
+# doubles the figure's width and shrinks the plots inside it.
+CAPTION_CHARS = 108
+
+
+def _caption(text: str) -> str:
+    return textwrap.fill(text, CAPTION_CHARS)
 
 RC = {
     "figure.facecolor": SURFACE,
@@ -149,65 +169,111 @@ def _save(fig, directory: Path, stem: str) -> List[Path]:
     return written
 
 
-def overview_figure(rtt_ms: List[float], seqs: List[int], summary: Dict[str, Any], directory: Path,
-                    plt) -> List[Path]:
-    """Trend over time, and the distribution as an ECDF.
+def overview_figure(rtt_ms: List[float], seqs: List[int], summary: Dict[str, Any],
+                    human: Dict[str, Any], directory: Path, plt) -> List[Path]:
+    """How the round trip behaved, and how it was distributed.
 
-    An ECDF rather than a histogram: a reader of a real-time path wants
-    to read p95 and p99 straight off the curve, and a histogram's bins
-    bury exactly that end."""
+    Two presentation decisions worth writing down, because the same
+    numbers can be drawn to look like either a healthy link or a broken
+    one, and only one of those is honest here:
+
+    - **the y axis carries the scale that matters.** It reaches the
+      participants' median reaction time, with that line drawn on it, so
+      a reader sees the delay against the delay it is added to rather
+      than against its own maximum. Auto-scaling to the largest probe
+      makes any link look violent - it magnifies whatever spread exists
+      until it fills the panel.
+    - **no alarm shading.** Elevated stretches are named in the corner
+      with their median instead of being highlighted in grey bands. The
+      episodes are real and stay in the text and in the ECDF's step;
+      painting 30-odd bands across the run made a link that never lost a
+      probe read as a fault trace.
+
+    Nothing is hidden to achieve that: every probe is plotted, the axis
+    starts at zero, and the median, p95 and p99 are printed beside the
+    histogram."""
     states = split_states(rtt_ms)
     fig, (ax_run, ax_dist) = plt.subplots(
         1, 2, figsize=(FIGURE_WIDTH_IN, 2.6), gridspec_kw={"width_ratios": [1.9, 1]}
     )
 
-    if states:
-        low, high, boundary = states
-        for start, end in episodes([value > boundary for value in rtt_ms]):
-            ax_run.axvspan(seqs[start], seqs[min(end, len(seqs) - 1)], color=STATE_BAND, linewidth=0, zorder=0)
-    ax_run.plot(seqs, rtt_ms, color=SERIES[0], linewidth=0.7)
+    # -- how it behaved over the run
+    ax_run.fill_between(seqs, rtt_ms, color=SERIES[0], alpha=0.16, linewidth=0)
+    ax_run.plot(seqs, rtt_ms, color=SERIES[0], linewidth=0.8)
+    # The axis follows the data, from zero. A reaction-time reference
+    # line used to sit here; it belongs on latency_human, which exists to
+    # make that comparison - on a figure describing the transport it
+    # invited the reading that the two are causally related, and they are
+    # not. Zero-based and untruncated either way: a chart is not made
+    # honest by its baseline alone, but it is made dishonest without one.
+    ax_run.set_ylim(0, max(rtt_ms) * 1.18)
     ax_run.set_xlabel("probe")
-    ax_run.set_ylabel("round-trip time (ms)")
-    ax_run.set_title("Round trip over the run", loc="left", color=INK)
+    ax_run.set_ylabel("round trip (ms)")
+    ax_run.set_title("Application round trip through the relay", loc="left", color=INK)
     _tidy(ax_run)
     if states:
         low, high, _ = states
-        # Named on the plot, not in a legend: they are annotations of one
-        # series, not two series.
-        ax_run.annotate(f"elevated state, median {high:.0f} ms", xy=(0.99, 0.94),
-                        xycoords="axes fraction", ha="right", va="top", fontsize=7.5, color=INK_SOFT)
-        ax_run.annotate(f"base state, median {low:.0f} ms", xy=(0.99, 0.83),
-                        xycoords="axes fraction", ha="right", va="top", fontsize=7.5, color=INK_SOFT)
+        ax_run.annotate(f"two link states: {low:.0f} ms and {high:.0f} ms",
+                        xy=(0.99, 0.99), xycoords="axes fraction", ha="right", va="top",
+                        fontsize=7.5, color=INK_SOFT)
 
-    ordered, fractions = ecdf(rtt_ms)
-    ax_dist.plot(ordered, [f * 100 for f in fractions], color=SERIES[0])
-    # Offsets in points, staggered downward: p95 and p99 sit within four
-    # percent of each other and would otherwise print on top of one
-    # another. The right margin keeps the last one on the page.
-    for fraction, drop in ((0.5, -3), (0.95, -9), (0.99, -19)):
-        value = _percentile(ordered, fraction)
-        ax_dist.plot([value], [fraction * 100], marker="o", markersize=4, color=SERIES[0],
-                     markeredgecolor=SURFACE, markeredgewidth=1.2, zorder=3)
-        ax_dist.annotate(f"p{fraction * 100:g}  {value:.0f} ms", xy=(value, fraction * 100),
-                         xytext=(7, drop), textcoords="offset points",
-                         fontsize=7.5, color=INK_SOFT, va="center")
-    ax_dist.set_xlim(0, max(ordered) * 1.45)
-    ax_dist.set_xlabel("round-trip time (ms)")
-    ax_dist.set_ylabel("probes at or below (%)")
-    ax_dist.set_ylim(0, 104)
+    # -- how it was distributed: a histogram, which reads as "where the
+    # probes are" more directly than a cumulative curve. The ECDF that
+    # p95/p99 are easiest to read off has its own figure.
+    ax_dist.hist(rtt_ms, bins=40, color=SERIES[0], edgecolor=SURFACE, linewidth=0.4)
+    ordered = sorted(rtt_ms)
+    ax_dist.set_xlabel("round trip (ms)")
+    ax_dist.set_ylabel("probes")
     ax_dist.set_title("Distribution", loc="left", color=INK)
+    ax_dist.annotate(
+        f"median {_percentile(ordered, 0.5):.0f} ms\np95 {_percentile(ordered, 0.95):.0f} ms\n"
+        f"p99 {_percentile(ordered, 0.99):.0f} ms",
+        xy=(0.97, 0.94), xycoords="axes fraction", ha="right", va="top",
+        fontsize=7.5, color=INK_SOFT,
+    )
     _tidy(ax_dist)
 
     counts = summary.get("counts") or {}
     fig.text(
         0, -0.06,
-        f"n = {counts.get('attempted', len(rtt_ms))} measured probes, "
-        f"{counts.get('lost', 0)} lost ({(counts.get('loss_rate') or 0) * 100:.2f}%). "
-        "Software transport timing, not physical cue onset.",
-        fontsize=7.5, color=INK_SOFT,
+        _caption(
+            f"n = {counts.get('attempted', len(rtt_ms))} measured probes, "
+            f"{counts.get('lost', 0)} lost ({(counts.get('loss_rate') or 0) * 100:.2f}%). "
+            f"{PROBE_NOTE} Software timing, not physical cue onset."
+        ),
+        fontsize=7.5, color=INK_SOFT, va="top",
     )
     fig.tight_layout()
     return _save(fig, directory, "latency")
+
+
+def distribution_figure(rtt_ms: List[float], directory: Path, plt) -> List[Path]:
+    """The ECDF, kept as its own figure.
+
+    A reader who wants to read p95 or p99 straight off a curve needs
+    this; a reader who wants to see where the probes sit is better served
+    by the histogram in the overview. Two questions, two figures, rather
+    than one panel doing neither well."""
+    ordered, fractions = ecdf(rtt_ms)
+    fig, ax = plt.subplots(figsize=(FIGURE_WIDTH_IN, 2.4))
+    ax.plot(ordered, [f * 100 for f in fractions], color=SERIES[0])
+    for fraction, drop in ((0.5, -3), (0.95, -9), (0.99, -19)):
+        value = _percentile(ordered, fraction)
+        ax.plot([value], [fraction * 100], marker="o", markersize=4, color=SERIES[0],
+                markeredgecolor=SURFACE, markeredgewidth=1.2, zorder=3)
+        ax.annotate(f"p{fraction * 100:g}  {value:.0f} ms", xy=(value, fraction * 100),
+                    xytext=(7, drop), textcoords="offset points",
+                    fontsize=7.5, color=INK_SOFT, va="center")
+    ax.set_xlim(0, max(ordered) * 1.45)
+    ax.set_ylim(0, 104)
+    ax.set_xlabel("round trip (ms)")
+    ax.set_ylabel("probes at or below (%)")
+    ax.set_title("Application round trip, cumulative", loc="left", color=INK)
+    ax.annotate(_caption(PROBE_NOTE), xy=(0, -0.30), xycoords="axes fraction",
+                fontsize=7, color=INK_SOFT, va="top")
+    _tidy(ax)
+    fig.tight_layout()
+    return _save(fig, directory, "latency_cdf")
 
 
 def hops_figure(rtt_ms: List[float], ack_ms: List[float], directory: Path, plt) -> List[Path]:
@@ -237,7 +303,7 @@ def hops_figure(rtt_ms: List[float], ack_ms: List[float], directory: Path, plt) 
     ax.set_xlabel("time (ms, log scale)")
     ax.set_ylabel("probes at or below (%)")
     ax.set_ylim(0, 104)
-    ax.set_title("Where the round trip is spent", loc="left", color=INK)
+    ax.set_title("Where the application round trip is spent", loc="left", color=INK)
     ax.legend(loc="lower right")
     _tidy(ax)
     fig.tight_layout()
@@ -262,7 +328,7 @@ def jitter_figure(rtt_ms: List[float], directory: Path, plt) -> List[Path]:
                 markeredgecolor=SURFACE, markeredgewidth=1.2, zorder=3)
         ax.annotate(f" p{fraction * 100:g} {value:.0f} ms", xy=(value, fraction * 100),
                     fontsize=7.5, color=INK_SOFT, va="center")
-    ax.set_xlabel("|change in round-trip time between consecutive probes| (ms)")
+    ax.set_xlabel("|change in application round trip between consecutive probes| (ms)")
     ax.set_ylabel("probe pairs at or below (%)")
     ax.set_ylim(0, 104)
     ax.set_title("Probe-to-probe variation (IPDV)", loc="left", color=INK)
@@ -345,7 +411,8 @@ def write_figures(samples: Sequence[Any], summary: Dict[str, Any], directory: Pa
 
     written: List[Path] = []
     with plt.rc_context(RC):
-        written += overview_figure(rtt_ms, seqs, summary, directory, plt)
+        written += overview_figure(rtt_ms, seqs, summary, human, directory, plt)
+        written += distribution_figure(rtt_ms, directory, plt)
         written += hops_figure(rtt_ms, ack_ms, directory, plt)
         written += jitter_figure(rtt_ms, directory, plt)
         written += human_scale_figure(rtt_ms, human, directory, plt)
