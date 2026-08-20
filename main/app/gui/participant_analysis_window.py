@@ -149,6 +149,14 @@ class ParticipantAnalysisWindow(QMainWindow):
         refresh_btn.clicked.connect(self._refresh_participants)
         analyze_btn = QPushButton("Analyze")
         analyze_btn.clicked.connect(self._analyze)
+        self.analyze_all_btn = QPushButton("Analyze + export ALL")
+        self.analyze_all_btn.setToolTip(
+            "Walk every Main User Study participant, build all tabs and write the same "
+            "figures + CSVs each Export button writes, into each participant's own "
+            "data/MainUserStudy/<participant>/figures/ folder. Failures are skipped and "
+            "listed at the end; the window is left showing the last participant analyzed."
+        )
+        self.analyze_all_btn.clicked.connect(self._analyze_and_export_all)
         self.save_figs_btn = QPushButton("Export figures + data")
         self.save_figs_btn.setToolTip(
             "Write every chart as a 300 dpi PNG plus the underlying tidy CSVs under "
@@ -165,6 +173,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         top.addWidget(self.participant_combo, 1)
         top.addWidget(refresh_btn)
         top.addWidget(analyze_btn)
+        top.addWidget(self.analyze_all_btn)
         top.addWidget(self.save_figs_btn)
 
         self.tabs = WrappingTabWidget()
@@ -189,13 +198,29 @@ class ParticipantAnalysisWindow(QMainWindow):
         if not participant:
             return
         try:
-            trials, all_events, missing = collect_participant_data(participant)
+            note = self._load_participant(participant)
         except Exception as e:
             QMessageBox.warning(self, "Couldn't load participant", f"{participant}: {e}")
             return
-        if not trials:
-            QMessageBox.information(self, "No data", f"{participant} has no completed trials with quiz data.")
+        if note is None:
+            self.status_label.setText("Analysis cancelled — nothing to show or export.")
             return
+        self.status_label.setText(note)
+
+    def _load_participant(self, participant: str) -> Optional[str]:
+        """Load `participant`'s data and build every tab onto self, ready
+        for export. Returns the one-line status note on success, or None if
+        the user cancelled the build; raises on a load failure (missing /
+        unreadable data, or no completed trials). Shows no dialogs of its
+        own, so both the single-participant button and the batch can decide
+        how to report - the batch skips a raise and keeps going.
+
+        Side effects mirror what the export needs: self._participant /
+        _trials / _events / _all_events / _figures / _datasets are the exact
+        state _save_figures reads."""
+        trials, all_events, missing = collect_participant_data(participant)
+        if not trials:
+            raise ValueError("no completed trials with quiz data")
 
         # One filter, once, at the door: manually confirmed carry-over
         # presses are already out of every per-trial statistic in the
@@ -233,9 +258,60 @@ class ParticipantAnalysisWindow(QMainWindow):
             self.tabs.clear()
             self._figures.clear()
             self._datasets.clear()
-            self.status_label.setText("Analysis cancelled — nothing to show or export.")
-            return
+            self.save_figs_btn.setEnabled(False)
+            return None
         self.save_figs_btn.setEnabled(True)
+        return note
+
+    def _analyze_and_export_all(self) -> None:
+        """One click: for every Main User Study participant, run the same
+        load-and-build the Analyze button runs, then write the same
+        figures + CSVs the Export button writes into that participant's own
+        figures/ folder.
+
+        A participant that fails to load is skipped and named in the final
+        summary rather than aborting the run; the window is left showing the
+        last participant that built, and its export button stays live for
+        that one. Cancelling either the build or the write dialog stops the
+        whole batch (Cancel means stop, not skip)."""
+        participants = list_participants()
+        if not participants:
+            QMessageBox.information(self, "No participants",
+                                    "No Main User Study participants found.")
+            return
+
+        exported: List[str] = []
+        failed: List[str] = []
+        cancelled = False
+        for participant in participants:
+            # Keep the dropdown in step so the window ends on the last one
+            # analyzed, and so a later manual Export targets that participant.
+            self.participant_combo.setCurrentText(participant)
+            try:
+                note = self._load_participant(participant)
+            except Exception as e:
+                failed.append(f"{participant} ({type(e).__name__}: {e})")
+                continue
+            if note is None:  # build dialog cancelled
+                cancelled = True
+                break
+            result = self._export_current()
+            if "CANCELLED" in result:  # export dialog cancelled
+                cancelled = True
+                exported.append(f"{participant} (incomplete)")
+                break
+            exported.append(participant)
+
+        summary = f"Batch export: {len(exported)} exported"
+        if failed:
+            summary += f", {len(failed)} skipped"
+        if cancelled:
+            summary += " — CANCELLED before finishing"
+        if exported:
+            summary += ".  Exported: " + ", ".join(exported)
+        if failed:
+            summary += ".  Skipped: " + "; ".join(failed)
+        self.status_label.setText(summary)
 
     def _save_figures(self) -> None:
         """Every figure as a PNG and an SVG, every tidy table as a CSV,
@@ -250,6 +326,13 @@ class ParticipantAnalysisWindow(QMainWindow):
         A CSV sitting in a report appendix has to be self-identifying, so
         the manifest's provenance row records whose data it is and on what
         denominator."""
+        self.status_label.setText(self._export_current())
+
+    def _export_current(self) -> str:
+        """Write the figures + CSVs for whichever participant is currently
+        built onto self, and return the status line. Split out from
+        _save_figures so the batch can export each participant without the
+        per-participant status line, then post its own summary."""
         analyzed = sum(1 for t in self._trials if t.get("analyzed"))
         provenance = {
             "rows": self._participant,
@@ -258,9 +341,9 @@ class ParticipantAnalysisWindow(QMainWindow):
                         f"({len(self._events)} valid); "
                         f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
         }
-        self.status_label.setText(export_analysis(
+        return export_analysis(
             self, STUDY_DATA_DIR / self._participant / "figures",
-            self._figures, self._datasets, provenance, prefix=self._participant))
+            self._figures, self._datasets, provenance, prefix=self._participant)
 
     def _tab_builders(self):
         """Every tab in display order, as (title, builder).
