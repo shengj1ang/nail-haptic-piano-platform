@@ -18,13 +18,16 @@ to audit the automatic scoring drawn on top of each frame:
 
 The finger shown and the verdict beside it answer different questions -
 one is the softmax argmax, the other the threshold rule on the *cued*
-finger's mass, and on a reviewed event the ruling is a human's and the
-probabilities are not - so they disagree in ways that read as
-contradictions unless the panel says why. All three cases are named
-rather than left to the viewer: near-tie, sub-threshold, and manually
-corrected (see _finger_mark_label() and _annotate()). Existing review
-videos keep whatever overlay they were rendered with; the wording only
-changes on re-render.
+finger's mass - so they disagree in ways that read as contradictions
+unless the panel says why. The two automatic cases are named rather than
+left to the viewer: near-tie and sub-threshold (see _annotate()). A
+manually corrected event is different: the ruling is a human's and the
+probabilities are not, so the panel drops them entirely and just states
+the corrected verdict - a confirmed match reads as a plain OK, a
+confirmed miss as a plain WRONG naming the finger actually used, with no
+mention that a correction took place. Existing review videos keep
+whatever overlay they were rendered with; the wording only changes on
+re-render.
 
 Runs purely from files the analysis already saved (results.json stores
 each keypress's finger probabilities and fingertip pixel position,
@@ -116,6 +119,11 @@ def _finger_mark_label(result: QuizResult) -> str:
     most probable tip and still missed theta. ASCII only - cv2.putText
     cannot draw the approx or theta glyphs the detail table uses."""
     detected = result.actual_finger or "?"
+    # On a manually corrected event the finger is a human's answer, not the
+    # detector's, so the automatic-scoring hints below don't apply - just
+    # the finger, matching the plain verdict the panel now shows.
+    if finger_manually_corrected(result):
+        return detected
     if scored_near_tie(result):
         return f"{detected} ~ {result.target_finger}"
     if subthreshold_match(result):
@@ -161,6 +169,22 @@ def _annotate(frame: np.ndarray, key_map: np.ndarray, result: QuizResult, t_vide
 
     if result.timed_out or not pressed_visible:
         lines.append((f"Finger: target {result.target_finger or '?'}", NEUTRAL))
+    elif finger_manually_corrected(result):
+        # A human overturned the automatic finger verdict, so the video
+        # shows the corrected truth, not the fact that a correction happened:
+        # a confirmed match reads as a plain OK, a confirmed miss as a plain
+        # WRONG naming the finger actually used. The detector's stored
+        # probabilities no longer decide anything here, so they are dropped
+        # rather than printed beside a verdict they would contradict
+        # ("p=0.34 vs 0.40 ... [OK]").
+        if result.finger_correct:
+            mark, color = "OK", GOOD
+        else:
+            mark, color = "WRONG", BAD
+        lines.append(
+            (f"Finger: target {result.target_finger or '?'} | "
+             f"actual {result.actual_finger or '?'}  [{mark}]", color)
+        )
     else:
         p = result.target_finger_probability
         p_text = f"p(target)={p:.2f} vs {FINGER_PROBABILITY_THRESHOLD:.2f}" if p is not None else "p(target)=n/a"
@@ -170,27 +194,15 @@ def _annotate(frame: np.ndarray, key_map: np.ndarray, result: QuizResult, t_vide
             mark, color = "OK", GOOD
         else:
             mark, color = "WRONG", BAD
-        # After a correction, actual_finger is the reviewer's answer and the
-        # verdict is their exact match against the cue - the stored
-        # probabilities are left as the detector wrote them. Calling that
-        # "detected" and printing p(target) beside a verdict it no longer
-        # decides is how an overturned event ends up looking self-
-        # contradictory ("p=0.34 vs 0.40 ... [OK]").
-        manual = finger_manually_corrected(result)
         lines.append(
             (f"Finger: target {result.target_finger or '?'} | "
-             f"{'reviewed' if manual else 'detected'} {result.actual_finger or '?'}  "
-             f"{p_text}  [{mark}{', manual' if manual else ''}]", color)
+             f"detected {result.actual_finger or '?'}  {p_text}  [{mark}]", color)
         )
         p_detected = (result.finger_probabilities or {}).get(result.actual_finger)
 
         # Why the verdict reads the way it does, whenever it and the finger
         # beside it are answering different questions. At most one applies.
-        if manual:
-            lines.append(
-                ("        verdict set by manual review; p(target) is the detector's score", NEUTRAL)
-            )
-        elif scored_near_tie(result) and p is not None and p_detected is not None:
+        if scored_near_tie(result) and p is not None and p_detected is not None:
             lines.append(
                 (f"        near-tie: {result.actual_finger} p={p_detected:.2f} edged out cued "
                  f"{result.target_finger} p={p:.2f} - scored as {result.target_finger}", GOOD)
@@ -209,10 +221,9 @@ def _annotate(frame: np.ndarray, key_map: np.ndarray, result: QuizResult, t_vide
             top5 = _top5_text(result)
             if top5 is not None:
                 lines.append((f"        {top5}", BAD))
-        elif not manual and not scored_near_tie(result):
+        elif not scored_near_tie(result):
             # Skipped where a line above already named the runner-up: on a
-            # near-tie it is the cued finger, and on a corrected event it
-            # is not what decided anything.
+            # near-tie it is the cued finger.
             ru = _runner_up(result)
             if ru is not None:
                 lines.append((f"        runner-up {ru[0]} p={ru[1]:.2f}", NEUTRAL))

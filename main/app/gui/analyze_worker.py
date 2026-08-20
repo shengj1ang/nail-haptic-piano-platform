@@ -90,6 +90,14 @@ class ReviewVideoWorker(QThread):
         def on_progress(done: int, total: int) -> None:
             if done % 10 == 0 or done == total:
                 self.progress.emit(done, total)
+                # The annotate+encode loop is CPU-bound pure-Python/OpenCV
+                # work that can hold the GIL for the whole ~20 s of a
+                # re-render, starving the GUI thread so its progress bar
+                # never repaints (it looks frozen). A short sleep here
+                # releases the GIL a few times a second - enough for the GUI
+                # to process the signal above and stay responsive - while
+                # adding only tens of milliseconds to the whole render.
+                self.usleep(300)
 
         try:
             out = render_review_video(

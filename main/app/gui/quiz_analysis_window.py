@@ -27,6 +27,7 @@ corrections is the participant export: the CSVs Group Analysis reads are
 snapshots.
 """
 
+import re
 from typing import List, Optional
 
 from PySide6.QtCore import Qt
@@ -105,6 +106,20 @@ def _pct(x) -> str:
 
 def _ms(x) -> str:
     return f"{x * 1000:.0f} ms" if x is not None else "n/a"
+
+
+# Main-study quizzes are named "<participant>-T<index>-<condition><level>"
+# (see experiment_runner_window.py), e.g. "P01-T06-Aγ" -> condition A. The
+# feedback condition is the single letter right after the trial number;
+# curated TEST-/remote- folders have no such segment and match nothing.
+_CONDITION_RE = re.compile(r"-T\d+-([ABC])")
+
+
+def _condition_of(name: str) -> Optional[str]:
+    """The feedback condition (A/B/C) parsed from a quiz's folder name, or
+    None for names that don't follow the main-study pattern."""
+    m = _CONDITION_RE.search(name)
+    return m.group(1) if m else None
 
 
 def _build_metric_columns():
@@ -210,6 +225,21 @@ class QuizAnalysisWindow(QMainWindow):
         select_analyzed_btn.clicked.connect(lambda: self._select_rows(lambda analyzed: analyzed))
         select_none_btn = QPushButton("Select none")
         select_none_btn.clicked.connect(lambda: self._select_rows(None))
+        # Per-condition selects, parsed from the Pxx-Txx-<condition><level>
+        # folder name. Stack with the filter box (e.g. "P02" + Condition B).
+        cond_tips = {
+            "A": ("key-only", "no cue - the student plays from memory (control)"),
+            "B": ("visual", "on-screen visual cue"),
+            "C": ("haptic", "vibration-motor cue"),
+        }
+        cond_btns = {}
+        for letter, (kind, longer) in cond_tips.items():
+            # The condition meaning goes in the label itself so A/B/C isn't a
+            # mystery at a glance; the tooltip spells it out further.
+            btn = QPushButton(f"Condition {letter} ({kind})")
+            btn.setToolTip(f"Select the shown Condition {letter} quizzes - {kind} feedback ({longer}).")
+            btn.clicked.connect(lambda _=False, c=letter: self._select_condition(c))
+            cond_btns[letter] = btn
 
         self.table = QTableWidget(0, len(COLUMN_TITLES))
         self.table.setHorizontalHeaderLabels(COLUMN_TITLES)
@@ -260,6 +290,15 @@ class QuizAnalysisWindow(QMainWindow):
         )
         self.analyze_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self._start_batch)
+        self.review_btn = QPushButton("Re-render review video")
+        self.review_btn.setObjectName("exportBtn")  # stored-data family, outline
+        self.review_btn.setToolTip(
+            "Re-render each checked quiz's review.mp4 from its CURRENT results.json - the manual "
+            "finger/carry-over corrections made in the detail window included. No MediaPipe pass, so "
+            "nothing in results.json is overwritten; only review.mp4 is replaced."
+        )
+        self.review_btn.setEnabled(False)
+        self.review_btn.clicked.connect(self._start_review_only)
         self.cancel_btn = QPushButton("Cancel remaining")
         self.cancel_btn.setObjectName("stopBtn")  # interrupts a run in progress
         self.cancel_btn.setVisible(False)
@@ -289,6 +328,9 @@ class QuizAnalysisWindow(QMainWindow):
         select_row.addWidget(select_unanalyzed_btn)
         select_row.addWidget(select_analyzed_btn)
         select_row.addWidget(select_none_btn)
+        select_row.addWidget(cond_btns["A"])
+        select_row.addWidget(cond_btns["B"])
+        select_row.addWidget(cond_btns["C"])
         select_row.addStretch(1)
 
         export_btn = QPushButton("Export participant data...")
@@ -305,6 +347,7 @@ class QuizAnalysisWindow(QMainWindow):
         bottom_row.setSpacing(8)
         bottom_row.addWidget(self.align_btn)
         bottom_row.addWidget(self.analyze_btn)
+        bottom_row.addWidget(self.review_btn)
         bottom_row.addWidget(export_btn)
         bottom_row.addWidget(self.cancel_btn)
         bottom_row.addStretch(1)
@@ -327,6 +370,11 @@ class QuizAnalysisWindow(QMainWindow):
         self._queue: List[str] = []
         self._batch_total = 0
         self._batch_failed = 0
+        # True for a review-video-only batch (Re-render review video): the
+        # finger-matching pass is skipped so results.json - manual
+        # corrections included - is read as-is, never overwritten.
+        self._review_only = False
+        self._row_index: dict = {}  # name -> row, rebuilt by _refresh_quizzes
         self._current_name: Optional[str] = None
         self._current_meta: Optional[QuizMeta] = None
         self._current_results: list = []
@@ -347,6 +395,11 @@ class QuizAnalysisWindow(QMainWindow):
         quiz (the post-quiz auto-analysis path); otherwise nothing is
         checked."""
         quizzes = list_quizzes()
+        # name -> row, rebuilt on every refresh so _row_of() is O(1). A
+        # batch over "select all" (hundreds of quizzes) calls _row_of once
+        # per quiz per status update; a linear scan there is O(n^2) and adds
+        # up on the large data set.
+        self._row_index = {name: row for row, name in enumerate(quizzes)}
         self.table.blockSignals(True)
         self.table.setRowCount(0)
         self.table.setRowCount(len(quizzes))
@@ -424,8 +477,15 @@ class QuizAnalysisWindow(QMainWindow):
         return self.table.item(row, COL_QUIZ).data(ROLE_QUIZ_NAME)
 
     def _row_of(self, name: str) -> Optional[int]:
+        # O(1) via the index rebuilt in _refresh_quizzes. The guard catches
+        # any drift between the index and the table (row count changed) and
+        # falls back to a linear scan rather than returning a wrong row.
+        row = self._row_index.get(name)
+        if row is not None and row < self.table.rowCount() and self._quiz_name(row) == name:
+            return row
         for row in range(self.table.rowCount()):
             if self._quiz_name(row) == name:
+                self._row_index[name] = row
                 return row
         return None
 
@@ -454,6 +514,24 @@ class QuizAnalysisWindow(QMainWindow):
                 predicate is not None
                 and not self.table.isRowHidden(row)
                 and predicate(self._row_analyzed(row))
+            )
+            self.table.item(row, COL_QUIZ).setCheckState(
+                Qt.CheckState.Checked if check else Qt.CheckState.Unchecked
+            )
+        self.table.blockSignals(False)
+        self._update_analyze_btn()
+
+    def _select_condition(self, letter: str) -> None:
+        """Replace the current selection with the visible quizzes whose
+        feedback condition is `letter` (parsed from the folder name),
+        unchecking everything else - hidden rows included, matching
+        _select_rows. Stacks with the filter box, so 'P02' + Condition B
+        checks just that participant's condition-B quizzes."""
+        self.table.blockSignals(True)
+        for row in range(self.table.rowCount()):
+            check = (
+                not self.table.isRowHidden(row)
+                and _condition_of(self._quiz_name(row)) == letter
             )
             self.table.item(row, COL_QUIZ).setCheckState(
                 Qt.CheckState.Checked if check else Qt.CheckState.Unchecked
@@ -663,6 +741,8 @@ class QuizAnalysisWindow(QMainWindow):
         self.analyze_btn.setEnabled(n > 0 and idle)
         self.align_btn.setText(f"Auto-align selected ({n})" if n else "Auto-align selected")
         self.align_btn.setEnabled(n > 0 and idle)
+        self.review_btn.setText(f"Re-render review video ({n})" if n else "Re-render review video")
+        self.review_btn.setEnabled(n > 0 and idle)
 
     # ------------------------------------------------------------------
     # Batch driver
@@ -685,9 +765,38 @@ class QuizAnalysisWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        self._launch_queue(names, review_only=False)
 
-        # The video pipeline needs each quiz's raw performance.mp4, which is
-        # not committed to the repository - warn once and skip those.
+    def _start_review_only(self) -> None:
+        """Re-render review.mp4 for every checked quiz straight from its
+        current results.json - no finger-matching pass, so the manual
+        corrections made in the detail window are preserved and drawn onto
+        the new video."""
+        names = self._checked_names()
+        if not names:
+            return
+        answer = QMessageBox.warning(
+            self,
+            "Re-render review videos?",
+            f"This re-renders review.mp4 for the {len(names)} checked quiz(zes) from each quiz's "
+            "CURRENT results.json - the manual finger and carry-over corrections made in the event "
+            "review window included.\n\n"
+            "No MediaPipe pass runs, so nothing in results.json is overwritten; only review.mp4 is "
+            "replaced. This still decodes and re-encodes each raw video, so it can take a while.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._launch_queue(names, review_only=True)
+
+    def _launch_queue(self, names: List[str], review_only: bool) -> None:
+        """Shared batch setup for both the full analyze pipeline and the
+        review-video-only re-render: drop quizzes with no raw video, then
+        queue the rest and start."""
+        # Both passes need each quiz's raw performance.mp4, which is not
+        # committed to the repository - warn once and skip those.
         missing = [n for n in names
                    if not (quiz_raw_dir(n) / RAW_VIDEO_FILENAME).exists()]
         if missing:
@@ -702,22 +811,35 @@ class QuizAnalysisWindow(QMainWindow):
         if not names:
             return
 
+        self._review_only = review_only
         self._queue = names
         self._batch_total = len(self._queue)
         self._batch_failed = 0
         self.analyze_btn.setEnabled(False)
         self.align_btn.setEnabled(False)
+        self.review_btn.setEnabled(False)
         self.cancel_btn.setVisible(True)
         self.filter_edit.setEnabled(False)
+        # Instant busy feedback: the first quiz's render (or its sync
+        # alignment) can run for many seconds before the frame-level
+        # progress starts, so show a rolling indeterminate bar and force a
+        # repaint now rather than leaving the window looking frozen.
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.status_label.setText(f"Preparing {self._batch_total} quiz(zes)...")
         for name in self._queue:
             row = self._row_of(name)
             if row is not None:
                 self.table.item(row, COL_STATUS).setText("queued")
+        QApplication.processEvents()
         self._run_next()
 
     def _cancel_batch(self) -> None:
-        """Drop everything still queued; the quiz currently being analyzed
-        finishes normally (its results are saved as usual)."""
+        """Drop everything still queued, but let the quiz currently being
+        processed run to completion first - its worker is never interrupted,
+        so results.json is saved and review.mp4 is written in full rather
+        than left half-encoded. When that quiz finishes, _run_next finds the
+        queue empty and ends the batch."""
         for name in self._queue:
             row = self._row_of(name)
             if row is not None:
@@ -725,6 +847,17 @@ class QuizAnalysisWindow(QMainWindow):
         self._batch_total -= len(self._queue)
         self._queue = []
         self.cancel_btn.setEnabled(False)
+        if self._current_name is not None:
+            # A worker is still running - say so, so it's clear the batch
+            # isn't over until this one's video is written.
+            self.status_label.setText(
+                f"Cancelling - finishing the current quiz ({self._current_name}) before stopping..."
+            )
+        else:
+            # Cancelled in the brief gap between quizzes: nothing is running
+            # to trigger _end_batch, so wrap up here instead of leaving the
+            # window stuck with its buttons disabled.
+            self._end_batch()
 
     def _run_next(self) -> None:
         if not self._queue:
@@ -739,6 +872,13 @@ class QuizAnalysisWindow(QMainWindow):
             self._current_results = load_quiz_results(quiz_dir(name) / RESULTS_FILENAME)
         except Exception as e:
             self._fail_current(f"couldn't load: {e}")
+            return
+
+        # Review-only: skip the finger-matching pass entirely and re-render
+        # straight from the results just loaded, so manual corrections in
+        # results.json are drawn onto the new video rather than overwritten.
+        if self._review_only:
+            self._start_review_render()
             return
 
         pressed = [r for r in self._current_results if not r.timed_out]
@@ -820,14 +960,20 @@ class QuizAnalysisWindow(QMainWindow):
         """Re-encode the raw video with the per-note verdicts drawn on top
         (see app.review_video), for manual auditing of the scoring."""
         name = self._current_name
+        done_status = "review re-rendered" if self._review_only else "analyzed"
         video_path = quiz_raw_dir(name) / RAW_VIDEO_FILENAME
         if not video_path.exists():
-            self._finish_current("analyzed (no raw video for review)")
+            self._finish_current(f"{done_status} (no raw video for review)")
             return
 
         row = self._row_of(name)
         if row is not None:
             self.table.item(row, COL_STATUS).setText("rendering review video...")
+        # The full-analyze path already showed the bar for the finger pass,
+        # but the review-only path jumps straight here, so make it visible
+        # unconditionally. Indeterminate until the worker reports its first
+        # frame total (see _on_review_progress).
+        self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
         self._set_status(f"{name}: rendering review video...")
 
@@ -840,8 +986,9 @@ class QuizAnalysisWindow(QMainWindow):
             hands_path=quiz_raw_dir(name) / RAW_HANDS_FILENAME,
         )
         self._review_worker.progress.connect(self._on_review_progress)
-        self._review_worker.succeeded.connect(lambda _out: self._finish_current("analyzed"))
-        self._review_worker.failed.connect(lambda msg: self._finish_current(f"analyzed (review video failed: {msg})"))
+        self._review_worker.succeeded.connect(lambda _out: self._finish_current(done_status))
+        self._review_worker.failed.connect(
+            lambda msg: self._finish_current(f"{done_status} (review video failed: {msg})"))
         self._review_worker.start()
 
     def _on_review_progress(self, done: int, total: int) -> None:
@@ -864,5 +1011,7 @@ class QuizAnalysisWindow(QMainWindow):
         self.filter_edit.setEnabled(True)
         ok = self._batch_total - self._batch_failed
         failed = f", {self._batch_failed} failed" if self._batch_failed else ""
-        self.status_label.setText(f"Done: {ok}/{self._batch_total} quizzes analyzed{failed}.")
+        verb = "review re-rendered" if self._review_only else "analyzed"
+        self.status_label.setText(f"Done: {ok}/{self._batch_total} quizzes {verb}{failed}.")
+        self._review_only = False
         self._update_analyze_btn()
