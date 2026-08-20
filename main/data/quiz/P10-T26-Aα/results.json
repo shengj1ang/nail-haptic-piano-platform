@@ -480,8 +480,8 @@
     "keypress_time": 1785775113.311316,
     "timing_error_s": 0.29940009117126465,
     "note_correct": true,
-    "actual_finger": "R2",
-    "finger_correct": true,
+    "actual_finger": "R3",
+    "finger_correct": false,
     "finger_probabilities": {
       "L1": 5.993074049628209e-07,
       "L2": 3.2351497874854045e-07,
@@ -500,7 +500,7 @@
       230
     ],
     "validity": "valid",
-    "finger_corrected": false,
+    "finger_corrected": true,
     "finger_reviewed": true
   },
   {

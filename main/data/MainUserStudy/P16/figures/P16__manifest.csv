@@ -1,0 +1,48 @@
+file,kind,rows,columns
+(export),provenance,P16,"27 trials (27 analyzed), 810 events (810 valid); exported 2026-08-20T02:48:46"
+P16_confusion_counts.png / P16_confusion_counts.svg,figure,,
+P16_confusion_paper.png / P16_confusion_paper.svg,figure,,
+P16_confusion_rownorm.png / P16_confusion_rownorm.svg,figure,,
+P16_difficulty.png / P16_difficulty.svg,figure,,
+P16_errors_composition.png / P16_errors_composition.svg,figure,,
+P16_errors_counts.png / P16_errors_counts.svg,figure,,
+P16_errors_wrongkey_distance.png / P16_errors_wrongkey_distance.svg,figure,,
+P16_finger_benefit.png / P16_finger_benefit.svg,figure,,
+P16_finger_benefit_dispersion.png / P16_finger_benefit_dispersion.svg,figure,,
+P16_finger_benefit_estimators.png / P16_finger_benefit_estimators.svg,figure,,
+P16_fingers_accuracy.png / P16_fingers_accuracy.svg,figure,,
+P16_fingers_homologous.png / P16_fingers_homologous.svg,figure,,
+P16_fingers_rt_boxplot.png / P16_fingers_rt_boxplot.svg,figure,,
+P16_learning_difficulty_progression_key_accuracy.png / P16_learning_difficulty_progression_key_accuracy.svg,figure,,
+P16_learning_difficulty_progression_rt.png / P16_learning_difficulty_progression_rt.svg,figure,,
+P16_learning_session.png / P16_learning_session.svg,figure,,
+P16_learning_session_position.png / P16_learning_session_position.svg,figure,,
+P16_learning_withincell.png / P16_learning_withincell.svg,figure,,
+P16_overview.png / P16_overview.svg,figure,,
+P16_quality_audit.png / P16_quality_audit.svg,figure,,
+P16_quality_threshold_sensitivity.png / P16_quality_threshold_sensitivity.svg,figure,,
+P16_timing_rt_distributions.png / P16_timing_rt_distributions.svg,figure,,
+P16_tradeoff.png / P16_tradeoff.svg,figure,,
+P16_confusion_long.csv,table,86,"condition, target_finger, actual_finger, count"
+P16_difficulty_cell_metrics.csv,table,9,"participant, condition, level, n_trials, n_analyzed, key_accuracy, fa_main, fa_given_key, rt_correct_key_s, rt_complete_s"
+P16_error_breakdown.csv,table,18,"condition, category, count"
+P16_error_proportions.csv,table,18,"participant, condition, category, count, n_events, proportion"
+P16_finger_benefit_cells.csv,table,5,"participant, finger_id, baseline, cued, benefit, average"
+P16_finger_benefit_dispersion.csv,table,2,"participant, condition, mean, sd_raw, sd_corrected, range, cv_raw, cv_corrected, mean_cell_sem, n_fingers"
+P16_finger_benefit_estimators.csv,table,15,"participant, finger_id, x, y, estimator"
+P16_fingers_by_target_finger.csv,table,30,"condition, target_finger, n, n_judged, fa, rt_s"
+P16_fingers_homologous_cells.csv,table,15,"participant, condition, finger_id, n, n_left, n_right, n_judged, fa, rt_s, n_rt_complete, rt_complete_s"
+P16_learning_difficulty_progression_summary.csv,table,108,"level, level_symbol, difficulty_occurrence, metric, n, mean, sd, sem, ci95_lo, ci95_hi"
+P16_learning_difficulty_progression_trials.csv,table,27,"participant, level, level_symbol, difficulty_occurrence, session_position, condition, rt_correct_key_s_raw, rt_correct_key_s_adjusted, key_accuracy_raw, key_accuracy_adjusted"
+P16_learning_repetition_by_condition.csv,table,6,"participant, condition, repetition, fa_main, rt_correct_key_s"
+P16_learning_session_position.csv,table,18,"participant, position, condition, level, fa_main_raw, fa_main_adjusted, rt_correct_key_s_raw, rt_correct_key_s_adjusted"
+P16_learning_within_cell_repetition.csv,table,27,"participant, condition, level, repetition, fa_main, rt_correct_key_s"
+P16_overview_cell_metrics.csv,table,9,"participant, condition, level, n_trials, n_analyzed, key_accuracy, fa_main, fa_given_key, rt_correct_key_s, rt_complete_s"
+P16_overview_condition_metrics.csv,table,3,"participant, condition, n_trials, n_analyzed, key_accuracy, fa_main, fa_given_key, rt_correct_key_s, rt_complete_s"
+P16_quality_audit.csv,table,1,"participant, n_trials, n_analyzed, n_events, n_valid_events, excluded_carryover, suspected_carryover, manual_corrections, unresolved_rate, ambiguous_rate, borderline_events, qc_extra_presses, sync_methods"
+P16_quality_threshold_sensitivity.csv,table,10,"participant, condition, theta, fa, n_trials, n_events, source"
+P16_timing_rt_summary.csv,table,3,"condition, n_events, median_ms, mean_ms, sd_ms, min_ms, p95_ms, max_ms"
+P16_tradeoff_centroids.csv,table,3,"condition, n, rt_ms, fa_pct, rt_sd_ms, fa_sd_pct"
+P16_tradeoff_trials.csv,table,27,"participant, condition, trial_index, level, sequence, rt_ms, fa_pct, included"
+P16_wrongkey_distance.csv,table,6,"participant, condition, trial_index, event_index, distance, metric"
+P16_wrongkey_distance_summary.csv,table,2,"condition, n, median, mean, max, metric"
