@@ -49,8 +49,8 @@
   },
   "analysis": {
     "adhesion_metric_version": 1,
-    "onset_settling": "motor_acc_delay.detect_onset_and_settling - the SAME detector the Motor \u2192 ACC Delay experiment uses, not a second definition",
-    "steady_state": "stable time \u2192 motor-off; a trial that never settles falls back to the last 30% of the drive window and is flagged 'window_tail_fallback'",
+    "onset_settling": "motor_acc_delay.detect_onset_and_settling - the SAME detector the Motor → ACC Delay experiment uses, not a second definition",
+    "steady_state": "stable time → motor-off; a trial that never settles falls back to the last 30% of the drive window and is flagged 'window_tail_fallback'",
     "steady_min_s": 0.2,
     "robust_peak_percentile": 99.0,
     "spectrum": "per-axis demeaned Hann-windowed rFFT, combined in quadrature over the three axes; tone amplitudes estimated from the main-lobe energy / ENBW, so they are independent of where the tone falls between bin centres",
@@ -103,7 +103,7 @@
     "onset_latency_from_command_ms": "onset_time - command_time",
     "settling_time_from_onset_ms": "stable_time - onset_time",
     "stable_latency_from_command_ms": "stable_time - command_time",
-    "rise_time_10_90_ms": "envelope 10 % \u2192 90 % of the steady level, measured from the onset"
+    "rise_time_10_90_ms": "envelope 10 % → 90 % of the steady level, measured from the onset"
   },
   "validity": {
     "protocol": [

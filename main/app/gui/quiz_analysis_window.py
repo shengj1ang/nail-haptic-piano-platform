@@ -28,7 +28,7 @@ snapshots.
 """
 
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -78,7 +78,7 @@ from ..sync_led import load_sync_alignment, resolve_sync_anchor
 from .analyze_worker import AnalyzeWorker, ReviewVideoWorker
 from .missing_video import MISSING_VIDEO_TITLE, missing_video_message, require_video
 from .quiz_detail_window import QuizDetailWindow
-from .quiz_style import STYLE_SHEET
+from .quiz_style import STYLE_SHEET, segmented_group
 from .video_sync_window import VideoSyncWindow
 
 COL_QUIZ = 0
@@ -226,20 +226,32 @@ class QuizAnalysisWindow(QMainWindow):
         select_none_btn = QPushButton("Select none")
         select_none_btn.clicked.connect(lambda: self._select_rows(None))
         # Per-condition selects, parsed from the Pxx-Txx-<condition><level>
-        # folder name. Stack with the filter box (e.g. "P02" + Condition B).
+        # folder name. Latching and independent: B and C both down selects
+        # their union, so one batch can cover two conditions. They stack
+        # with the filter box (e.g. "P02" + Condition B), and any other way
+        # of changing the selection releases them - see
+        # _sync_condition_buttons.
         cond_tips = {
             "A": ("key-only", "no cue - the student plays from memory (control)"),
             "B": ("visual", "on-screen visual cue"),
             "C": ("haptic", "vibration-motor cue"),
         }
-        cond_btns = {}
+        self._condition_btns: Dict[str, QPushButton] = {}
         for letter, (kind, longer) in cond_tips.items():
             # The condition meaning goes in the label itself so A/B/C isn't a
-            # mystery at a glance; the tooltip spells it out further.
-            btn = QPushButton(f"Condition {letter} ({kind})")
-            btn.setToolTip(f"Select the shown Condition {letter} quizzes - {kind} feedback ({longer}).")
-            btn.clicked.connect(lambda _=False, c=letter: self._select_condition(c))
-            cond_btns[letter] = btn
+            # mystery at a glance; the tooltip spells it out further. The
+            # word "Condition" is said once by the group's label instead of
+            # three times inside a strip three buttons wide.
+            btn = QPushButton(f"{letter} ({kind})")
+            btn.setCheckable(True)
+            btn.setToolTip(
+                f"Select the shown Condition {letter} quizzes - {kind} feedback ({longer}). "
+                "Can be combined with the other two; anything else that changes the selection "
+                "releases it."
+            )
+            btn.toggled.connect(lambda _checked: self._select_conditions())
+            self._condition_btns[letter] = btn
+        condition_group = segmented_group([self._condition_btns[c] for c in ("A", "B", "C")])
 
         self.table = QTableWidget(0, len(COLUMN_TITLES))
         self.table.setHorizontalHeaderLabels(COLUMN_TITLES)
@@ -328,9 +340,11 @@ class QuizAnalysisWindow(QMainWindow):
         select_row.addWidget(select_unanalyzed_btn)
         select_row.addWidget(select_analyzed_btn)
         select_row.addWidget(select_none_btn)
-        select_row.addWidget(cond_btns["A"])
-        select_row.addWidget(cond_btns["B"])
-        select_row.addWidget(cond_btns["C"])
+        condition_label = QLabel("Condition:")
+        condition_label.setObjectName("note")
+        select_row.addSpacing(6)
+        select_row.addWidget(condition_label)
+        select_row.addWidget(condition_group)
         select_row.addStretch(1)
 
         export_btn = QPushButton("Export participant data...")
@@ -433,6 +447,10 @@ class QuizAnalysisWindow(QMainWindow):
 
         if not quizzes:
             self.status_label.setText("No quizzes found under data/quiz/. Run one with student_quiz.py first.")
+        # A refresh rebuilds every row unchecked (bar check_only), so the
+        # segments are raised before the filter runs rather than left to
+        # re-derive a selection this window has just declared empty.
+        self._clear_condition_buttons()
         self._apply_filter(self.filter_edit.text())
         self._update_analyze_btn()
 
@@ -498,6 +516,13 @@ class QuizAnalysisWindow(QMainWindow):
             item = self.table.item(row, COL_QUIZ)
             haystack = f"{self._quiz_name(row)}\n{item.text()}".lower()
             self.table.setRowHidden(row, bool(needle) and needle not in haystack)
+        # A pressed condition means "the shown quizzes of this condition",
+        # and the filter just changed which quizzes are shown. Re-deriving
+        # keeps the segment honest as the box is typed into; leaving it
+        # alone would instead strand the previous filter's rows checked
+        # but hidden, where the batch buttons would still count them.
+        if self._active_conditions():
+            self._select_conditions()
 
     def _row_analyzed(self, row: int) -> bool:
         return bool(self.table.item(row, COL_QUIZ).data(Qt.ItemDataRole.UserRole))
@@ -521,23 +546,80 @@ class QuizAnalysisWindow(QMainWindow):
         self.table.blockSignals(False)
         self._update_analyze_btn()
 
-    def _select_condition(self, letter: str) -> None:
-        """Replace the current selection with the visible quizzes whose
-        feedback condition is `letter` (parsed from the folder name),
-        unchecking everything else - hidden rows included, matching
-        _select_rows. Stacks with the filter box, so 'P02' + Condition B
-        checks just that participant's condition-B quizzes."""
+    def _active_conditions(self) -> Set[str]:
+        """The feedback conditions whose segment is currently down."""
+        return {letter for letter, btn in self._condition_btns.items() if btn.isChecked()}
+
+    def _condition_names(self) -> List[str]:
+        """The quizzes the pressed segments stand for: every visible row
+        whose folder name parses to one of those conditions.
+
+        Empty when no segment is down, which is what makes releasing the
+        last one leave nothing checked rather than everything.
+        """
+        conditions = self._active_conditions()
+        if not conditions:
+            return []
+        return [
+            self._quiz_name(row)
+            for row in range(self.table.rowCount())
+            if not self.table.isRowHidden(row)
+            and _condition_of(self._quiz_name(row)) in conditions
+        ]
+
+    def _select_conditions(self) -> None:
+        """Replace the current selection with the union of the pressed
+        conditions, unchecking everything else - hidden rows included,
+        matching _select_rows. Stacks with the filter box, so 'P02' +
+        Condition B checks just that participant's condition-B quizzes.
+
+        Recomputed from scratch on every toggle rather than added to and
+        subtracted from, so the checked rows always equal exactly what
+        the pressed segments claim - the invariant _sync_condition_buttons
+        relies on.
+        """
+        wanted = set(self._condition_names())
         self.table.blockSignals(True)
         for row in range(self.table.rowCount()):
-            check = (
-                not self.table.isRowHidden(row)
-                and _condition_of(self._quiz_name(row)) == letter
-            )
             self.table.item(row, COL_QUIZ).setCheckState(
-                Qt.CheckState.Checked if check else Qt.CheckState.Unchecked
+                Qt.CheckState.Checked if self._quiz_name(row) in wanted
+                else Qt.CheckState.Unchecked
             )
         self.table.blockSignals(False)
         self._update_analyze_btn()
+
+    def _sync_condition_buttons(self) -> None:
+        """Release the segments once the selection is no longer theirs.
+
+        They latch over a selection that four other buttons, a hand-ticked
+        row and a refresh can all change too. A segment left down over a
+        selection it did not produce would claim a scope the batch buttons
+        are not about to run on - the one state a latching control must
+        never be left in - so the moment the checked rows and the claim
+        disagree, the claim is withdrawn. The selection itself is never
+        touched here: releasing a segment this way must not also uncheck
+        the rows the user just asked for.
+
+        Hooked into _update_analyze_btn because every path that changes
+        the selection already ends there.
+        """
+        if not self._active_conditions():
+            return
+        if self._checked_names() == self._condition_names():
+            return
+        self._clear_condition_buttons()
+
+    def _clear_condition_buttons(self) -> None:
+        """Raise every segment without re-running the selection.
+
+        setChecked emits toggled, which is wired to _select_conditions;
+        left unblocked, clearing the segments would wipe the very
+        selection that replaced theirs.
+        """
+        for btn in self._condition_btns.values():
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.blockSignals(False)
 
     def _checked_names(self) -> List[str]:
         return [
@@ -735,6 +817,7 @@ class QuizAnalysisWindow(QMainWindow):
         self._fill_row(row, meta, full_summary(name, results))
 
     def _update_analyze_btn(self) -> None:
+        self._sync_condition_buttons()
         n = len(self._checked_names())
         idle = self._current_name is None
         self.analyze_btn.setText(f"Analyze selected (from video) ({n})" if n else "Analyze selected (from video)")

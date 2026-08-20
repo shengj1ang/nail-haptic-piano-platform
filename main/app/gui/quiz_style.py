@@ -4,6 +4,12 @@
 (app/gui/event_review_window.py) - which are used one after another and
 so should not look like three different programs.
 
+Also applied by Single Song Complexity Evaluation
+(app/gui/single_song_metrics_window.py). It is not part of that loop,
+but it is the same kind of screen - group boxes of tables with
+explanatory small print - and giving it a second, near-identical sheet
+of its own would only mean two places to change a border radius.
+
 Applied per window (setStyleSheet on the central widget), never on the
 QApplication: the launcher owns a dozen other windows that nobody asked
 to restyle.
@@ -32,12 +38,15 @@ colour is reserved for the buttons that start something or write
 something, so a colour in this UI always means "this one acts".
 
 Object names the sheet also styles: "header" (the bold summary line at
-the top of a window), "note" (muted explanatory small print) and
+the top of a window), "note" (muted explanatory small print),
 "cellBtn" (a button living inside a table cell, kept short so it doesn't
-stretch the row).
+stretch the row) and "segmented" (see segmented_group below).
 """
 
+from typing import Sequence
+
 from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton
 
 ACCENT = "#3b7ddd"
 
@@ -53,6 +62,38 @@ def tint_item(item, color) -> None:
     """Paint a table cell with a verdict tint, foreground included."""
     item.setBackground(color)
     item.setForeground(TINT_TEXT)
+
+
+def segmented_group(buttons: Sequence[QPushButton]) -> QFrame:
+    """Lay several toggles out as one bordered segmented control.
+
+    For a set of buttons that answer the same question and can be down
+    at the same time (Quiz Analysis' three feedback conditions): sharing
+    one border says they belong together, and says it without implying
+    the single-choice behaviour a row of radio buttons would.
+
+    Sets the "segment" property that the corner and divider rules in
+    STYLE_SHEET key off. Call it before the sheet is applied to the
+    enclosing widget - Qt reads dynamic properties when it polishes a
+    widget, and does not re-read them afterwards on its own.
+    """
+    frame = QFrame()
+    frame.setObjectName("segmented")
+    layout = QHBoxLayout(frame)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    for index, button in enumerate(buttons):
+        if len(buttons) == 1:
+            segment = "only"
+        elif index == 0:
+            segment = "first"
+        elif index == len(buttons) - 1:
+            segment = "last"
+        else:
+            segment = "mid"
+        button.setProperty("segment", segment)
+        layout.addWidget(button)
+    return frame
 
 STYLE_SHEET = """
 QGroupBox {
@@ -189,6 +230,50 @@ QPushButton#playBtn:disabled {
     background: transparent;
     border-color: rgba(128, 128, 128, 0.35);
     color: #8a8c93;
+}
+
+/* Segmented control - one strip, several independently latching
+   toggles (built by segmented_group). The accent fill on :checked is
+   the same blue as #primaryBtn, which is consistent rather than
+   confusing: a segment that is down IS acting on the window, it just
+   keeps acting until it is pressed again. */
+QFrame#segmented {
+    border: 1px solid rgba(128, 128, 128, 0.38);
+    border-radius: 6px;
+    background: rgba(128, 128, 128, 0.09);
+}
+QFrame#segmented QPushButton {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 6px 12px;
+    font-weight: 500;
+}
+QFrame#segmented QPushButton:hover { background: rgba(128, 128, 128, 0.18); }
+QFrame#segmented QPushButton:checked {
+    background: #3b7ddd;
+    color: #ffffff;
+    font-weight: 600;
+}
+QFrame#segmented QPushButton:checked:hover { background: #316cc2; }
+QFrame#segmented QPushButton:disabled { color: rgba(128, 128, 128, 0.75); }
+/* Hairlines between segments, and rounded end caps: Qt does not clip a
+   child widget to its parent's rounded corner, so without these a
+   checked first or last segment paints a square blue corner sticking
+   out past the strip's own border. */
+QFrame#segmented QPushButton[segment="mid"],
+QFrame#segmented QPushButton[segment="last"] {
+    border-left: 1px solid rgba(128, 128, 128, 0.30);
+}
+QFrame#segmented QPushButton[segment="first"],
+QFrame#segmented QPushButton[segment="only"] {
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+}
+QFrame#segmented QPushButton[segment="last"],
+QFrame#segmented QPushButton[segment="only"] {
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
 }
 
 QLineEdit {

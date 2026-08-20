@@ -1550,8 +1550,8 @@ def save_meta(csv_path: str, samples_path: Optional[str], png_path: str,
         "drive_window_intensity": intensity_stats(results),
     }
     path = meta_path_for(csv_path)
-    with open(path, "w") as f:
-        json.dump(meta, f, indent=2)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
     return path
 
 
@@ -1559,7 +1559,7 @@ def load_meta(csv_path: str) -> Optional[dict]:
     path = meta_path_for(csv_path)
     if not os.path.exists(path):
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

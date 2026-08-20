@@ -10,16 +10,23 @@ too). Tools are grouped into the same three stages a teacher/researcher
 actually moves through: set up a keyboard once, test that it works, then
 record and replay songs with it.
 
-Only one tool window is open at a time: opening another one closes whichever
-is currently open first, since several of them want exclusive access to the
-same camera.
+A button's tool has one of three lifetimes, and every button says which
+one on hover (lifetime_tooltip):
 
-Section 8 (Tele-training) is the one exception, and it has to be: a
-student, a teacher and a relay have to run *simultaneously*, and the two
-clients hold different cameras and different MIDI ports. Those entries
-therefore start independent processes (see remote_guidance/
-launcher_actions.py) instead of going through _open(), which would close
-whatever was already running.
+  - Exclusive sub-window - the default, and most of the list. Opening
+    another tool closes whichever exclusive one is open, since several of
+    them want exclusive access to the same camera. Closes with the
+    launcher.
+  - Concurrent sub-window - CONCURRENT_TOOLS. Claims no hardware, so it
+    stays open alongside an exclusive tool and alongside the other
+    concurrent one; re-opening raises it rather than duplicating it.
+    Closes with the launcher.
+  - Independent process - the ProcessEntry buttons in section 8
+    (Tele-training). A student, a teacher and a relay have to run
+    *simultaneously*, and the two clients hold different cameras and
+    different MIDI ports, so those entries start detached processes (see
+    remote_guidance/launcher_actions.py) instead of going through
+    _open(). They outlive the launcher on purpose.
 """
 
 import itertools
@@ -71,7 +78,9 @@ from app.gui.pilot_schedule_window import PilotScheduleWindow
 from app.gui.group_analysis_window import GroupAnalysisWindow
 from app.gui.participant_analysis_window import ParticipantAnalysisWindow
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
+from app.gui.quiz_backup_window import QuizBackupWindow
 from app.gui.recording_wizard import RecordingWizard
+from app.gui.review_compress_window import ReviewCompressWindow
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.single_song_metrics_window import SingleSongMetricsWindow
@@ -252,20 +261,81 @@ SECTIONS = [
             ("Adhesion Vibration Comparison (LRA)", AdhesionComparisonWindow),
         ],
     ),
+    (
+        # Housekeeping on data that has already been collected - nothing
+        # here is part of running a session or analysing one. Both are
+        # GUIs over the two console tools that came first
+        # (tool_compress_review_videos.py, tool_backup_quiz_to_zip.py),
+        # sharing their backends (app/review_compress.py,
+        # app/quiz_backup.py) rather than reimplementing them, so a
+        # button and a terminal do the same thing to the same files.
+        #
+        # Both shell out to a program that is not a Python dependency -
+        # ffmpeg and 7z - which each window looks for in runtime/bin and
+        # then on PATH, and says so in its own status line rather than
+        # failing at the moment of use (see app/tool_binaries.py).
+        "10. Tools",
+        [
+            ("Review Video Compression (ffmpeg)", ReviewCompressWindow),
+            ("Participant ZIP Backup (7z)", QuizBackupWindow),
+        ],
+    ),
 ]
 
 # Tools exempt from the one-tool-at-a-time rule, which exists because most
 # of these windows claim the camera or the MIDI keyboard and two of them
 # running at once would fight over the device.
 #
-# These two claim no hardware - they are read-only views over the exported
-# CSVs - and they are the pair you actually want side by side, reading a
-# participant's own numbers against the group they sit in. They coexist
-# with each other and with whatever exclusive tool is open.
+# None of these claims hardware, and each has its own reason to survive
+# another button being pressed:
+#
+#   - the two Analysis windows are read-only views over the exported CSVs,
+#     and they are the pair you actually want side by side, reading a
+#     participant's own numbers against the group they sit in;
+#   - the two Tools windows run ffmpeg or 7z over hundreds of files for
+#     minutes at a time, and closing one mid-run to open something else
+#     would abandon a conversion or an archive halfway.
 CONCURRENT_TOOLS = {
     ParticipantAnalysisWindow,
     GroupAnalysisWindow,
+    ReviewCompressWindow,
+    QuizBackupWindow,
 }
+
+# The three lifetimes a button can have, as hover text. Which one a
+# button gets is DERIVED (lifetime_tooltip) from the same two facts that
+# implement the rule - ProcessEntry and CONCURRENT_TOOLS - rather than
+# written out per button, so a tool that changes category cannot end up
+# describing itself as something _open() and closeEvent() no longer do.
+EXCLUSIVE_TOOLTIP = (
+    "Runs on its own. Opening any other tool closes this one first: most of these claim the "
+    "camera or the MIDI keyboard, and two at once would fight over the device. The two "
+    "Analysis tools are the exception and stay open alongside it.\n\n"
+    "Closes when the launcher closes."
+)
+CONCURRENT_TOOLTIP = (
+    "Stays open alongside anything else. It claims no camera and no MIDI keyboard, so opening "
+    "another tool leaves it running - and pressing this button again raises the window you "
+    "already have instead of starting a second copy of the same work.\n\n"
+    "Closes when the launcher closes."
+)
+PROCESS_TOOLTIP = (
+    "Starts its own independent process, not a sub-window. A relay, a teacher and a student "
+    "are meant to run at the same time - on different machines, holding different cameras and "
+    "MIDI ports - so nothing in the launcher closes this one.\n\n"
+    "Keeps running after the launcher closes, so quitting the launcher never drops a session "
+    "in progress. Stop it from its own window."
+)
+
+
+def lifetime_tooltip(entry) -> str:
+    """How this button's tool coexists with the others, and whether it
+    outlives the launcher."""
+    if isinstance(entry, ProcessEntry):
+        return PROCESS_TOOLTIP
+    if entry in CONCURRENT_TOOLS:
+        return CONCURRENT_TOOLTIP
+    return EXCLUSIVE_TOOLTIP
 
 STYLE_SHEET = """
 QWidget#launcherRoot {
@@ -330,7 +400,12 @@ class LauncherWindow(QWidget):
         title_font.setBold(True)
         title.setFont(title_font)
 
-        subtitle = QLabel("• Platform built based on the ideas from dissertation \"Nail-Mounted Haptic Cues for Piano Training and Tele-training\"\n• Pick a tool below; only one runs at a time.")
+        subtitle = QLabel(
+            "• Platform built based on the ideas from dissertation \"Nail-Mounted Haptic Cues for "
+            "Piano Training and Tele-training\"\n"
+            "• Pick a tool below. Most run one at a time — hover a button to see whether it runs "
+            "alone, stays open alongside others, or keeps running after the launcher closes."
+        )
         subtitle.setObjectName("subtitle")
 
         layout = QVBoxLayout(self)
@@ -373,6 +448,7 @@ class LauncherWindow(QWidget):
             for label, entry in tools:
                 btn = QPushButton(label)
                 btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setToolTip(lifetime_tooltip(entry))
                 btn.clicked.connect(lambda _checked=False, item=entry: self._activate(item))
                 box_layout.addWidget(btn)
             if not tools:

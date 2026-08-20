@@ -135,7 +135,7 @@ class Connection:
         if self.websocket.client_state != WebSocketState.CONNECTED:
             return False
         try:
-            await self.websocket.send_text(json.dumps(message))
+            await self.websocket.send_text(json.dumps(message, ensure_ascii=False))
             return True
         except (RuntimeError, WebSocketDisconnect, ConnectionError):
             return False
@@ -214,7 +214,8 @@ async def _send_error(websocket: WebSocket, code: str, detail: str, room_id: Opt
                     room_id=room_id,
                     payload={"code": code, "detail": detail},
                     server={"receive_wall_ns": time.time_ns()},
-                )
+                ),
+                ensure_ascii=False,
             )
         )
     except (RuntimeError, WebSocketDisconnect, ConnectionError):

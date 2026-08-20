@@ -703,7 +703,7 @@ def save_raw_acceleration_samples(path: str,
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     np.savez_compressed(
         path,
-        meta_json=np.array(json.dumps(meta)),
+        meta_json=np.array(json.dumps(meta, ensure_ascii=False)),
         window_id=raw.window_id.astype(np.int32),
         cell_id=raw.cell_id.astype(np.int32),
         trial_id=raw.trial_id.astype(np.int32),

@@ -365,7 +365,7 @@ def atomic_write_json(path, payload: dict) -> None:
                                     suffix=".json.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())

@@ -91,7 +91,7 @@ class SyncAnchor:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2)
+            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, path: Path) -> "SyncAnchor":

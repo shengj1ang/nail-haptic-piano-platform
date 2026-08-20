@@ -63,7 +63,7 @@ class KeyboardTemplate:
             "keys": [asdict(k) for k in self.keys],
         }
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+            json.dump(payload, f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, json_path: Path) -> "KeyboardTemplate":

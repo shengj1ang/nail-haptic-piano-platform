@@ -109,7 +109,7 @@ class RemoteApiClient:
         authenticated: bool = True,
     ) -> Any:
         url = f"{self.api_base}{path}"
-        data = json.dumps(body).encode("utf-8") if body is not None else None
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
         req.add_header("Accept", "application/json")
@@ -359,7 +359,7 @@ class RemoteWebSocketClient:
             if ws is None:
                 return False
             try:
-                ws.send(json.dumps(envelope))
+                ws.send(json.dumps(envelope, ensure_ascii=False))
                 return True
             except Exception as exc:  # noqa: BLE001 - any transport failure
                 log.debug("send failed: %s", exc)
@@ -431,7 +431,7 @@ class RemoteWebSocketClient:
         # The access token goes in the first frame's payload, never in the
         # URL - a query string would be recorded by proxies and history.
         self._set_state(STATE_AUTHENTICATING, "sending auth frame")
-        ws.send(json.dumps(make_envelope(TYPE_AUTH, room_id=self.room_id, payload={"access_token": self.access_token})))
+        ws.send(json.dumps(make_envelope(TYPE_AUTH, room_id=self.room_id, payload={"access_token": self.access_token}), ensure_ascii=False))
 
         try:
             while not self._stop.is_set():

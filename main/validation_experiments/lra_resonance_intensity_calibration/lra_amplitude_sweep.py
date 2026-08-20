@@ -574,8 +574,8 @@ def save_meta(csv_path: str, png_path: str, raw_path: Optional[str],
         "result": result_block(results, metric),
     }
     path = meta_path_for(csv_path)
-    with open(path, "w") as f:
-        json.dump(meta, f, indent=2)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
     return path
 
 
@@ -583,7 +583,7 @@ def load_meta(csv_path: str) -> Optional[dict]:
     path = meta_path_for(csv_path)
     if not os.path.exists(path):
         return None  # e.g. a CSV predating the meta files
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

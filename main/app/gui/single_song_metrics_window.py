@@ -1,11 +1,27 @@
-"""Read-only complexity and reference-constraint view for one saved song."""
+"""Read-only complexity and reference-constraint view for one saved song.
 
-from typing import Dict, Optional, Tuple
+Laid out as tabs rather than one tall scroll: the window shows eleven
+reference constraints, fifteen descriptive metrics, a parsed sequence and
+two kinds of prose caveat, and stacking all of that vertically buried the
+one line a reader actually comes here for - the constraint status. The
+tabs follow the order the reader needs them in: what came out, why it
+came out that way, what was measured, and finally the raw sequence and
+the loading notes.
 
+Figures live in :mod:`app.single_song_charts`; the labels the tests read
+(``constraint_status_label`` and the three group profile labels) still
+carry the full sentences, so nothing here depends on a chart to be
+understood, and no figure is the sole home of any result.
+"""
+
+from typing import Dict, List, Optional, Tuple
+
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -14,8 +30,10 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -23,6 +41,11 @@ from PySide6.QtWidgets import (
 from ..config import Config
 from ..profiles import DATA_DIR as PROFILE_DATA_DIR
 from ..sequence_generator import LEVEL_DISPLAY, profile_note_range
+from ..single_song_charts import (
+    constraint_band_figure,
+    contour_figure,
+    pareto_board_figure,
+)
 from ..single_song_metrics import (
     CONSTRAINT_LABELS,
     METRIC_DESCRIPTIONS,
@@ -34,13 +57,38 @@ from ..single_song_metrics import (
     saved_difficulty_text,
 )
 from ..song_library import SongEntry, list_song_entries
+from .quiz_style import STYLE_SHEET
 
 
+# "on the Constraint fit tab", not "below": the pass/violation rows this
+# sentence points at used to sit under it on one long page.
 REFERENCE_NOTICE = (
-    "Descriptive metrics and reference constraint comparison only. The alpha/beta/gamma rows below show the "
-    "underlying pass/violation evidence for the coefficient-free profile. They do not formally prove a real "
-    "song's difficulty level. No weighted scalar difficulty score is computed."
+    "Descriptive metrics and reference constraint comparison only. The alpha/beta/gamma rows on the "
+    "Constraint fit tab show the underlying pass/violation evidence for the coefficient-free profile. They "
+    "do not formally prove a real song's difficulty level. No weighted scalar difficulty score is computed."
 )
+
+# The verdict chip at the top of the Overview tab. Green is used only for
+# the case where every displayed numeric and structural check passes for
+# at least one level; everything else is amber, never red - "Unclassified"
+# is an ordinary, expected outcome for a real recording, not an error.
+CHIP_STYLES = {
+    "match": "background: rgba(46, 158, 91, 0.16); border: 1px solid #2e9e5b; color: #1f7541;",
+    "open": "background: rgba(240, 180, 41, 0.16); border: 1px solid #f0b429; color: #8a6100;",
+    "none": "background: rgba(128, 128, 128, 0.12); border: 1px solid rgba(128,128,128,0.45);",
+}
+
+
+class ScrollFriendlyCanvas(FigureCanvas):
+    """FigureCanvas that lets the mouse wheel through to the QScrollArea.
+
+    Same reason as in app/gui/participant_analysis_window.py: the stock
+    canvas swallows wheel events into matplotlib's scroll_event, so a
+    tall tab stops scrolling whenever the cursor crosses a figure.
+    """
+
+    def wheelEvent(self, event) -> None:
+        event.ignore()
 
 
 class SingleSongMetricsWindow(QMainWindow):
@@ -54,12 +102,19 @@ class SingleSongMetricsWindow(QMainWindow):
 
         self._entries: Dict[str, SongEntry] = {}
         self._metric_tables: Dict[str, QTableWidget] = {}
+        self._canvases: Dict[str, Optional[ScrollFriendlyCanvas]] = {
+            "board": None,
+            "bands": None,
+            "contour": None,
+        }
+        self._chart_slots: Dict[str, QVBoxLayout] = {}
 
         self.song_combo = QComboBox()
         self.song_combo.setMinimumContentsLength(28)
         self.song_combo.currentIndexChanged.connect(self._analyse_current)
 
         self.refresh_btn = QPushButton("Refresh")
+        self.refresh_btn.setObjectName("primaryBtn")
         self.refresh_btn.clicked.connect(self._refresh)
 
         picker_row = QHBoxLayout()
@@ -68,12 +123,41 @@ class SingleSongMetricsWindow(QMainWindow):
         picker_row.addWidget(self.refresh_btn)
 
         self.status_label = QLabel("")
+        self.status_label.setObjectName("note")
         self.status_label.setWordWrap(True)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
-        scroll_content = QWidget()
-        content_layout = QVBoxLayout(scroll_content)
-        content_layout.setSpacing(10)
+        tabs = QTabWidget()
+        tabs.addTab(self._build_overview_tab(), "Overview")
+        tabs.addTab(self._build_constraint_tab(), "Constraint fit")
+        tabs.addTab(self._build_metrics_tab(), "Descriptive metrics")
+        tabs.addTab(self._build_sequence_tab(), "Sequence")
+        # "and", not "&": Qt reads a single ampersand in a tab label as a
+        # mnemonic marker and swallows it.
+        tabs.addTab(self._build_notes_tab(), "Checks and notes")
+
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.addLayout(picker_row)
+        layout.addWidget(self.status_label)
+        layout.addWidget(tabs, 1)
+        central.setStyleSheet(STYLE_SHEET)
+        self.setCentralWidget(central)
+
+        self._clear_results()
+        self._refresh()
+
+    # ------------------------------------------------------------------
+    # Tab construction
+
+    def _build_overview_tab(self) -> QWidget:
+        layout, tab = self._scrolling_tab()
+
+        self.verdict_chip = QLabel("—")
+        self.verdict_chip.setWordWrap(True)
+        self.verdict_chip.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._set_chip("none", "—")
+        layout.addWidget(self.verdict_chip)
 
         overview_box = QGroupBox("Selected song")
         overview_layout = QVBoxLayout(overview_box)
@@ -90,10 +174,12 @@ class SingleSongMetricsWindow(QMainWindow):
             self.bounds_label,
         ):
             overview_layout.addWidget(label)
-        content_layout.addWidget(overview_box)
+        layout.addWidget(overview_box)
 
         profile_box = QGroupBox("Coefficient-free alpha / beta / gamma reference profile")
         profile_layout = QVBoxLayout(profile_box)
+        # Kept as a plain label even though the chip repeats its verdict:
+        # the chip is a summary, this is the sentence with the caveats.
         self.constraint_status_label = self._detail_label()
         self.constraint_status_label.setStyleSheet("font-weight: bold;")
         self.overall_profile_label = self._detail_label()
@@ -108,33 +194,64 @@ class SingleSongMetricsWindow(QMainWindow):
             self.coordination_profile_label,
         ):
             profile_layout.addWidget(label)
+        profile_layout.addLayout(self._chart_slot("board"))
         profile_method = QLabel(
             "Method: violation magnitudes are compared constraint by constraint using Pareto dominance. "
             "Different metrics are never added, averaged, ranked by pass count, or given coefficients. "
             "When levels trade advantages across metrics, the result remains Mixed / No unique closest. "
             "Metrics without existing level thresholds remain descriptive and do not affect the profile."
         )
+        profile_method.setObjectName("note")
         profile_method.setWordWrap(True)
-        profile_method.setStyleSheet("font-style: italic;")
         profile_layout.addWidget(profile_method)
-        content_layout.addWidget(profile_box)
+        layout.addWidget(profile_box)
 
-        sequence_box = QGroupBox("Parsed sequence")
-        sequence_layout = QVBoxLayout(sequence_box)
-        sequence_layout.addWidget(QLabel("Finger sequence:"))
-        self.fingers_edit = self._read_only_text(82)
-        sequence_layout.addWidget(self.fingers_edit)
-        sequence_layout.addWidget(QLabel("Note sequence:"))
-        self.notes_edit = self._read_only_text(105)
-        sequence_layout.addWidget(self.notes_edit)
-        content_layout.addWidget(sequence_box)
+        notice = QLabel(REFERENCE_NOTICE)
+        notice.setWordWrap(True)
+        notice.setStyleSheet("font-weight: bold;")
+        layout.addWidget(notice)
+        layout.addStretch(1)
+        return tab
 
+    def _build_constraint_tab(self) -> QWidget:
+        layout, tab = self._scrolling_tab()
+        layout.addLayout(self._chart_slot("bands"))
+
+        reference_box = QGroupBox("Alpha / beta / gamma reference constraint comparison")
+        reference_layout = QVBoxLayout(reference_box)
+        reference_hint = QLabel(
+            "The same eleven constraints as the figure above, written out with the interval each "
+            "value was compared against."
+        )
+        reference_hint.setObjectName("note")
+        reference_hint.setWordWrap(True)
+        reference_layout.addWidget(reference_hint)
+        self.reference_table = QTableWidget(0, 3)
+        self.reference_table.setHorizontalHeaderLabels(
+            ["Reference level", "Constraints satisfied", "Constraints violated"]
+        )
+        self.reference_table.verticalHeader().setVisible(False)
+        self.reference_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.reference_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.reference_table.setWordWrap(True)
+        self.reference_table.setAlternatingRowColors(True)
+        reference_header = self.reference_table.horizontalHeader()
+        reference_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        reference_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        reference_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        reference_layout.addWidget(self.reference_table)
+        layout.addWidget(reference_box)
+        layout.addStretch(1)
+        return tab
+
+    def _build_metrics_tab(self) -> QWidget:
+        layout, tab = self._scrolling_tab()
         metrics_heading = QLabel(
             "D = (C_m, C_s, C_c) descriptive metrics — values are recomputed with the same implementation "
             "used by the Experiment Sequence Generator."
         )
         metrics_heading.setWordWrap(True)
-        content_layout.addWidget(metrics_heading)
+        layout.addWidget(metrics_heading)
         for group, specs in metric_groups().items():
             box = QGroupBox(self._group_title(group))
             box_layout = QVBoxLayout(box)
@@ -144,6 +261,7 @@ class SingleSongMetricsWindow(QMainWindow):
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             table.setWordWrap(True)
+            table.setAlternatingRowColors(True)
             header = table.horizontalHeader()
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -155,29 +273,28 @@ class SingleSongMetricsWindow(QMainWindow):
             self._fit_table_height(table)
             self._metric_tables[group] = table
             box_layout.addWidget(table)
-            content_layout.addWidget(box)
+            layout.addWidget(box)
+        layout.addStretch(1)
+        return tab
 
-        notice = QLabel(REFERENCE_NOTICE)
-        notice.setWordWrap(True)
-        notice.setStyleSheet("font-weight: bold;")
-        content_layout.addWidget(notice)
+    def _build_sequence_tab(self) -> QWidget:
+        layout, tab = self._scrolling_tab()
+        layout.addLayout(self._chart_slot("contour"))
 
-        reference_box = QGroupBox("Alpha / beta / gamma reference constraint comparison")
-        reference_layout = QVBoxLayout(reference_box)
-        self.reference_table = QTableWidget(0, 3)
-        self.reference_table.setHorizontalHeaderLabels(
-            ["Reference level", "Constraints satisfied", "Constraints violated"]
-        )
-        self.reference_table.verticalHeader().setVisible(False)
-        self.reference_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.reference_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.reference_table.setWordWrap(True)
-        reference_header = self.reference_table.horizontalHeader()
-        reference_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        reference_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        reference_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        reference_layout.addWidget(self.reference_table)
-        content_layout.addWidget(reference_box)
+        sequence_box = QGroupBox("Parsed sequence")
+        sequence_layout = QVBoxLayout(sequence_box)
+        sequence_layout.addWidget(QLabel("Finger sequence:"))
+        self.fingers_edit = self._read_only_text(82)
+        sequence_layout.addWidget(self.fingers_edit)
+        sequence_layout.addWidget(QLabel("Note sequence:"))
+        self.notes_edit = self._read_only_text(105)
+        sequence_layout.addWidget(self.notes_edit)
+        layout.addWidget(sequence_box)
+        layout.addStretch(1)
+        return tab
+
+    def _build_notes_tab(self) -> QWidget:
+        layout, tab = self._scrolling_tab()
 
         structure_box = QGroupBox("Formal-sequence structural checks")
         structure_layout = QVBoxLayout(structure_box)
@@ -185,32 +302,69 @@ class SingleSongMetricsWindow(QMainWindow):
             "These are the generator's length, two-hand, repeated-fragment, hand-share, consecutive-finger, "
             "and repeated-note fingering rules. Problems do not prevent descriptive metrics from being shown."
         )
+        structure_hint.setObjectName("note")
         structure_hint.setWordWrap(True)
         structure_layout.addWidget(structure_hint)
         self.structure_edit = self._read_only_text(135)
         structure_layout.addWidget(self.structure_edit)
-        content_layout.addWidget(structure_box)
+        layout.addWidget(structure_box)
 
         warnings_box = QGroupBox("Loading notes")
         warnings_layout = QVBoxLayout(warnings_box)
         self.warnings_label = self._detail_label()
         warnings_layout.addWidget(self.warnings_label)
-        content_layout.addWidget(warnings_box)
-        content_layout.addStretch(1)
+        layout.addWidget(warnings_box)
+        layout.addStretch(1)
+        return tab
 
+    @staticmethod
+    def _scrolling_tab() -> Tuple[QVBoxLayout, QWidget]:
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(10)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(scroll_content)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(content)
+        return layout, scroll
 
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        layout.addLayout(picker_row)
-        layout.addWidget(self.status_label)
-        layout.addWidget(scroll, 1)
-        self.setCentralWidget(central)
+    def _chart_slot(self, name: str) -> QVBoxLayout:
+        """Reserve the place a figure will be dropped into on each analysis."""
+        slot = QVBoxLayout()
+        slot.setContentsMargins(0, 0, 0, 0)
+        self._chart_slots[name] = slot
+        return slot
 
-        self._clear_results()
-        self._refresh()
+    def _set_figure(self, name: str, figure) -> None:
+        """Replace the figure in one slot, disposing of the previous canvas.
+
+        Rebuilt rather than redrawn because the constraint figure's height
+        and the contour's legend both depend on the song being shown.
+        """
+        slot = self._chart_slots[name]
+        previous = self._canvases.get(name)
+        if previous is not None:
+            slot.removeWidget(previous)
+            previous.setParent(None)
+            previous.deleteLater()
+            self._canvases[name] = None
+        if figure is None:
+            return
+        canvas = ScrollFriendlyCanvas(figure)
+        width, height = figure.get_size_inches() * figure.dpi
+        canvas.setMinimumHeight(int(height))
+        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        slot.addWidget(canvas)
+        self._canvases[name] = canvas
+
+    def _set_chip(self, kind: str, text: str) -> None:
+        self.verdict_chip.setText(text)
+        self.verdict_chip.setStyleSheet(
+            "padding: 9px 12px; border-radius: 6px; font-weight: 600; " + CHIP_STYLES[kind]
+        )
+
+    # ------------------------------------------------------------------
+    # Small widget helpers
 
     @staticmethod
     def _detail_label() -> QLabel:
@@ -253,6 +407,9 @@ class SingleSongMetricsWindow(QMainWindow):
             return profile_note_range(self.cfg.active_keyboard_profile, PROFILE_DATA_DIR), None
         except Exception as exc:
             return None, str(exc)
+
+    # ------------------------------------------------------------------
+    # Analysis
 
     def _refresh(self) -> None:
         """Rescan pickers only; analysis remains limited to one selection."""
@@ -336,10 +493,14 @@ class SingleSongMetricsWindow(QMainWindow):
         ):
             if label is not None:
                 label.setText("—")
+        if hasattr(self, "verdict_chip"):
+            self._set_chip("none", "No song analysed.")
         if hasattr(self, "fingers_edit"):
             self.fingers_edit.clear()
             self.notes_edit.clear()
             self.structure_edit.clear()
+        for name in list(self._chart_slots):
+            self._set_figure(name, None)
         for table in self._metric_tables.values():
             for row in range(table.rowCount()):
                 self._set_cell(table, row, 1, "—")
@@ -368,6 +529,10 @@ class SingleSongMetricsWindow(QMainWindow):
         self._show_reference_profile(result, source)
         self.fingers_edit.setPlainText(result.fingers_text)
         self.notes_edit.setPlainText(result.notes_text)
+
+        self._set_figure("board", pareto_board_figure(result))
+        self._set_figure("bands", constraint_band_figure(result.stats))
+        self._set_figure("contour", contour_figure(result.actions, result.stats))
 
         for group, specs in metric_groups().items():
             table = self._metric_tables[group]
@@ -430,10 +595,20 @@ class SingleSongMetricsWindow(QMainWindow):
             self.constraint_status_label.setText(
                 f"Displayed constraint status: exact reference match for {matches}. {qualification}"
             )
+            self._set_chip(
+                "match",
+                f"Exact reference match for {matches} — every displayed numeric and structural check passes. "
+                "Still a reference comparison, not a proven difficulty level.",
+            )
         else:
             self.constraint_status_label.setText(
                 "Displayed constraint status: Unclassified — no alpha/beta/gamma reference level passes every "
                 "displayed numeric constraint and formal structural check."
+            )
+            self._set_chip(
+                "open",
+                "Unclassified — no reference level passes every displayed numeric constraint and structural "
+                "check. Expected for a real recording; the closest references are shown below.",
             )
 
         profiles = {profile.group: profile for profile in result.group_reference_profiles}

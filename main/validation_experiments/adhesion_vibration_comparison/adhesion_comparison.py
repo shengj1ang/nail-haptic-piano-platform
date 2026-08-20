@@ -1197,8 +1197,8 @@ def save_comparison_meta(path: str, groups: Dict[str, MethodGroup],
         "files": files,
     }
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(meta, f, indent=2)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
     return path
 
 

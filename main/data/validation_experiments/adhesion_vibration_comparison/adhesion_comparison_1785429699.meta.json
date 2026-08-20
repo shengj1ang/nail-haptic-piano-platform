@@ -47,7 +47,7 @@
   "analysis_parameters": {
     "alignment": "command",
     "alignment_note": "mean envelopes are interpolated onto a common grid aligned at the motor-on command",
-    "steady_state_definition": "detected stable time \u2192 motor-off; only trials whose steady region is a settled one enter the steady-state statistics",
+    "steady_state_definition": "detected stable time → motor-off; only trials whose steady region is a settled one enter the steady-state statistics",
     "steady_min_s": 0.2,
     "robust_peak_percentile": 99.0,
     "spectrum_min_hz": 20.0,

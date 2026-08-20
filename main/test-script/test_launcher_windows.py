@@ -1,12 +1,18 @@
 """Launcher window lifecycle: what may coexist, and what closing means.
 
-Two rules are pinned here.
+Three rules are pinned here.
 
 Most tools claim the camera or the MIDI keyboard, so the launcher opens
 one at a time. The analysis windows are the exception - they read exported
 CSVs and nothing else, and reading a participant's numbers against the
 group's is exactly a two-window job - so they coexist, with each other and
 with whatever exclusive tool is open.
+
+Each button's hover text names which of those two it is, or that it is a
+detached tele-training process instead. That text is derived rather than
+written per button, and TestLifetimeTooltips holds the derivation against
+what the launcher really does, so a tool changing category cannot leave a
+button promising the old one.
 
 Closing the launcher ends the session. That has to include windows the
 tools opened themselves (per-event review, the cue screen), because each
@@ -28,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 from PySide6.QtCore import QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMainWindow  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton  # noqa: E402
 
 import launcher  # noqa: E402
 from app.config import Config  # noqa: E402
@@ -83,6 +89,63 @@ class TestConcurrentTools(unittest.TestCase):
         self.win._open(QuizAnalysisWindow)
         self.assertIsNot(self.win._current, first)
         self.assertFalse(first.isVisible())
+
+
+class TestLifetimeTooltips(unittest.TestCase):
+    """The hover text promises a lifetime; these check it is the one the
+    launcher actually gives that tool.
+
+    Hover text about coexistence is the kind that rots silently - a tool
+    moves in or out of CONCURRENT_TOOLS and its tooltip keeps describing
+    the old behaviour, which is worse than no tooltip because it is
+    believed. lifetime_tooltip derives the text from the two facts that
+    implement the rule, and these tests pin that derivation to what
+    _open() and closeEvent() do.
+    """
+
+    def test_every_button_says_what_it_will_do(self):
+        win = launcher.LauncherWindow(Config.load())
+        self.addCleanup(win.close)
+        buttons = win.findChildren(QPushButton)
+        self.assertTrue(buttons)
+        self.assertTrue(all(btn.toolTip() for btn in buttons))
+
+    def test_each_entry_gets_the_tooltip_matching_how_it_opens(self):
+        known = {
+            launcher.EXCLUSIVE_TOOLTIP,
+            launcher.CONCURRENT_TOOLTIP,
+            launcher.PROCESS_TOOLTIP,
+        }
+        for _title, tools in launcher.SECTIONS:
+            for label, entry in tools:
+                tip = launcher.lifetime_tooltip(entry)
+                self.assertIn(tip, known, label)
+                if isinstance(entry, launcher.ProcessEntry):
+                    expected = launcher.PROCESS_TOOLTIP
+                elif entry in launcher.CONCURRENT_TOOLS:
+                    expected = launcher.CONCURRENT_TOOLTIP
+                else:
+                    expected = launcher.EXCLUSIVE_TOOLTIP
+                self.assertEqual(tip, expected, label)
+
+    def test_only_the_process_tooltip_promises_to_outlive_the_launcher(self):
+        """closeEvent() closes every sub-window and deliberately spares the
+        detached processes, so exactly one of the three may say so."""
+        outlives = "Keeps running after the launcher closes"
+        self.assertIn(outlives, launcher.PROCESS_TOOLTIP)
+        self.assertNotIn(outlives, launcher.EXCLUSIVE_TOOLTIP)
+        self.assertNotIn(outlives, launcher.CONCURRENT_TOOLTIP)
+        for tip in (launcher.EXCLUSIVE_TOOLTIP, launcher.CONCURRENT_TOOLTIP):
+            self.assertIn("Closes when the launcher closes", tip)
+
+    def test_the_concurrent_tooltip_is_worn_by_exactly_the_concurrent_tools(self):
+        wearing = {
+            entry
+            for _title, tools in launcher.SECTIONS
+            for _label, entry in tools
+            if launcher.lifetime_tooltip(entry) == launcher.CONCURRENT_TOOLTIP
+        }
+        self.assertEqual(wearing, launcher.CONCURRENT_TOOLS)
 
 
 class TestClosingTheLauncherEndsTheSession(unittest.TestCase):

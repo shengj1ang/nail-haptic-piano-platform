@@ -196,7 +196,7 @@ def save_quiz_results(results: List[QuizResult], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump([asdict(r) for r in results], f, indent=2)
+        json.dump([asdict(r) for r in results], f, indent=2, ensure_ascii=False)
 
 
 def load_quiz_results(path: Path) -> List[QuizResult]:
@@ -231,7 +231,7 @@ class QuizMeta:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2)
+            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, path: Path) -> "QuizMeta":

@@ -97,7 +97,7 @@ def analyze_recording(
         hands_out_path = Path(hands_out_path)
         hands_out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(hands_out_path, "w", encoding="utf-8") as f:
-            json.dump(serializable, f)
+            json.dump(serializable, f, ensure_ascii=False)
 
     results: List[Optional[FingerMatch]] = []
     for event in events:

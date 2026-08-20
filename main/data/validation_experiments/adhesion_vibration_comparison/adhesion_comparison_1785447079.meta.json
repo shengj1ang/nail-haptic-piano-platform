@@ -69,7 +69,7 @@
       "within_run": "pooled spread of trials around their own run's mean - measurement repeatability of one mount; the headline SD only when a method has a single run",
       "note": "sd_basis records which one a figure used"
     },
-    "steady_state_definition": "detected stable time \u2192 motor-off; only trials whose steady region is a settled one enter the steady-state statistics",
+    "steady_state_definition": "detected stable time → motor-off; only trials whose steady region is a settled one enter the steady-state statistics",
     "steady_min_s": 0.2,
     "robust_peak_percentile": 99.0,
     "spectrum_min_hz": 20.0,

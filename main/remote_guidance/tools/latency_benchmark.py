@@ -992,7 +992,7 @@ def save_run(samples: List[ProbeSample], summary: Dict[str, Any], run_id: Option
     summary["run_id"] = run_id
     summary["written_at"] = time.time()
     with open(directory / "summary.json", "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2)
+        json.dump(summary, f, indent=2, ensure_ascii=False)
 
     _write_figures(samples, summary, directory)
     return directory

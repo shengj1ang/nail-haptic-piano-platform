@@ -373,7 +373,7 @@ def create_recording(
     db.execute(
         "INSERT INTO recordings (id, room_id, uploaded_by, name, source, event_count, duration_s, meta_json, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (recording_id, room_id, uploaded_by, name, source, len(events), duration, json.dumps(meta), time.time()),
+        (recording_id, room_id, uploaded_by, name, source, len(events), duration, json.dumps(meta, ensure_ascii=False), time.time()),
     )
     db.executemany(
         "INSERT INTO recording_events "
@@ -474,7 +474,7 @@ def insert_guidance_event(db: Database, row: Dict[str, Any]) -> bool:
             row.get("sender_send_wall_ns"),
             row.get("server_receive_wall_ns"),
             row.get("server_send_wall_ns"),
-            json.dumps(row.get("payload", {})),
+            json.dumps(row.get("payload", {}), ensure_ascii=False),
             time.time(),
         ),
     )
@@ -497,7 +497,7 @@ def insert_performance_event(db: Database, row: Dict[str, Any]) -> bool:
             row.get("stage", "provisional"),
             row.get("sender_send_wall_ns"),
             row.get("server_receive_wall_ns"),
-            json.dumps(row.get("payload", {})),
+            json.dumps(row.get("payload", {}), ensure_ascii=False),
             time.time(),
         ),
     )
@@ -537,7 +537,7 @@ def create_latency_run(db: Database, room_id: str, created_by: str, config: Dict
     db.execute(
         "INSERT INTO latency_runs (id, room_id, session_id, created_by, config_json, started_at) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, room_id, session_id, created_by, json.dumps(config), time.time()),
+        (run_id, room_id, session_id, created_by, json.dumps(config, ensure_ascii=False), time.time()),
     )
     return run_id
 
@@ -545,7 +545,7 @@ def create_latency_run(db: Database, room_id: str, created_by: str, config: Dict
 def finish_latency_run(db: Database, run_id: str, summary: Dict[str, Any]) -> None:
     db.execute(
         "UPDATE latency_runs SET summary_json = ?, finished_at = ? WHERE id = ?",
-        (json.dumps(summary), time.time(), run_id),
+        (json.dumps(summary, ensure_ascii=False), time.time(), run_id),
     )
 
 

@@ -142,7 +142,7 @@ def save_raw_midi_log(events: List[RawMidiEvent], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump([asdict(e) for e in events], f, indent=2)
+        json.dump([asdict(e) for e in events], f, indent=2, ensure_ascii=False)
 
 
 def load_raw_midi_log(path: Path) -> List[RawMidiEvent]:
@@ -248,7 +248,7 @@ class SyncInfo:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2)
+            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, path: Path) -> "SyncInfo":
@@ -295,7 +295,7 @@ class SongMeta:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2)
+            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, path: Path) -> "SongMeta":
@@ -336,7 +336,7 @@ def save_fingering(entries: List[FingeringEntry], path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump([asdict(e) for e in entries], f, indent=2)
+        json.dump([asdict(e) for e in entries], f, indent=2, ensure_ascii=False)
 
 
 def load_fingering(path: Path) -> List[FingeringEntry]:

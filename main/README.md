@@ -11,10 +11,12 @@ are built on.
 app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
 launcher.py                     entry point - hub window for every tool below, grouped into the same
                                  numbered sections used throughout this README (1 Initial Setup ...
-                                 9 Validation Experiments). Section 8 Tele-training is the one
+                                 10 Tools). Section 8 Tele-training is the one
                                  section whose buttons start SEPARATE processes rather than a
                                  sub-window, because a student, a teacher and a relay have to run at
                                  the same time - see "Tele-training" below.
+                                 Section 10 Tools is data housekeeping, not part of running or
+                                 analysing a session - see "Quiz data maintenance tools" below.
                                  Section 1 also holds two launcher-only settings windows: Visual
                                  Guidance Cue Selection (app/gui/cue_selection_window.py), which
                                  persists the quiz cue style (dot/hand) to config.json, and Haptic
@@ -66,10 +68,14 @@ REMOTE_GUIDANCE.md              design + handover notes for the whole tele-train
 quiz_analysis.py                entry point - batch offline analysis of saved quiz sessions: outcome
                                  metrics table, LED sync alignment, per-event review/correction,
                                  carry-over review, participant CSV export (section 7: data analysis)
-tool_compress_review_videos.py  maintenance tool - scans data/quiz/*/review.mp4 and converts only
-                                 non-H.264 review copies with ffmpeg; never enters raw/
-tool_backup_quiz_to_zip.py      maintenance tool - macOS/7z participant backup: creates one tested
-                                 data/quiz-zip/Pxx.zip for each complete P01-P20 participant
+tool_compress_review_videos.py  entry point (console) - scans data/quiz/*/review.mp4 and converts only
+                                 non-H.264 review copies with ffmpeg; never enters raw/. A thin
+                                 frontend over app/review_compress.py, which the launcher's
+                                 "Review Video Compression" window (section 10) also drives
+tool_backup_quiz_to_zip.py      entry point (console) - participant backup: creates one tested
+                                 data/quiz-zip/Pxx.zip for each complete P01-P20 participant.
+                                 A thin frontend over app/quiz_backup.py, which the launcher's
+                                 "Participant ZIP Backup" window (section 10) also drives
 
 config.json                     app/ settings (auto-created): camera/MIDI, active_keyboard_profile,
                                  visual_cue_style, haptic (actuator in use + per-actuator default
@@ -139,17 +145,67 @@ read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old 
 ../archived/python-prototypes/  the former archive/ folder: early FingerAccuracy prototypes,
                                  one-off utilities, and old bug reports - reference only
 runtime                         Python Environment in Windows, python 3.11.9, do not use or read or change this diretory when in development
+runtime/bin/                    optional drop-in folder for ffmpeg / 7z executables (see
+                                 "Where ffmpeg and 7z come from" below). Searched before PATH;
+                                 the executables themselves are not committed
 venv.bat                        Do not read/write this file
 launcher.bat                    Do not read/write this file
 ```
 
 ---
 
-## Quiz data maintenance tools
+## Quiz data maintenance tools (launcher section 10)
 
-These two standalone, no-argument tools use paths relative to this `main/`
-directory. Run them from here; neither tool is part of the launcher or the
-analysis pipeline.
+Two tools for looking after data that has already been collected. Neither
+is part of running a session or analysing one, and neither reads anything
+the experiment reads.
+
+Each has two frontends over one implementation:
+
+| | window (launcher section 10) | console | shared logic |
+| --- | --- | --- | --- |
+| review videos -> H.264 | Review Video Compression | `python3 tool_compress_review_videos.py` | `app/review_compress.py` |
+| participant backups | Participant ZIP Backup | `python3 tool_backup_quiz_to_zip.py` | `app/quiz_backup.py` |
+
+The window and the script do the same thing to the same files, because
+neither decides anything: **Scan** is the script's first phase, and
+**Convert** / **Create archives** is what answering `1` at its prompt
+does. Everything below describes both. The windows add only what a
+terminal cannot: a table of what was found, an overall and a per-file
+progress bar, a running log, and a **Stop** button.
+
+Paths are anchored to this `main/` directory, so the scripts no longer
+have to be run from here (though they still can be), and the windows work
+wherever the launcher was started from.
+
+Both windows keep running when you open another launcher tool - a
+conversion pass is minutes of work and should not be thrown away by a
+button press - and both are closed by closing the launcher.
+
+### Where ffmpeg and 7z come from
+
+Neither program is a Python dependency, so `app/tool_binaries.py` looks
+for them in two places, in this order:
+
+1. **`main/runtime/bin/`** - drop `ffmpeg.exe` / `7z.exe` (or their
+   macOS/Linux equivalents) in that folder and nothing has to be
+   installed on the machine. `launcher.bat` prepends the folder to `PATH`
+   for the window it starts, and `app/tool_binaries.py` prepends it
+   in-process as well, so anything the tools start themselves finds the
+   same copy. Both are temporary: nothing is written to the system `PATH`
+   or the registry.
+2. **`PATH`**, as installed system-wide.
+
+The lookup uses `shutil.which`, so on Windows the name `7z` finds
+`7z.exe` without the extension being spelled out. 7-Zip is accepted under
+any of the names `7z`, `7zz` or `7za` - all three can write and test the
+ZIP archives the backup tool asks for.
+
+Each window shows which copy it is using, or a warning naming
+`runtime/bin` if it found none, and has a **Re-check** button so a
+program dropped in there is picked up without restarting the launcher.
+The console tools print the same message and exit with status 2 rather
+than starting work they cannot finish.
 
 ### Compress generated review videos to H.264
 
@@ -157,27 +213,44 @@ analysis pipeline.
 python3 tool_compress_review_videos.py
 ```
 
-`tool_compress_review_videos.py` scans every direct
-`data/quiz/<attempt>/review.mp4`, reports its codec, and shows a confirmation
-menu before making changes. Files already encoded as H.264 and unreadable or
-unknown files are skipped. The path pattern cannot enter
-`data/quiz/<attempt>/raw/`, so original `raw/performance.mp4` recordings are
-outside the tool's scope.
+Scans every direct `data/quiz/<attempt>/review.mp4`, reports its codec,
+and asks before making changes. Files already encoded as H.264 and
+unreadable or unknown files are skipped. The path pattern cannot enter
+`data/quiz/<attempt>/raw/`, so original `raw/performance.mp4` recordings
+are outside the tool's scope.
 
-For each non-H.264 review, the tool renames the source to `tmp-review.mp4` and
-runs this exact conversion command in that attempt directory:
+For each non-H.264 review, the tool renames the source to
+`tmp-review.mp4` and runs this exact conversion command in that attempt
+directory:
 
 ```bash
 ffmpeg -i tmp-review.mp4 review.mp4
 ```
 
+No options are added to it - the MP4 defaults, including H.264 video, are
+the point. (The window's per-file progress bar reads the frame counter
+from the stderr ffmpeg writes anyway, so watching a conversion needs no
+extra flag either.)
+
 The temporary original is deleted only after the output is non-empty,
-confirmed as H.264, fully decodable by ffmpeg, and has exactly the same frame
-count as the source. If ffmpeg is absent, disappears, fails, produces an empty
-file, produces a non-H.264 file, or changes the frame count, the source is not
-deleted. The tool restores the original `review.mp4` and preserves any failed
-output as `failed-review.mp4` (or the next unused numbered name). An existing
-`tmp-review.mp4`, output file, or symbolic link is never overwritten.
+confirmed as H.264, fully decodable by ffmpeg, and has exactly the same
+frame count as the source. If ffmpeg is absent, disappears, fails,
+produces an empty file, produces a non-H.264 file, or changes the frame
+count, the source is not deleted. The tool restores the original
+`review.mp4` and preserves any failed output as `failed-review.mp4` (or
+the next unused numbered name). An existing `tmp-review.mp4`, output
+file, or symbolic link is never overwritten.
+
+Pressing **Stop** (or Ctrl-C) mid-conversion is handled as one more way
+for that file to fail: ffmpeg is terminated, the original is put back,
+and the discarded output is left as `failed-review.mp4` for you to look
+at and delete. Files not reached yet are simply not touched.
+
+Because a conversion is only safe if the result can be proved equivalent,
+each file costs three ffmpeg passes - decode the original, encode, decode
+the result - which is why the window has a per-file bar as well as an
+overall one, and why a full pass over a study's worth of reviews is an
+hour-scale job.
 
 ### Back up complete participants as ZIP files
 
@@ -185,22 +258,43 @@ output as `failed-review.mp4` (or the next unused numbered name). An existing
 python3 tool_backup_quiz_to_zip.py
 ```
 
-`tool_backup_quiz_to_zip.py` runs only on macOS and requires the `7z` command
-on `PATH`. It previews every archive it is ready to create and asks for
-confirmation before creating `data/quiz-zip/`. Only participant directories
-matching P01 through P20 and trial T01 through T27 are eligible. A participant
-is archived only after all 27 trial numbers are present, preventing an
-incomplete `Pxx.zip` from being permanently skipped as an existing backup on a
-later run. `TEST-*`, `remote-*`, other unexpected directory names, symbolic
-links used in place of trial directories, and `.DS_Store` files at every
-depth are excluded.
+Previews every archive it is ready to create and asks for confirmation
+before creating `data/quiz-zip/`. Only participant directories matching
+P01 through P20 and trial T01 through T27 are eligible. A participant is
+archived only after all 27 trial numbers are present, preventing an
+incomplete `Pxx.zip` from being permanently skipped as an existing backup
+on a later run. `TEST-*`, `remote-*`, other unexpected directory names,
+symbolic links used in place of trial directories, and `.DS_Store` files
+at every depth are excluded.
 
 Each participant is written first as `data/quiz-zip/tmp-Pxx.zip` with
 `7z a -tzip`, so the archive format is ZIP rather than 7z. The temporary
 archive must pass `7z t` before it is renamed to `Pxx.zip`. Existing
-`Pxx.zip` and temporary archives are never overwritten. A failed or
-interrupted temporary archive is preserved for inspection, and no source
-directory or source file is ever deleted or modified.
+`Pxx.zip` and temporary archives are never overwritten. A failed,
+stopped or interrupted temporary archive is preserved for inspection -
+and must be removed by hand before that participant can be retried - and
+no source directory or source file is ever deleted or modified.
+
+This tool used to refuse to run anywhere but macOS. It no longer does:
+the work is one 7z invocation over relative paths, which is as true on
+Windows as it is on macOS, and which 7z to use now comes from the lookup
+described above rather than from an assumed Homebrew install.
+
+The window's table is the preview, one row per participant, and its
+State column is the reason that participant is or is not being archived
+("ready", "incomplete" with the missing trials named, "archive exists",
+"temporary archive exists") - which between sessions is usually the
+question being asked.
+
+### Tests
+
+```bash
+python3 test-script/test_maintenance_tools.py
+```
+
+Runs against a temporary `data/quiz` built for each test; the project's
+own data is never read or written. The conversion and archiving tests
+skip themselves if ffmpeg or 7z is not available.
 
 ---
 
@@ -607,6 +701,14 @@ app/
                                #   confusion, wrong-key distance - unit-tested in test-script/
   haptic_cue.py                # per-finger vibration cue driver used by the haptic quiz and the
                                #   pilot study's condition C trials
+  tool_binaries.py             # finds ffmpeg / 7z: runtime/bin first, then PATH (see "Quiz data
+                               #   maintenance tools"); imports nothing from the rest of app/
+  review_compress.py           # GUI-free: scan + convert data/quiz/*/review.mp4 to H.264, with the
+                               #   rollback rules that make deleting the original safe. Driven by
+                               #   tool_compress_review_videos.py and the section 10 window
+  quiz_backup.py               # GUI-free: eligibility + one tested data/quiz-zip/Pxx.zip per
+                               #   complete participant. Driven by tool_backup_quiz_to_zip.py and
+                               #   the section 10 window
   keyboard/
     template.py                # KeyBox, KeyboardTemplate - the pixel-exact key map
     wizard.py                  # KeyFillWizard - paint-bucket key segmentation
@@ -621,7 +723,10 @@ app/
                                 #   controller, trial runner, participant-facing experiment cue
                                 #   screen; and the analysis windows: quiz_analysis_window,
                                 #   quiz_detail_window, event_review_window, video_sync_window,
-                                #   participant_analysis_window)
+                                #   participant_analysis_window; and the section 10 maintenance
+                                #   windows: maintenance_window.py - the shared shell (worker
+                                #   thread, progress bars, log, tool status) - with
+                                #   review_compress_window and quiz_backup_window over it)
 ```
 
 `../archived/python-prototypes/` holds earlier, now-superseded prototypes of this same detector

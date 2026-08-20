@@ -5,4 +5,7 @@ main/.DS_Store
 *.mp4
 main/data/quiz-zip/
 main/runtime/Python311
+# Bundled ffmpeg/7z binaries, not the folder's README
+main/runtime/bin/*
+!main/runtime/bin/README.md
 main/normalisation/
