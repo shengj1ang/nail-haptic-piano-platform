@@ -55,7 +55,7 @@ fact reported as subjectively uncomfortable during piloting.
 
 | Item | Value |
 |------|------|
-| Actuator | Coin LRA, wired to motor **port 0**, stuck to the desk with Blu-Tack (adhesive putty) |
+| Actuator | Coin LRA, wired to motor **port 11**, stuck to the desk with Blu-Tack (adhesive putty) |
 | Sensor | LIS3DH accelerometer, sensor 0 (CS pin 36), coupled to the LRA through the same Blu-Tack mount; ±2 g high-resolution mode (1 count = 1 mg) |
 | Drive | Teensy 4.1 PWM through the motor driver board, 10 V motor rail; `haptic-piano` firmware **v2.6.0+** (`F` frequency command, `ACC,id,x,y,z` stream) |
 | Sampling | `A START 3` (3 ms interval; the LIS3DH ODR is 400 Hz) |
@@ -323,7 +323,7 @@ so it tracks the firmware, not the config.
 
 - A flat frequency curve with no peak usually means the accelerometer
   is not mechanically coupled to the LRA (check the Blu-Tack) or the
-  motor is not on port 0 (`MOTOR_INDEX`).
+  motor is not on port 11 (`MOTOR_INDEX`).
 - A peak at the edge of the sweep range: widen `COARSE_START_HZ` /
   `COARSE_STOP_HZ`.
 - `amp = 128` on the 10 V rail is a deliberate short-burst overdrive
@@ -336,7 +336,7 @@ All knobs are constants at the top of each script:
 
 | Constant | Default | Meaning |
 |------|------|------|
-| `MOTOR_INDEX` | 0 | motor port driving the LRA |
+| `MOTOR_INDEX` | 11 | motor port driving the LRA |
 | `AMP` (Exp 1) | 128 | sweep drive amplitude (max AC fundamental) |
 | `FREQ_HZ` (Exp 2) | 224 | fixed drive frequency for the amplitude sweep |
 | `AMP_VALUES` (Exp 2) | 4–128 step 4 | amplitude steps |

@@ -142,10 +142,10 @@ except ImportError:  # direct execution from this folder - add main/ to the path
 # ==========================================
 
 # Which actuator this experiment opens on, and its independent default port.
-# Type follows config.json, while the spectrogram always opens on motor 0;
+# Type follows config.json, while the spectrogram always opens on motor 11;
 # switching ERM/LRA only seeds sweep ranges and never rewrites this port.
 DEFAULT_MOTOR_TYPE = hc.actuator_label(hc.get_active_haptic_type())
-MOTOR_INDEX = 0
+MOTOR_INDEX = 11
 ACC_SENSOR_ID = 0
 
 # What a run saved before its meta recorded these is assumed to have
@@ -473,6 +473,12 @@ def save_heatmap(path: str, freqs, amps, matrix, motor_index: int,
 
 def meta_path_for(csv_path: str) -> str:
     return os.path.splitext(csv_path)[0] + ".meta.json"
+
+
+def png_path_for(csv_path: str) -> str:
+    """spectrogram_<ts>.csv -> spectrogram_<ts>.png (same folder) - the
+    run's saved heatmap, so a re-render can overwrite it in place."""
+    return os.path.splitext(csv_path)[0] + ".png"
 
 
 def grid_path_for(csv_path: str) -> str:

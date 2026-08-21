@@ -105,7 +105,7 @@ except ImportError:  # direct execution from this folder - add main/ to the path
 # Experiment configuration
 # ==========================================
 
-MOTOR_INDEX = 0          # LRA is wired to motor port 0 for this experiment
+MOTOR_INDEX = 11         # LRA is wired to motor port 11 for this experiment
 AMP = 128                # 50% duty = maximum AC fundamental for an LRA
 
 ACC_SENSOR_ID = 0
@@ -286,6 +286,16 @@ def save_plot(path: str, coarse: List[StepResult], fine: List[StepResult],
 def meta_path_for(csv_path: str) -> str:
     """sweep_<ts>.csv -> sweep_<ts>.meta.json (same folder)."""
     return os.path.splitext(csv_path)[0] + ".meta.json"
+
+
+def png_path_for(csv_path: str) -> str:
+    """sweep_<ts>.csv -> frequency_response_<ts>.png (same folder) - the
+    run's saved plot, so a re-render can overwrite it in place. The PNG
+    uses a different prefix than the CSV, so only the trailing stamp is
+    shared."""
+    stamp = os.path.splitext(os.path.basename(csv_path))[0].rsplit("_", 1)[-1]
+    return os.path.join(os.path.dirname(csv_path),
+                        f"frequency_response_{stamp}.png")
 
 
 def save_meta(csv_path: str, png_path: str, raw_path: Optional[str],

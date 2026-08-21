@@ -964,6 +964,16 @@ def meta_path_for(csv_path: str) -> str:
     return os.path.splitext(csv_path)[0] + ".meta.json"
 
 
+def png_path_for(csv_path: str) -> str:
+    """delay_trials_<ts>.csv -> delay_summary_<ts>.png (same folder) - the
+    run's saved figure, so a re-render can overwrite it in place."""
+    folder, name = os.path.split(csv_path)
+    stem = os.path.splitext(name)[0]
+    return os.path.join(folder,
+                        stem.replace("delay_trials_", "delay_summary_", 1)
+                        + ".png")
+
+
 # Timing columns first (the three instants, then the three latencies that
 # are DERIVED from them and are never merged), then the steady-state and
 # detection-parameter columns, then the historical crossing columns, then

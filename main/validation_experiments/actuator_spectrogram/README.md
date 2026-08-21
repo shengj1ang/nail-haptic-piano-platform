@@ -165,7 +165,7 @@ At the top of `actuator_spectrogram.py`:
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `MOTOR_INDEX` | 0 | default motor port; switching ERM/LRA leaves it unchanged |
+| `MOTOR_INDEX` | 11 | default motor port; switching ERM/LRA leaves it unchanged |
 | `TYPE_CONFIG` | ERM amp 0–255 / freq 50–5000 · LRA amp 0–255 / freq 0–350 | per-type **default** amp & frequency ranges (all adjustable per run) |
 | `AMP_MIN` / `AMP_MAX` | 0 / 255 | absolute bounds the amp-range controls allow |
 | `FREQ_DRIVE_MIN` / `FREQ_MAX_LIMIT` | 50 / 20000 | firmware `F`-command min/max (Hz); the sweep starts at the min |

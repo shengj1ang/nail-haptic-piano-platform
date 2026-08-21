@@ -126,7 +126,7 @@ except ImportError:  # direct execution from this folder - add main/ to the path
 # Experiment configuration
 # ==========================================
 
-MOTOR_INDEX = 0          # LRA port (same rig as the frequency sweep)
+MOTOR_INDEX = 11         # LRA port (same rig as the frequency sweep)
 # The frequency the amplitudes are measured at: the LRA's configured
 # resonance (config.json haptic.lra.default_frequency, adopted from
 # lra_frequency_sweep's result). Read at import as the command-line /
@@ -489,6 +489,16 @@ def save_plot(path: str, results: List[StepResult],
 def meta_path_for(csv_path: str) -> str:
     """amp_sweep_<ts>.csv -> amp_sweep_<ts>.meta.json (same folder)."""
     return os.path.splitext(csv_path)[0] + ".meta.json"
+
+
+def png_path_for(csv_path: str) -> str:
+    """amp_sweep_<ts>.csv -> amplitude_response_<ts>.png (same folder) -
+    the run's saved plot, so a re-render can overwrite it in place. The
+    PNG uses a different prefix than the CSV, so only the trailing stamp
+    is shared."""
+    stamp = os.path.splitext(os.path.basename(csv_path))[0].rsplit("_", 1)[-1]
+    return os.path.join(os.path.dirname(csv_path),
+                        f"amplitude_response_{stamp}.png")
 
 
 def result_block(results: List[StepResult], metric: str) -> dict:

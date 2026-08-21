@@ -627,6 +627,17 @@ class _SweepWindowBase(QMainWindow):
             "live run reports - into the log below, for the metric the "
             "chart is currently using.")
         self.stats_btn.clicked.connect(self._show_statistics)
+        # Unlike everything else on this row (read-only), this rebuilds the
+        # displayed run's SAVED figure from its CSV and overwrites it on
+        # disk, so the stored image matches the current render settings.
+        self.refresh_img_btn = QPushButton("Refresh Image")
+        self.refresh_img_btn.setToolTip(
+            "Regenerate the displayed run's saved figure from its CSV and "
+            "overwrite the stored PNG. The image is rebuilt from the data, "
+            "so nothing can be lost; use it to refresh an old chart with the "
+            "current plot settings. This is the only control here that "
+            "modifies a saved file.")
+        self.refresh_img_btn.clicked.connect(self._refresh_saved_image)
         self.acc_view_btn = QPushButton("Open Accelerometer Live View")
         self.acc_view_btn.setToolTip(
             "Watch the ACC stream live - with the view connected, Test Buzz "
@@ -649,6 +660,7 @@ class _SweepWindowBase(QMainWindow):
         runs_row.addWidget(self.run_combo, 1)
         runs_row.addWidget(self.load_csv_btn)
         runs_row.addWidget(self.stats_btn)
+        runs_row.addWidget(self.refresh_img_btn)
 
         metric_row = self._build_metric_row()
 
@@ -1089,6 +1101,47 @@ class _SweepWindowBase(QMainWindow):
         else:
             self.status.setText("This experiment has no text statistics.")
 
+    def _refresh_saved_image(self) -> None:
+        """"Refresh Image" - rebuild the displayed run's SAVED figure from
+        its CSV and overwrite the stored PNG. Every other saved-run control
+        renders to a throwaway temp file; this one deliberately rewrites the
+        run's own image so an old chart can be brought up to date with the
+        current plot settings. The PNG is fully derived from the CSV, so no
+        measured data is at stake."""
+        if self._current_csv is None:
+            self.status.setText("No run displayed yet - load a saved run or "
+                                "press Start first.")
+            return
+        png_for = getattr(self.MODULE, "png_path_for", None)
+        if png_for is None:
+            self.status.setText("This experiment can't refresh saved images.")
+            return
+        png_path = png_for(self._current_csv)
+        reply = QMessageBox.question(
+            self, "Refresh saved image",
+            "Regenerate and overwrite this run's saved image?\n\n"
+            f"{os.path.basename(png_path)}\n\n"
+            "It is rebuilt from the run's CSV, so no measured data can be "
+            "lost.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            summary = self.MODULE.render_csv(self._current_csv, png_path,
+                                             **self._render_kwargs())
+            self.plot_view.show_png(png_path,
+                                    caption=os.path.basename(self._current_csv))
+        except Exception as e:
+            QMessageBox.warning(self, "Couldn't refresh image", str(e))
+            return
+        # The picker labels can quote the saved figure, so re-scan it.
+        self._populate_run_list(select_path=self._current_csv)
+        self.status.setText(
+            f"Saved image overwritten: {os.path.basename(png_path)} - "
+            + self._summary_text(summary, saved=False))
+        self._log_report(self._current_csv, summary)
+
     # -- loading a saved run ---------------------------------------------
 
     def _load_csv(self) -> None:
@@ -1245,6 +1298,7 @@ class _SweepWindowBase(QMainWindow):
         self.load_csv_btn.setEnabled(False)
         self.run_combo.setEnabled(False)
         self.stats_btn.setEnabled(False)
+        self.refresh_img_btn.setEnabled(False)
         for widget in self._config_inputs:
             widget.setEnabled(False)
         self.test_buzz_btn.setEnabled(False)
@@ -1308,6 +1362,7 @@ class _SweepWindowBase(QMainWindow):
         self.load_csv_btn.setEnabled(True)
         self.run_combo.setEnabled(True)
         self.stats_btn.setEnabled(True)
+        self.refresh_img_btn.setEnabled(True)
         for widget in self._config_inputs:
             widget.setEnabled(True)
         self.test_buzz_btn.setEnabled(True)
