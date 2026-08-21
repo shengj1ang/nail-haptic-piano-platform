@@ -577,6 +577,182 @@ class RecordingAndSessionTests(_ServerCase):
 
 
 # ---------------------------------------------------------------------------
+# Session listing and bulk export
+# ---------------------------------------------------------------------------
+
+
+class SessionListingAndExportTests(_ServerCase):
+    def setUp(self):
+        super().setUp()
+        self.teacher = self.register("teacher1", "teacher")
+        self.student = self.register("student1", "student")
+        self.room = self.make_room(self.teacher)
+        self.join(self.student, self.room)
+        self.room_id = self.room["room_id"]
+
+    def _session(self):
+        response = self.client.post(
+            f"/api/v1/rooms/{self.room_id}/sessions",
+            json={"mode": "live", "guidance_mode": "both"},
+            headers=self.auth(self.teacher),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return response.json()["session_id"]
+
+    def _relay_one_cue(self, session_id):
+        """Drive one guidance frame and its performance reply through the
+        relay, so the exported rows are the ones the server really stored
+        rather than fixtures written straight into the database."""
+        teacher_socket = self.connect(self.teacher, self.room_id)
+        student_socket = self.connect(self.student, self.room_id)
+        guidance_id = str(uuid.uuid4())
+        teacher_socket.send_json(
+            make_envelope(
+                "guidance.live", guidance_id, room_id=self.room_id, session_id=session_id, seq=1,
+                payload={"note": 60, "finger": "R1"},
+            )
+        )
+        self.drain(student_socket, "guidance.live")
+        student_socket.send_json(
+            make_envelope(
+                "performance.response", str(uuid.uuid4()), room_id=self.room_id, session_id=session_id, seq=2,
+                payload={
+                    "stage": "final",
+                    "guidance_message_id": guidance_id,
+                    "timings": {
+                        "teacher_send_wall_ns": 1,
+                        "student_receive_wall_ns": 2,
+                        "visual_painted_monotonic_ns": 30,
+                        "haptic_command_complete_monotonic_ns": 29,
+                        "timing_kind": "software_dispatch_render",
+                    },
+                },
+            )
+        )
+        self.drain(teacher_socket, "performance.response")
+        # The relay persists on a background writer, so let it land before
+        # the export asks for it.
+        for _ in range(50):
+            if self.client.get(
+                f"/api/v1/sessions/{session_id}/events", headers=self.auth(self.teacher)
+            ).json()["performance"]:
+                return
+            time.sleep(0.02)
+        self.fail("performance event was never persisted")
+
+    def test_listing_reports_event_counts(self):
+        empty = self._session()
+        used = self._session()
+        self._relay_one_cue(used)
+
+        body = self.client.get("/api/v1/sessions", headers=self.auth(self.teacher)).json()
+        self.assertFalse(body["truncated"])
+        counts = {s["session_id"]: s for s in body["sessions"]}
+        self.assertEqual(counts[used]["performance_event_count"], 1)
+        self.assertEqual(counts[used]["guidance_event_count"], 1)
+        self.assertEqual(counts[empty]["performance_event_count"], 0)
+        self.assertEqual(counts[used]["room_name"], self.room["name"])
+
+    def test_listing_is_newest_first_and_reports_truncation(self):
+        first = self._session()
+        second = self._session()
+        body = self.client.get("/api/v1/sessions", headers=self.auth(self.teacher)).json()
+        self.assertEqual([s["session_id"] for s in body["sessions"]], [second, first])
+
+        clipped = self.client.get("/api/v1/sessions?limit=1", headers=self.auth(self.teacher)).json()
+        self.assertEqual(clipped["count"], 1)
+        self.assertTrue(clipped["truncated"])
+
+    def test_listing_filters_by_room_and_time(self):
+        before = time.time()
+        session_id = self._session()
+        self.assertEqual(
+            [s["session_id"] for s in self.client.get(
+                f"/api/v1/sessions?room_id={self.room_id}", headers=self.auth(self.teacher)
+            ).json()["sessions"]],
+            [session_id],
+        )
+        later = self.client.get(
+            f"/api/v1/sessions?since={before + 3600}", headers=self.auth(self.teacher)
+        ).json()
+        self.assertEqual(later["count"], 0)
+
+    def test_listing_only_shows_rooms_the_caller_joined(self):
+        self._session()
+        outsider = self.register("teacher9", "teacher")
+        self.assertEqual(self.client.get("/api/v1/sessions", headers=self.auth(outsider)).json()["count"], 0)
+        # Naming the room explicitly is a 403 rather than a silent empty list.
+        self.assertEqual(
+            self.client.get(
+                f"/api/v1/sessions?room_id={self.room_id}", headers=self.auth(outsider)
+            ).status_code,
+            403,
+        )
+        # A student of the room sees it, exactly as it sees the single-session routes.
+        self.assertEqual(self.client.get("/api/v1/sessions", headers=self.auth(self.student)).json()["count"], 1)
+
+    def test_export_returns_the_stored_timings_verbatim(self):
+        session_id = self._session()
+        self._relay_one_cue(session_id)
+
+        body = self.client.get("/api/v1/sessions/export", headers=self.auth(self.teacher)).json()
+        self.assertEqual(body["count"], 1)
+        exported = body["sessions"][0]
+        self.assertEqual(exported["session"]["session_id"], session_id)
+        self.assertEqual(len(exported["guidance"]), 1)
+        self.assertEqual(len(exported["performance"]), 1)
+        timings = exported["performance"][0]["payload"]["timings"]
+        self.assertEqual(timings["teacher_send_wall_ns"], 1)
+        self.assertEqual(timings["timing_kind"], "software_dispatch_render")
+        # The same rows the single-session route serves, in one reply.
+        single = self.client.get(
+            f"/api/v1/sessions/{session_id}/events", headers=self.auth(self.teacher)
+        ).json()
+        self.assertEqual(exported["performance"], single["performance"])
+
+    def test_export_accepts_explicit_ids_and_drops_duplicates(self):
+        first = self._session()
+        second = self._session()
+        body = self.client.get(
+            f"/api/v1/sessions/export?session_ids={first},{second},{first}", headers=self.auth(self.teacher)
+        ).json()
+        self.assertEqual(body["count"], 2)
+        self.assertEqual({s["session"]["session_id"] for s in body["sessions"]}, {first, second})
+
+    def test_export_refuses_more_ids_than_the_limit(self):
+        ids = ",".join(self._session() for _ in range(2))
+        response = self.client.get(
+            f"/api/v1/sessions/export?limit=1&session_ids={ids}", headers=self.auth(self.teacher)
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_export_is_scoped_like_the_single_session_routes(self):
+        session_id = self._session()
+        outsider = self.register("teacher9", "teacher")
+        self.assertEqual(
+            self.client.get(
+                f"/api/v1/sessions/export?session_ids={session_id}", headers=self.auth(outsider)
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.get("/api/v1/sessions/export", headers=self.auth(outsider)).json()["count"], 0)
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/sessions/export?session_ids=not-a-session", headers=self.auth(self.teacher)
+            ).status_code,
+            404,
+        )
+        self.assertEqual(self.client.get("/api/v1/sessions/export").status_code, 401)
+
+    def test_export_literal_is_not_read_as_a_session_id(self):
+        """/sessions/export must not be routed into /sessions/{session_id}."""
+        self._session()
+        self.assertEqual(
+            self.client.get("/api/v1/sessions/export", headers=self.auth(self.teacher)).status_code, 200
+        )
+
+
+# ---------------------------------------------------------------------------
 # WebSocket relay
 # ---------------------------------------------------------------------------
 

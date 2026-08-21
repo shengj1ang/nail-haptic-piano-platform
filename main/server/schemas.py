@@ -251,6 +251,26 @@ class SessionResponse(BaseModel):
     finished_at: Optional[float] = None
 
 
+class SessionListEntry(SessionResponse):
+    """A session row plus the two numbers that decide whether it is worth
+    exporting: how many relayed frames and how many performance rows it
+    actually produced."""
+
+    room_name: Optional[str] = None
+    guidance_event_count: int = 0
+    performance_event_count: int = 0
+
+
+class SessionListResponse(BaseModel):
+    count: int
+    limit: int
+    # True when more sessions matched than `limit` allowed through, so a
+    # caller knows to narrow `since`/`room_id` rather than assuming it has
+    # the whole set.
+    truncated: bool = False
+    sessions: List[SessionListEntry] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     protocol_version: int = PROTOCOL_VERSION

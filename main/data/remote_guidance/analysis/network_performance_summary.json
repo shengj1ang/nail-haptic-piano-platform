@@ -1,0 +1,72 @@
+{
+  "transport": {
+    "source": "1000-probe RTT benchmark 20260817-225801, London relay, campus Wi-Fi both ends",
+    "loss": "0/1000",
+    "transport_rtt_ms": {
+      "n": 1000,
+      "min": 18.14,
+      "median": 36.56,
+      "mean": 75.82,
+      "sd": 59.66,
+      "p95": 150.21,
+      "p99": 258.08,
+      "max": 446.7
+    },
+    "teacher_to_server_ack_ms": {
+      "n": 1000,
+      "min": 9.09,
+      "median": 18.65,
+      "mean": 38.34,
+      "sd": 34.22,
+      "p95": 78.07,
+      "p99": 131.45,
+      "max": 326.28
+    },
+    "bimodal": {
+      "low_mode_frac": 0.637,
+      "low_median": 33.5,
+      "high_frac": 0.363,
+      "high_median": 141.7,
+      "frac_over_100ms": 0.355
+    }
+  },
+  "onset_alignment": {
+    "source": "real two-machine remote sessions 08-18..08-20, n_sessions=11, rows_with_timings=717",
+    "note": "student-local monotonic clock only; wall-clock cross-machine diffs excluded (teacher/server clocks offset ~1.4s, never NTP-synced)",
+    "local_dispatch_ms": {
+      "n": 717,
+      "min": 0.14,
+      "median": 1.1,
+      "mean": 1.97,
+      "sd": 2.81,
+      "p95": 8.55,
+      "p99": 10.92,
+      "max": 14.5
+    },
+    "visual_haptic_skew_signed_ms": {
+      "n": 467,
+      "min": -0.47,
+      "median": -0.2,
+      "mean": -0.21,
+      "sd": 0.06,
+      "p95": -0.15,
+      "p99": -0.09,
+      "max": -0.09
+    },
+    "abs_visual_haptic_skew_ms": {
+      "n": 467,
+      "min": 0.09,
+      "median": 0.2,
+      "mean": 0.21,
+      "sd": 0.06,
+      "p95": 0.15,
+      "p99": 0.09,
+      "max": 0.47
+    }
+  },
+  "targets": {
+    "event_loss": "0 -> MET",
+    "mean_one_way_lt_30ms": "RTT/2 mean=37.9ms (median 18.3); see caveat",
+    "p95_abs_skew_lt_30ms": "0.15ms -> MET (software-level)"
+  }
+}

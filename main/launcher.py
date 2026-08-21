@@ -80,6 +80,7 @@ from app.gui.participant_analysis_window import ParticipantAnalysisWindow
 from app.gui.quiz_analysis_window import QuizAnalysisWindow
 from app.gui.quiz_backup_window import QuizBackupWindow
 from app.gui.recording_wizard import RecordingWizard
+from app.gui.remote_latency_analysis_window import RemoteLatencyAnalysisWindow
 from app.gui.review_compress_window import ReviewCompressWindow
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
@@ -246,6 +247,7 @@ SECTIONS = [
             ("Student Client", ProcessEntry("launch_student")),
             ("Tele-training Setup Wizard", RemoteSetupWizard),
             ("Network Latency Benchmark", ProcessEntry("launch_benchmark")),
+            ("Remote Latency Analysis", RemoteLatencyAnalysisWindow),
         ],
     ),
     (
@@ -300,6 +302,7 @@ CONCURRENT_TOOLS = {
     GroupAnalysisWindow,
     ReviewCompressWindow,
     QuizBackupWindow,
+    RemoteLatencyAnalysisWindow,
 }
 
 # The three lifetimes a button can have, as hover text. Which one a

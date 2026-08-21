@@ -515,6 +515,90 @@ def list_session_events(db: Database, session_id: str) -> Dict[str, List[sqlite3
     }
 
 
+def list_rooms_for_user(db: Database, user_id: str) -> List[sqlite3.Row]:
+    """Every room this user belongs to, with their own role attached."""
+    return db.query(
+        "SELECT r.*, m.role AS my_role FROM rooms r "
+        "JOIN room_members m ON m.room_id = r.id "
+        "WHERE m.user_id = ? ORDER BY r.created_at",
+        (user_id,),
+    )
+
+
+def list_sessions_for_user(
+    db: Database,
+    user_id: str,
+    room_id: Optional[str] = None,
+    since: Optional[float] = None,
+    state: Optional[str] = None,
+    limit: int = 200,
+) -> List[sqlite3.Row]:
+    """Sessions in the rooms this user is a member of, newest first.
+
+    The membership join *is* the authorisation: a session in a room the
+    caller never joined cannot appear in the result at all, so nobody can
+    enumerate someone else's lessons by asking for a wide enough window.
+
+    Event counts are computed in the same statement because the only
+    reason to list sessions is to decide which ones are worth exporting,
+    and a session that recorded nothing is not worth a second request.
+
+    The WHERE clause is assembled from the fixed fragments below - never
+    from caller text - and every value stays a bound parameter.
+    """
+    where = ["m.user_id = ?"]
+    params: List[Any] = [user_id]
+    if room_id is not None:
+        where.append("s.room_id = ?")
+        params.append(room_id)
+    if since is not None:
+        where.append("s.created_at >= ?")
+        params.append(float(since))
+    if state is not None:
+        where.append("s.state = ?")
+        params.append(state)
+    params.append(int(limit))
+    return db.query(
+        "SELECT s.*, r.name AS room_name, "
+        "(SELECT COUNT(*) FROM guidance_events g WHERE g.session_id = s.id) AS guidance_event_count, "
+        "(SELECT COUNT(*) FROM performance_events p WHERE p.session_id = s.id) AS performance_event_count "
+        "FROM guidance_sessions s "
+        "JOIN room_members m ON m.room_id = s.room_id "
+        "JOIN rooms r ON r.id = s.room_id "
+        "WHERE " + " AND ".join(where) + " ORDER BY s.created_at DESC LIMIT ?",
+        tuple(params),
+    )
+
+
+def list_events_for_sessions(
+    db: Database, session_ids: Sequence[str]
+) -> Dict[str, Dict[str, List[sqlite3.Row]]]:
+    """The same two lists as list_session_events, for many sessions in two
+    statements rather than two per session.
+
+    Sessions with no events still get an entry, so a caller can tell
+    "nothing was recorded" apart from "never asked for".
+    """
+    out: Dict[str, Dict[str, List[sqlite3.Row]]] = {
+        sid: {"guidance": [], "performance": []} for sid in session_ids
+    }
+    if not out:
+        return out
+    # The placeholder string is built from the *number* of ids; each id
+    # itself is still bound, and the table names come from the literal
+    # pair below rather than from anything the caller sent.
+    marks = ",".join("?" * len(out))
+    params = tuple(out)
+    for kind, table in (("guidance", "guidance_events"), ("performance", "performance_events")):
+        rows = db.query(
+            f"SELECT * FROM {table} WHERE session_id IN ({marks}) ORDER BY session_id, seq, created_at",
+            params,
+        )
+        for row in rows:
+            out[row["session_id"]][kind].append(row)
+    return out
+
+
 def revoke_token(db: Database, jti: str, user_id: str, expires_at: float) -> None:
     db.execute(
         "INSERT OR REPLACE INTO revoked_tokens (jti, user_id, revoked_at, expires_at) VALUES (?, ?, ?, ?)",

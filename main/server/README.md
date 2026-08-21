@@ -423,6 +423,8 @@ All paths are prefixed `/api/v1`. Everything except `/health`,
 | GET | `/rooms/{room_id}/recordings` | member | list them |
 | GET | `/recordings/{recording_id}` | member | full event list - the student downloads this **before** playback |
 | POST | `/rooms/{room_id}/sessions` | owning teacher | open a guidance session; the teacher does not select the student's rendering mode |
+| GET | `/sessions` | any user | list the caller's sessions, newest first, with event counts |
+| GET | `/sessions/export` | any user | every guidance + performance event of many sessions in one reply |
 | GET | `/sessions/{session_id}` | member | session state |
 | GET | `/sessions/{session_id}/events` | member | stored guidance + performance events |
 | GET | `/sessions/{session_id}/summary` | member | counts, plus the student's own reported summary |
@@ -430,6 +432,49 @@ All paths are prefixed `/api/v1`. Everything except `/health`,
 `/sessions/{id}/summary` returns the student's result under
 `student_reported_summary` with `summary_source: "student"`. The naming
 is deliberate: the server did not compute it.
+
+### Getting a study's timing data off a deployed server
+
+Every other session route needs a session id you already have. During a
+lesson the clients do have it, but after the fact the ids only exist in
+whatever each client wrote locally - the Student Client records the
+session id in its `data/quiz/<session name>/meta.json` as
+`song_name: "remote:<session id>"` - and a folder that was never copied
+off the student machine leaves the matching server rows unreachable
+without a shell on the box. `/sessions` and `/sessions/export` exist for
+that case and do nothing else.
+
+    # what is there
+    GET /api/v1/sessions?since=<unix seconds>&limit=200
+    # pull it
+    GET /api/v1/sessions/export?since=<unix seconds>&limit=100
+    GET /api/v1/sessions/export?session_ids=<id>,<id>,<id>
+
+`/sessions` returns each session plus `guidance_event_count` and
+`performance_event_count`, so a session that recorded nothing can be
+skipped without a second request, and `truncated: true` when more matched
+than `limit` allowed through. Both accept `room_id`, `since` and `state`;
+`limit` caps at 1000 for the listing and 500 for the export, and asking
+for more explicit `session_ids` than `limit` is a 400 rather than a
+silent trim.
+
+Authorisation is the same membership rule as the single-session routes,
+applied through the same helper: a session in a room the caller never
+joined is never listed, naming that room outright is a 403, and an
+explicit `session_ids` entry from another teacher's room is a 403 rather
+than a silent omission. Neither endpoint can write anything.
+
+The export returns stored payloads verbatim - in particular the per-cue
+`timings` dictionary the Student Client sends with each performance row
+(`teacher_send_wall_ns`, `server_receive_wall_ns`,
+`student_receive_wall_ns`, then the student's own monotonic
+`queue_enter` / `cue_dispatch_start` / `led_command_complete` /
+`haptic_command_complete` / `visual_painted` / `cue_ready` marks). Read
+`timing_kind: "software_dispatch_render"` before using any of it: those
+are dispatch and render moments on the student's machine, not physical
+LED or actuator onset, and the wall-clock marks come from three different
+machines' clocks. Section 9's caveats apply unchanged - the monotonic
+marks may be subtracted from each other, the wall-clock ones may not.
 
 The current teacher sends `{"mode": "live"}` when opening a live
 session. Its initial `guidance_mode` is the neutral value

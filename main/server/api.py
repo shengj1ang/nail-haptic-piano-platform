@@ -17,7 +17,7 @@ import sqlite3
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from . import __version__, database as dbm
@@ -37,6 +37,8 @@ from .schemas import (
     RefreshRequest,
     RegisterRequest,
     RoomResponse,
+    SessionListEntry,
+    SessionListResponse,
     SessionResponse,
     TokenResponse,
     UserResponse,
@@ -411,6 +413,128 @@ def _session_or_403(ctx, session_id: str, user: sqlite3.Row) -> sqlite3.Row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
     require_member(ctx, session["room_id"], user)
     return session
+
+
+# --- listing and bulk export ----------------------------------------------
+# Everything above can only be reached by a caller that already knows a
+# session id. That is enough for a client driving its own lesson and not
+# enough to get a finished study's timing data off a deployed server: the
+# ids live in whatever the clients happened to write locally, and a lost
+# folder means the rows on the server are unreachable without a shell on
+# the box. These two endpoints close that gap and nothing more - both are
+# read-only, and both are scoped by room membership exactly like the
+# single-session routes.
+
+SESSION_LIST_DEFAULT = 200
+SESSION_LIST_MAX = 1000
+SESSION_EXPORT_DEFAULT = 100
+SESSION_EXPORT_MAX = 500
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(
+    request: Request,
+    room_id: Optional[str] = Query(default=None, description="restrict to one room the caller belongs to"),
+    since: Optional[float] = Query(default=None, description="unix seconds; sessions created at or after this"),
+    state: Optional[str] = Query(default=None, description="created, running, paused or finished"),
+    limit: int = Query(default=SESSION_LIST_DEFAULT, ge=1, le=SESSION_LIST_MAX),
+    user: sqlite3.Row = Depends(current_user),
+) -> SessionListResponse:
+    """Sessions the caller can see, newest first, with event counts."""
+    ctx = get_ctx(request)
+    if room_id is not None:
+        # Explicit 403 for a room the caller is not in, rather than the
+        # empty list the membership join would otherwise return.
+        require_member(ctx, room_id, user)
+    # One extra row is what distinguishes "exactly limit matched" from
+    # "more matched and were cut off".
+    rows = dbm.list_sessions_for_user(
+        ctx.db, user["id"], room_id=room_id, since=since, state=state, limit=limit + 1
+    )
+    truncated = len(rows) > limit
+    rows = rows[:limit]
+    return SessionListResponse(
+        count=len(rows),
+        limit=limit,
+        truncated=truncated,
+        sessions=[
+            SessionListEntry(
+                **_session_response(row).model_dump(),
+                room_name=row["room_name"],
+                guidance_event_count=row["guidance_event_count"],
+                performance_event_count=row["performance_event_count"],
+            )
+            for row in rows
+        ],
+    )
+
+
+# Declared before /sessions/{session_id} on purpose: FastAPI matches in
+# registration order, so the path parameter would otherwise swallow the
+# literal "export" and every call here would 404 as a missing session.
+@router.get("/sessions/export")
+def export_sessions(
+    request: Request,
+    session_ids: Optional[str] = Query(
+        default=None, description="comma-separated session ids; when given, the filters below are ignored"
+    ),
+    room_id: Optional[str] = Query(default=None),
+    since: Optional[float] = Query(default=None, description="unix seconds; sessions created at or after this"),
+    state: Optional[str] = Query(default=None),
+    limit: int = Query(default=SESSION_EXPORT_DEFAULT, ge=1, le=SESSION_EXPORT_MAX),
+    user: sqlite3.Row = Depends(current_user),
+) -> Dict[str, Any]:
+    """Every guidance and performance event of many sessions in one reply.
+
+    The payloads are returned verbatim, exactly as `/sessions/{id}/events`
+    returns them one session at a time - in particular the per-cue
+    `timings` dictionary the student sends with each performance row. The
+    server does not summarise or re-derive anything here.
+    """
+    ctx = get_ctx(request)
+    truncated = False
+
+    if session_ids is not None:
+        wanted: List[str] = []
+        for raw in session_ids.split(","):
+            sid = raw.strip()
+            # Dropping duplicates keeps the reply's shape predictable and
+            # stops a repeated id from being counted twice against limit.
+            if sid and sid not in wanted:
+                wanted.append(sid)
+        if len(wanted) > limit:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"asked for {len(wanted)} sessions; limit is {limit}"
+            )
+        # Authorise each one exactly as the single-session routes do, so an
+        # id from another teacher's room is a 403 and not a silent omission.
+        sessions = [_session_or_403(ctx, sid, user) for sid in wanted]
+    else:
+        if room_id is not None:
+            require_member(ctx, room_id, user)
+        rows = dbm.list_sessions_for_user(
+            ctx.db, user["id"], room_id=room_id, since=since, state=state, limit=limit + 1
+        )
+        truncated = len(rows) > limit
+        sessions = rows[:limit]
+
+    events = dbm.list_events_for_sessions(ctx.db, [s["id"] for s in sessions])
+    return {
+        "exported_at": time.time(),
+        "server_version": __version__,
+        "schema_version": ctx.db.schema_version,
+        "count": len(sessions),
+        "limit": limit,
+        "truncated": truncated,
+        "sessions": [
+            {
+                "session": _session_response(session).model_dump(),
+                "guidance": [_event_row(r) for r in events[session["id"]]["guidance"]],
+                "performance": [_event_row(r) for r in events[session["id"]]["performance"]],
+            }
+            for session in sessions
+        ],
+    }
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
