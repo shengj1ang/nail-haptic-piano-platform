@@ -1,26 +1,21 @@
 {
-  "experiment": "actuator_spectrogram",
-  "saved_at": 1786025767,
+  "experiment": "lra_frequency_sweep",
+  "saved_at": 1787326921,
   "firmware": "haptic-piano v2.10.0",
   "parameters": {
-    "motor_index": 10,
+    "motor_index": 11,
     "acc_sensor_id": 0,
-    "motor_type": "ERM",
-    "amp_min": 0,
-    "amp_max": 255,
-    "freq_min": 0,
-    "freq_max": 5000,
-    "freq_drive_min_hz": 50,
-    "precision": "Medium",
-    "freq_step": 50,
-    "amp_step": 16,
-    "ms2_per_count": 0.00980665,
+    "amp": 128,
+    "coarse_start_hz": 100,
+    "coarse_stop_hz": 350,
+    "coarse_step_hz": 5,
+    "fine_span_hz": 10,
+    "fine_step_hz": 1,
     "baseline_s": 0.3,
-    "settle_s": 0.3,
-    "measure_s": 2.0,
+    "settle_s": 0.15,
+    "measure_s": 0.4,
     "rest_s": 0.15,
-    "acc_interval_ms": 1,
-    "annotate_mode": "off"
+    "acc_interval_ms": 3
   },
   "haptic_config": {
     "snapshot": {
@@ -37,14 +32,12 @@
         "lra": 11,
         "erm": 10
       }
-    },
-    "note": "informational: every cell's drive comes from the swept ranges in 'parameters', not from this config"
+    }
   },
   "files": {
-    "csv": "spectrogram_1786025767.csv",
-    "heatmap": "spectrogram_1786025767.png",
-    "grid": "spectrogram_1786025767.npz",
-    "raw_acceleration": "spectrogram_1786025767.raw_acc.npz"
+    "csv": "sweep_1787326921.csv",
+    "png": "frequency_response_1787326921.png",
+    "raw_acceleration": "sweep_1787326921.raw_acc.npz"
   },
   "metrics": {
     "metric_version": 2,
@@ -54,7 +47,7 @@
     ],
     "selected_plot_metric": "vector_rms",
     "default_plot_metric": "vector_rms",
-    "raw_acceleration_file": "spectrogram_1786025767.raw_acc.npz",
+    "raw_acceleration_file": "sweep_1787326921.raw_acc.npz",
     "raw_data_format": "acceleration_raw_npz_v1",
     "ms2_per_count": 0.00980665,
     "metric_definitions": {
@@ -64,10 +57,9 @@
   },
   "result": {
     "metric": "vector_rms",
-    "peak_freq_hz": 500,
-    "peak_amp": 255,
-    "peak_ms2": 10.423666583844401,
-    "peak_counts": 1062.918181422239,
-    "peak_rms_ms2": 10.423666583844401
+    "resonance_hz": 224,
+    "resonance_counts": 246.34478391437028,
+    "resonance_ms2": 2.4158170751738592,
+    "peak_magnitude_delta_counts": 221.35027483611873
   }
 }

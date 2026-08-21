@@ -4,7 +4,7 @@
   "firmware": "haptic-piano v2.10.0",
   "parameters": {
     "actuator_type": "LRA",
-    "motor_index": 0,
+    "motor_index": 11,
     "acc_sensor_id": 0,
     "amp": 64,
     "vib_duration_s": 2.0,

@@ -1,0 +1,141 @@
+{
+  "experiment": "lra_amplitude_sweep",
+  "saved_at": 1787328171,
+  "firmware": "haptic-piano v2.10.0",
+  "parameters": {
+    "motor_index": 11,
+    "acc_sensor_id": 0,
+    "freq_hz": 224,
+    "amp_values": [
+      4,
+      8,
+      12,
+      16,
+      20,
+      24,
+      28,
+      32,
+      36,
+      40,
+      44,
+      48,
+      52,
+      56,
+      60,
+      64,
+      68,
+      72,
+      76,
+      80,
+      84,
+      88,
+      92,
+      96,
+      100,
+      104,
+      108,
+      112,
+      116,
+      120,
+      124,
+      128
+    ],
+    "freq_source": "config_default",
+    "target_band_ms2": [
+      2.4,
+      3.0
+    ],
+    "target_ms2": 2.7,
+    "cue_targets_by_metric": {
+      "legacy_magnitude_rms": {
+        "target_band_ms2": [
+          0.4,
+          0.6
+        ],
+        "target_ms2": 0.5,
+        "target_calibration_status": "historical",
+        "target_calibration_source": "historical calibration: the perception-based band the project adopted amp=64 from. Fingertip vibrotactile detection threshold around 200-250 Hz (Pacinian peak sensitivity) is ~0.1-0.4 m/s^2 RMS, and a clear but non-annoying cue sits a little above it. (ISO 2631-1 is whole-body and limited to 0.5-80 Hz; ISO 5349-1 is an occupational-exposure standard - neither prescribes a haptic-cue level, so this band is perception-based with the ISO comfort descriptors as a conservative cross-check.)",
+        "target_band_calibrated": true,
+        "metric": "legacy_magnitude_rms"
+      },
+      "vector_rms": {
+        "target_band_ms2": [
+          2.4,
+          3.0
+        ],
+        "target_ms2": 2.7,
+        "target_calibration_status": "provisional",
+        "target_calibration_source": "PROVISIONAL calibration: estimated from the demeaned vector RMS this rig measured at amp~48-56 (2.55-2.94 m/s^2 across the existing runs), i.e. the drive range the historical legacy-metric band already selects. It is a rescaling of the historical band onto this metric's scale, NOT an independent perceptual calibration - expect it to be re-measured.",
+        "target_band_calibrated": true,
+        "metric": "vector_rms"
+      }
+    },
+    "ms2_per_count": 0.00980665,
+    "baseline_s": 0.3,
+    "settle_s": 0.15,
+    "measure_s": 0.4,
+    "rest_s": 0.15,
+    "acc_interval_ms": 3
+  },
+  "files": {
+    "csv": "amp_sweep_1787328171.csv",
+    "png": "amplitude_response_1787328171.png",
+    "raw_acceleration": "amp_sweep_1787328171.raw_acc.npz"
+  },
+  "metrics": {
+    "metric_version": 2,
+    "available_metrics": [
+      "vector_rms",
+      "legacy_magnitude_rms"
+    ],
+    "selected_plot_metric": "vector_rms",
+    "default_plot_metric": "vector_rms",
+    "raw_acceleration_file": "amp_sweep_1787328171.raw_acc.npz",
+    "raw_data_format": "acceleration_raw_npz_v1",
+    "ms2_per_count": 0.00980665,
+    "metric_definitions": {
+      "legacy_magnitude_rms": "sqrt(mean((|a_i| - baseline_magnitude)^2)); the original project formula, kept for comparability with historical runs",
+      "vector_rms": "sqrt(mean(sum_axes((a_i - mean_axis)^2))); removes gravity, static sensor bias and mounting orientation - the recommended metric"
+    }
+  },
+  "haptic_config": {
+    "snapshot": {
+      "using": "lra",
+      "lra": {
+        "default_frequency": 224,
+        "default_amp": 64
+      },
+      "erm": {
+        "default_frequency": 1000,
+        "default_amp": 50
+      },
+      "motor_ports": {
+        "lra": 11,
+        "erm": 10
+      }
+    }
+  },
+  "result": {
+    "metric": "vector_rms",
+    "metric_label": "Demeaned 3-axis vector RMS",
+    "recommended_cue_amp": 64,
+    "recommended_cue_amp_ms2": 2.67975765488733,
+    "in_band_amps": [
+      60,
+      64,
+      68,
+      72
+    ],
+    "recommendation_note": "the amp whose measured intensity is closest to this metric's target cue intensity - NOT the amp that produces the strongest vibration",
+    "target_band_ms2": [
+      2.4,
+      3.0
+    ],
+    "target_ms2": 2.7,
+    "target_calibration_status": "provisional",
+    "target_calibration_source": "PROVISIONAL calibration: estimated from the demeaned vector RMS this rig measured at amp~48-56 (2.55-2.94 m/s^2 across the existing runs), i.e. the drive range the historical legacy-metric band already selects. It is a rescaling of the historical band onto this metric's scale, NOT an independent perceptual calibration - expect it to be re-measured.",
+    "target_band_calibrated": true,
+    "recommended_amp": 64,
+    "recommended_ms2": 2.67975765488733
+  }
+}

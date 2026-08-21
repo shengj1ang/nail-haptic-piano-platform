@@ -1,19 +1,19 @@
 {
   "experiment": "actuator_spectrogram",
-  "saved_at": 1786025767,
+  "saved_at": 1787330619,
   "firmware": "haptic-piano v2.10.0",
   "parameters": {
-    "motor_index": 10,
+    "motor_index": 11,
     "acc_sensor_id": 0,
-    "motor_type": "ERM",
+    "motor_type": "LRA",
     "amp_min": 0,
     "amp_max": 255,
     "freq_min": 0,
-    "freq_max": 5000,
+    "freq_max": 350,
     "freq_drive_min_hz": 50,
-    "precision": "Medium",
-    "freq_step": 50,
-    "amp_step": 16,
+    "precision": "Fine",
+    "freq_step": 25,
+    "amp_step": 8,
     "ms2_per_count": 0.00980665,
     "baseline_s": 0.3,
     "settle_s": 0.3,
@@ -41,10 +41,10 @@
     "note": "informational: every cell's drive comes from the swept ranges in 'parameters', not from this config"
   },
   "files": {
-    "csv": "spectrogram_1786025767.csv",
-    "heatmap": "spectrogram_1786025767.png",
-    "grid": "spectrogram_1786025767.npz",
-    "raw_acceleration": "spectrogram_1786025767.raw_acc.npz"
+    "csv": "spectrogram_1787330619.csv",
+    "heatmap": "spectrogram_1787330619.png",
+    "grid": "spectrogram_1787330619.npz",
+    "raw_acceleration": "spectrogram_1787330619.raw_acc.npz"
   },
   "metrics": {
     "metric_version": 2,
@@ -54,7 +54,7 @@
     ],
     "selected_plot_metric": "vector_rms",
     "default_plot_metric": "vector_rms",
-    "raw_acceleration_file": "spectrogram_1786025767.raw_acc.npz",
+    "raw_acceleration_file": "spectrogram_1787330619.raw_acc.npz",
     "raw_data_format": "acceleration_raw_npz_v1",
     "ms2_per_count": 0.00980665,
     "metric_definitions": {
@@ -64,10 +64,10 @@
   },
   "result": {
     "metric": "vector_rms",
-    "peak_freq_hz": 500,
-    "peak_amp": 255,
-    "peak_ms2": 10.423666583844401,
-    "peak_counts": 1062.918181422239,
-    "peak_rms_ms2": 10.423666583844401
+    "peak_freq_hz": 200,
+    "peak_amp": 88,
+    "peak_ms2": 3.878759882933408,
+    "peak_counts": 395.5234338875567,
+    "peak_rms_ms2": 3.878759882933408
   }
 }
