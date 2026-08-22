@@ -5,6 +5,7 @@ Run from main/:  python test-script/test_group_analysis.py
 """
 
 import csv
+import json
 import math
 import sys
 import tempfile
@@ -32,6 +33,7 @@ from app.group_analysis import (  # noqa: E402
     paired_differences,
     participant_cell_metrics,
     participant_condition_metrics,
+    participant_handedness,
     participant_outcome_proportions,
     participant_repetition_metrics,
     per_finger_metrics,
@@ -186,6 +188,23 @@ class TestLoader(unittest.TestCase):
             self.assertEqual(data.n, 2)
             self.assertIn("P04", data.errors)
             self.assertEqual({t["participant"] for t in data.trial_rows}, {"P01", "P03"})
+
+    def test_handedness_comes_from_trial_structure_and_tolerates_gaps(self):
+        """Figure metadata must never be able to break an analysis: a
+        participant whose schedule is unreadable or absent is simply left
+        unlabelled."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for participant, hand in (("P01", "left"), ("P02", "RIGHT ")):
+                self._write_participant(root, participant)
+                (root / participant / "TrialStructure.json").write_text(
+                    json.dumps({"participant": {"name": participant,
+                                                "handedness": hand},
+                                "trials": []}),
+                    encoding="utf-8")
+            self._write_participant(root, "P03")  # TrialStructure.json is "{}"
+            handedness = participant_handedness(["P01", "P02", "P03", "P99"], root)
+            self.assertEqual(handedness, {"P01": "left", "P02": "right"})
 
     def test_empty_selection_and_no_valid_participants(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -14,7 +14,7 @@ direct measurement of muscular force or subjective effort.
 """
 
 from math import exp, log
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -265,7 +265,15 @@ def condition_a_trial_strategy(event_rows: List[dict]) -> pd.DataFrame:
 
 
 def condition_a_finger_usage(event_rows: List[dict]) -> pd.DataFrame:
-    """Zero-filled participant × finger counts and within-participant shares."""
+    """Zero-filled participant × finger counts and within-participant shares.
+
+    Each row also carries what the hidden generated fingering would have
+    required over *exactly the same events* (``reference_*``).  Sharing the
+    denominator is what makes observed − reference a like-for-like
+    difference rather than two differently filtered tallies; the generated
+    fingering stays the same-sequence experimental reference, never an
+    optimum the free choice should have matched.
+    """
     events = _valid_condition_a_events(event_rows)
     participants = sorted({str(e.get("participant")) for e in events})
     rows = []
@@ -279,6 +287,7 @@ def condition_a_finger_usage(event_rows: List[dict]) -> pd.DataFrame:
         total = len(resolved)
         for finger in FINGERS:
             count = sum(e.get("actual_finger") == finger for e in resolved)
+            reference = sum(e.get("target_finger") == finger for e in resolved)
             rows.append({
                 "participant": participant,
                 "finger": finger,
@@ -287,15 +296,35 @@ def condition_a_finger_usage(event_rows: List[dict]) -> pd.DataFrame:
                 "finger_name": FINGER_NAMES[int(finger[1])],
                 "n": count,
                 "share_pct": 100 * count / total if total else np.nan,
+                "reference_n": reference,
+                "reference_share_pct": 100 * reference / total if total else np.nan,
             })
     return pd.DataFrame(rows, columns=[
-        "participant", "finger", "hand", "finger_id", "finger_name", "n", "share_pct",
+        "participant", "finger", "hand", "finger_id", "finger_name",
+        "n", "share_pct", "reference_n", "reference_share_pct",
     ])
 
 
-def participant_hand_usage(finger_usage: pd.DataFrame) -> pd.DataFrame:
-    """Participant × hand counts/shares obtained by summing the five digits."""
-    columns = ["participant", "hand", "n", "share_pct"]
+def participant_hand_usage(
+        finger_usage: pd.DataFrame,
+        handedness: Optional[Dict[str, str]] = None) -> pd.DataFrame:
+    """Participant × hand counts/shares obtained by summing the five digits.
+
+    ``handedness`` is the self-reported metadata from TrialStructure.json
+    (app.group_analysis.participant_handedness).  It travels with the table
+    so the exported CSV records which participants the figure marks; an
+    unknown participant simply keeps an empty string.  Observed hand use and
+    reported handedness stay separate columns - neither is derived from the
+    other.
+
+    ``reference_share_pct`` is the same sum over the hidden generated
+    fingering, and ``difference_pct`` is observed − reference: a negative
+    left-hand value means the free choice moved work to the right hand
+    relative to the generated fingering for the same key sequences.
+    """
+    columns = ["participant", "handedness", "hand", "n", "share_pct",
+               "reference_n", "reference_share_pct", "difference_pct"]
+    reported = handedness or {}
     if finger_usage.empty:
         return pd.DataFrame(columns=columns)
     rows = []
@@ -303,11 +332,19 @@ def participant_hand_usage(finger_usage: pd.DataFrame) -> pd.DataFrame:
         participant_rows = finger_usage[finger_usage["participant"] == participant]
         for hand in ("L", "R"):
             hand_rows = participant_rows[participant_rows["hand"] == hand]
+            observed = float(hand_rows["share_pct"].sum())
+            reference = (float(hand_rows["reference_share_pct"].sum())
+                         if "reference_share_pct" in hand_rows else np.nan)
             rows.append({
                 "participant": participant,
+                "handedness": reported.get(participant, ""),
                 "hand": hand,
                 "n": int(hand_rows["n"].sum()),
-                "share_pct": float(hand_rows["share_pct"].sum()),
+                "share_pct": observed,
+                "reference_n": (int(hand_rows["reference_n"].sum())
+                                if "reference_n" in hand_rows else 0),
+                "reference_share_pct": reference,
+                "difference_pct": observed - reference,
             })
     return pd.DataFrame(rows, columns=columns)
 

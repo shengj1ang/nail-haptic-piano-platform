@@ -1,5 +1,5 @@
 file,kind,rows,columns
-(export),provenance,N = 18,"participants: P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14, P15, P16, P17, P18; 486 trials, 14580 events (14579 valid); exported 2026-08-21T02:30:37"
+(export),provenance,N = 18,"participants: P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14, P15, P16, P17, P18; 486 trials, 14580 events (14579 valid); exported 2026-08-22T17:56:28"
 group_condition_a_finger_strategy.png / group_condition_a_finger_strategy.svg,figure,,
 group_condition_a_finger_usage_by_participant.png / group_condition_a_finger_usage_by_participant.svg,figure,,
 group_condition_a_hand_usage_by_participant.png / group_condition_a_hand_usage_by_participant.svg,figure,,
@@ -28,9 +28,9 @@ group_rm_anova_rt.png / group_rm_anova_rt.svg,figure,,
 group_tradeoff_2d.png / group_tradeoff_2d.svg,figure,,
 group_tradeoff_by_difficulty_3d.png / group_tradeoff_by_difficulty_3d.svg,figure,,
 group_tradeoff_by_participant_3d.png / group_tradeoff_by_participant_3d.svg,figure,,
-condition_a_finger_usage.csv,table,180,"participant, finger, hand, finger_id, finger_name, n, share_pct"
+condition_a_finger_usage.csv,table,180,"participant, finger, hand, finger_id, finger_name, n, share_pct, reference_n, reference_share_pct"
 condition_a_finger_usage_group_summary.csv,table,10,"finger, n, mean, sd, sem, ci95_lo, ci95_hi"
-condition_a_hand_usage.csv,table,36,"participant, hand, n, share_pct"
+condition_a_hand_usage.csv,table,36,"participant, handedness, hand, n, share_pct, reference_n, reference_share_pct, difference_pct"
 condition_a_motor_demand_group_summary.csv,table,9,"metric, level, unit, n, generated_reference_mean, actual_mean, difference_mean, difference_sd, difference_sem, difference_ci95_lo, difference_ci95_hi"
 condition_a_motor_demand_participants.csv,table,162,"participant, level, metric, unit, generated_reference, actual, difference_actual_minus_reference"
 condition_a_occurrence_summary.csv,table,54,"a_occurrence, metric, n, mean, sd, sem, ci95_lo, ci95_hi"

@@ -1019,7 +1019,10 @@ class GroupAnalysisWindow(QMainWindow):
     # Condition A free-fingering strategy
 
     def _build_condition_a_strategy(self):
-        return condition_a_strategy_tab.build(self._data.event_rows)
+        return condition_a_strategy_tab.build(
+            self._data.event_rows,
+            ga.participant_handedness(self._data.included),
+        )
 
     # ------------------------------------------------------------------
     # Errors

@@ -124,7 +124,7 @@ from .participant_analysis import (  # noqa: F401  (re-exported)
 )
 from .participant_export import export_paths
 from .pilot_study import DATA_DIR as STUDY_DATA_DIR
-from .pilot_study import list_participants
+from .pilot_study import list_participants, load_trial_structure
 from .sequence_generator import (
     LEVEL_DISPLAY,
     LEVEL_SYMBOL,
@@ -219,6 +219,27 @@ def load_participant_rows(participant: str, data_dir: Path = STUDY_DATA_DIR):
     trial_rows = _load_csv_rows(trials_path, _TRIAL_STR_COLS)
     event_rows = _load_csv_rows(events_path, _EVENT_STR_COLS)
     return trial_rows, event_rows
+
+
+def participant_handedness(participants: Sequence[str],
+                           data_dir: Path = STUDY_DATA_DIR) -> Dict[str, str]:
+    """{participant: self-reported handedness} from TrialStructure.json.
+
+    Descriptive metadata only (app.pilot_study.HANDEDNESS_OPTIONS): it
+    labels figures and enters no statistic. A participant whose file is
+    missing or unreadable is left out instead of raising, so a group whose
+    schedules were archived elsewhere still analyses.
+    """
+    handedness: Dict[str, str] = {}
+    for participant in participants:
+        try:
+            doc = load_trial_structure(participant, data_dir)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        value = str(doc.get("participant", {}).get("handedness", "")).strip().lower()
+        if value:
+            handedness[participant] = value
+    return handedness
 
 
 @dataclass

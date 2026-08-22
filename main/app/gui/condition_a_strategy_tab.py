@@ -6,7 +6,8 @@ caption, returning the same ``(caption, figures, datasets)`` contract used by
 the other group-analysis tabs.
 """
 
-from typing import Dict, Tuple
+from collections import Counter
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,59 @@ PARTICIPANT_LINE = "#aaaaaa"
 LEVEL_COLORS = {"alpha": "#3a76c4", "beta": "#d9663d", "gamma": "#4c956c"}
 LEVEL_MARKERS = {"alpha": "o", "beta": "^", "gamma": "s"}
 LEVEL_LABELS = {"alpha": "α (alpha)", "beta": "β (beta)", "gamma": "γ (gamma)"}
+
+# Self-reported handedness (TrialStructure.json) is descriptive participant
+# metadata, so it is annotated on the participant axis rather than used to
+# reorder, group or weight anything: the bars keep encoding observed hand use
+# only, and the reader can compare the two.  Right-handers stay unmarked
+# because they are the majority baseline.
+# handedness value -> (axis mark, legend marker, legend wording)
+HANDEDNESS_MARKS = {
+    "left": ("*", "*", "self-reported left-hander"),
+    "ambidextrous": ("†", "P", "self-reported ambidextrous"),
+}
+HANDEDNESS_MARK_COLOR = "#6a3d9a"
+# The hidden generated fingering splits the keys almost evenly between the
+# hands, so its per-participant left-hand share is the balanced baseline the
+# free choice can be read against - a principled version of a plain 50% line,
+# which is why it replaces one.
+REFERENCE_COLOR = "#222222"
+
+
+def _reported_handedness(hand_usage: pd.DataFrame) -> Dict[str, str]:
+    """{participant: handedness} carried by the tidy table, if it has any.
+
+    The column is optional so a caller holding an older frame (or a group
+    whose TrialStructure.json files are unavailable) still plots, simply
+    without marks.
+    """
+    if "handedness" not in hand_usage.columns:
+        return {}
+    reported = {}
+    for participant, value in zip(hand_usage["participant"], hand_usage["handedness"]):
+        text = str(value).strip().lower()
+        if text and text != "nan":
+            reported[str(participant)] = text
+    return reported
+
+
+def _reference_left_share(hand_usage: pd.DataFrame, participants) -> Optional[np.ndarray]:
+    """Left-hand share the generated fingering would have produced, or None.
+
+    The column is optional for the same reason ``handedness`` is: an older
+    frame simply falls back to the plain 50% guide.
+    """
+    if "reference_share_pct" not in hand_usage.columns:
+        return None
+    reference = (hand_usage.pivot(index="participant", columns="hand",
+                                  values="reference_share_pct")
+                 .reindex(index=participants, columns=["L", "R"]))
+    values = reference["L"].to_numpy(dtype=float)
+    return values if np.isfinite(values).any() else None
+
+
+def _handedness_phrase(value: str, count: int) -> str:
+    return f"{count} {value if value == 'ambidextrous' else value + '-handed'}"
 
 
 def _spatial_finger_tick_labels():
@@ -119,6 +173,9 @@ def _participant_hand_usage_figure(hand_usage: pd.DataFrame) -> Figure:
     fig = Figure(figsize=(10.5, 4.0))
     ax = fig.subplots(1, 1)
     participants = sorted(hand_usage["participant"].unique())
+    reported = _reported_handedness(hand_usage)
+    marks = [HANDEDNESS_MARKS.get(reported.get(p, ""), ("", "", ""))[0]
+             for p in participants]
     dense = len(participants) > 14
     bar_width = 0.52 if dense else 0.72
     value_fontsize = 5.5 if dense else 7
@@ -138,19 +195,47 @@ def _participant_hand_usage_figure(hand_usage: pd.DataFrame) -> Figure:
             label = f"{right_share:.0f}%" if dense else f"R {right_share:.1f}%"
             ax.text(position, left_share + right_share / 2, label,
                     ha="center", va="center", fontsize=value_fontsize, color="white")
-    ax.axhline(50, color="#333333", linewidth=0.8, linestyle=":", alpha=0.75)
-    ax.set_xticks(x, participants)
+    reference = _reference_left_share(hand_usage, participants)
+    if reference is None:
+        ax.axhline(50, color="#333333", linewidth=0.8, linestyle=":", alpha=0.75)
+    else:
+        for position, value in enumerate(reference):
+            if np.isfinite(value):
+                ax.plot([position - bar_width / 2, position + bar_width / 2],
+                        [value, value], color=REFERENCE_COLOR, linewidth=1.6,
+                        solid_capstyle="butt", zorder=3)
+    ax.set_xticks(
+        x,
+        [f"{p} {mark}" if mark else p for p, mark in zip(participants, marks)],
+    )
     if dense:
         ax.tick_params(axis="x", labelsize=6.5)
-        for label in ax.get_xticklabels():
+    for label, mark in zip(ax.get_xticklabels(), marks):
+        if dense:
             label.set_rotation(45)
             label.set_horizontalalignment("right")
+        if mark:
+            label.set_color(HANDEDNESS_MARK_COLOR)
+            label.set_fontweight("bold")
     ax.set_ylim(0, 100)
     ax.set_xlabel("participant")
     ax.set_ylabel("share of resolved Condition A responses (%)")
-    ax.set_title("Condition A — left- versus right-hand use by participant", fontsize=11)
+    ax.set_title("Condition A — left- versus right-hand use by participant",
+                 fontsize=11, pad=24)
     ax.grid(axis="y", color="#dddddd", linewidth=0.6, alpha=0.5)
-    ax.legend(frameon=False, ncols=2, loc="upper center")
+    handles, labels = ax.get_legend_handles_labels()
+    if reference is not None:
+        handles.append(Line2D([], [], color=REFERENCE_COLOR, linewidth=1.6))
+        labels.append("hidden generated-fingering share")
+    for value, (mark, marker, wording) in HANDEDNESS_MARKS.items():
+        if value in reported.values():
+            handles.append(Line2D([], [], linestyle="none", marker=marker,
+                                  color=HANDEDNESS_MARK_COLOR, markersize=8))
+            labels.append(f"{mark} {wording}")
+    # The bars fill the whole 0-100% axis, so the legend sits above it: inside,
+    # the orange key is invisible against the right-hand segments.
+    ax.legend(handles, labels, frameon=False, ncols=len(labels), fontsize=8.5,
+              loc="lower center", bbox_to_anchor=(0.5, 1.0))
     fig.tight_layout()
     return fig
 
@@ -293,7 +378,7 @@ def _summary_value(summary: pd.DataFrame, metric: str,
 
 def _caption(trials: pd.DataFrame, usage: pd.DataFrame,
              participants: pd.DataFrame, level_occurrence: pd.DataFrame,
-             effort_summary: pd.DataFrame) -> str:
+             effort_summary: pd.DataFrame, hand_usage: pd.DataFrame) -> str:
     n_participants = int(trials["participant"].nunique())
     usage_means = usage.groupby("finger")["share_pct"].mean().reindex(cas.FINGERS)
     most_used = str(usage_means.idxmax())
@@ -331,6 +416,58 @@ def _caption(trials: pd.DataFrame, usage: pd.DataFrame,
     hand_deltas = _deltas("hand_switch_rate")
     coverage = float(trials["selection_coverage_pct"].mean())
 
+    reported = _reported_handedness(hand_usage)
+    handedness_note = ""
+    if reported:
+        counts = Counter(reported.values())
+        breakdown = ", ".join(_handedness_phrase(value, counts[value])
+                              for value in sorted(counts))
+        marked = []
+        for value, (mark, _marker, _wording) in HANDEDNESS_MARKS.items():
+            named = sorted(p for p, v in reported.items() if v == value)
+            if named:
+                marked.append(f"{mark} = {value} ({', '.join(named)})")
+        handedness_note = (
+            " Self-reported handedness from each participant’s TrialStructure.json "
+            f"({breakdown}) is annotated on the participant axis"
+            + (f": {'; '.join(marked)}" if marked else
+               ", where every included participant reported right-handedness")
+            + ". It is descriptive metadata only: no bar is reordered, weighted or "
+              "tested by it, and the exported hand-usage table carries the same column "
+              "so the marking is auditable."
+        )
+
+    reference_note = ""
+    left_rows = hand_usage[hand_usage["hand"] == "L"] if len(hand_usage) else hand_usage
+    if "difference_pct" in left_rows and left_rows["difference_pct"].notna().any():
+        lo = float(left_rows["reference_share_pct"].min())
+        hi = float(left_rows["reference_share_pct"].max())
+        reference_note = (
+            " The black dash on each bar is that participant’s generated-fingering "
+            f"left-hand share ({lo:.1f}–{hi:.1f}% here) — where the blue/orange boundary "
+            "would sit had the free choice followed the hidden generated fingering on the "
+            "same key sequences — so the gap to the boundary is observed − reference, "
+            "exported as difference_pct."
+        )
+        if reported:
+            group_means = left_rows.groupby("handedness")["difference_pct"].agg(
+                ["mean", "count"])
+            phrases = [
+                f"{row['mean']:+.1f} pp".replace("-", "−")
+                + f" for {value if value == 'ambidextrous' else value + '-handed'}"
+                + f" participants (n = {int(row['count'])})"
+                for value, row in group_means.iterrows()
+            ]
+            towards_left = int((left_rows["difference_pct"] > 0).sum())
+            reference_note += (
+                " Mean left-hand deviation was " + " and ".join(phrases) + "; "
+                + ("no included participant deviated towards the left hand"
+                   if not towards_left else
+                   f"{towards_left} participant(s) deviated towards the left hand")
+                + ". Group sizes here are very unequal and no test is applied, so this "
+                "is a description of the figure, not a handedness effect."
+            )
+
     return (
         "<h3>Condition A — free-fingering strategy</h3>"
         "<p><b>What is being analysed:</b> Condition A revealed the target key but not the "
@@ -346,7 +483,8 @@ def _caption(trials: pd.DataFrame, usage: pd.DataFrame,
         "<p><b>Participant distributions:</b> the next figure sums the five detected fingers "
         "within each hand to show every participant’s left/right usage; the following heatmap "
         "shows all ten finger percentages separately. Each row is normalised within that "
-        "participant, while the exported tables retain both counts and percentages.</p>"
+        "participant, while the exported tables retain both counts and percentages."
+        f"{handedness_note}{reference_note}</p>"
         "<p><b>Change over A exposure, holding difficulty fixed:</b> first→third trial "
         f"dominant-finger share (%) was {dominant_changes}; effective finger count was "
         f"{effective_changes}; and finger-switch rate (%) was {switch_changes}. Median "
@@ -368,11 +506,17 @@ def _caption(trials: pd.DataFrame, usage: pd.DataFrame,
     )
 
 
-def build(event_rows: list) -> Tuple[str, Dict[str, Figure], Dict[str, pd.DataFrame]]:
-    """Return caption HTML, figures and tidy export tables for the tab."""
+def build(event_rows: list, handedness: Optional[Dict[str, str]] = None
+          ) -> Tuple[str, Dict[str, Figure], Dict[str, pd.DataFrame]]:
+    """Return caption HTML, figures and tidy export tables for the tab.
+
+    ``handedness`` is the self-reported {participant: value} metadata from
+    app.group_analysis.participant_handedness; omitting it only drops the
+    axis annotation.
+    """
     trials = cas.condition_a_trial_strategy(event_rows)
     usage = cas.condition_a_finger_usage(event_rows)
-    hand_usage = cas.participant_hand_usage(usage)
+    hand_usage = cas.participant_hand_usage(usage, handedness)
     participants = cas.participant_strategy_summary(trials, usage)
     occurrence = cas.occurrence_summary(trials)
     level_occurrence = cas.level_occurrence_summary(trials)
@@ -418,7 +562,8 @@ def build(event_rows: list) -> Tuple[str, Dict[str, Figure], Dict[str, pd.DataFr
         "condition_a_motor_demand_group_summary": effort_summary,
     }
     return (
-        _caption(trials, usage, participants, level_occurrence, effort_summary),
+        _caption(trials, usage, participants, level_occurrence, effort_summary,
+                 hand_usage),
         figures,
         datasets,
     )

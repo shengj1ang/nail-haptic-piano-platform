@@ -73,6 +73,78 @@ class TestConditionAStrategy(unittest.TestCase):
         self.assertTrue(all(width <= 0.52 for width in widths))
         self.assertEqual(figure.axes[0].get_xticklabels()[0].get_rotation(), 45)
 
+    def test_reported_handedness_is_marked_on_the_participant_axis(self):
+        """Self-reported handedness annotates the axis; it must not touch the
+        bars, whose only content stays the observed left/right share."""
+        usage = cas.condition_a_finger_usage(self.events)
+        hand_usage = cas.participant_hand_usage(usage, {"P02": "left"})
+        self.assertEqual(list(hand_usage["handedness"]), ["", "", "left", "left"])
+        figure = cas_tab._participant_hand_usage_figure(hand_usage)
+        ax = figure.axes[0]
+        labels = ax.get_xticklabels()
+        self.assertEqual([label.get_text() for label in labels], ["P01", "P02 *"])
+        self.assertEqual(labels[1].get_color(), cas_tab.HANDEDNESS_MARK_COLOR)
+        self.assertIn("* self-reported left-hander",
+                      [text.get_text() for text in ax.get_legend().get_texts()])
+        heights = {round(patch.get_height(), 6) for patch in ax.patches}
+        self.assertEqual(
+            heights,
+            {round(value, 6) for value in hand_usage["share_pct"]},
+        )
+
+    def test_unmarked_participants_leave_the_chart_exactly_as_it_was(self):
+        usage = cas.condition_a_finger_usage(self.events)
+        figure = cas_tab._participant_hand_usage_figure(
+            cas.participant_hand_usage(usage, {"P01": "right", "P02": "right"}))
+        ax = figure.axes[0]
+        self.assertEqual([label.get_text() for label in ax.get_xticklabels()],
+                         ["P01", "P02"])
+        self.assertNotIn("* self-reported left-hander",
+                         [text.get_text() for text in ax.get_legend().get_texts()])
+
+    def test_generated_reference_shares_the_denominator_with_observed_use(self):
+        """observed − reference is only a like-for-like difference while both
+        are counted over exactly the same events."""
+        usage = cas.condition_a_finger_usage(self.events)
+        for participant, rows in usage.groupby("participant"):
+            self.assertEqual(rows["n"].sum(), rows["reference_n"].sum(), msg=participant)
+            self.assertAlmostEqual(rows["reference_share_pct"].sum(), 100, msg=participant)
+        hand_usage = cas.participant_hand_usage(usage)
+        for participant, rows in hand_usage.groupby("participant"):
+            self.assertAlmostEqual(rows["reference_share_pct"].sum(), 100, msg=participant)
+            self.assertAlmostEqual(rows["difference_pct"].sum(), 0, msg=participant)
+        # A trial answered entirely with R2 against a left-hand generated
+        # fingering is the extreme case: the whole left-hand share moved right.
+        moved = cas.participant_hand_usage(cas.condition_a_finger_usage(
+            trial("P09", 1, ["R2"] * 4, ["L2", "L3", "L2", "L3"])))
+        left = moved[moved["hand"] == "L"].iloc[0]
+        self.assertEqual(left["share_pct"], 0)
+        self.assertEqual(left["reference_share_pct"], 100)
+        self.assertEqual(left["difference_pct"], -100)
+
+    def test_reference_dash_replaces_the_plain_fifty_percent_guide(self):
+        usage = cas.condition_a_finger_usage(self.events)
+        hand_usage = cas.participant_hand_usage(usage)
+        ax = cas_tab._participant_hand_usage_figure(hand_usage).axes[0]
+        expected = sorted(hand_usage.loc[hand_usage["hand"] == "L",
+                                         "reference_share_pct"])
+        drawn = sorted(line.get_ydata()[0] for line in ax.lines)
+        self.assertEqual(len(drawn), len(expected))
+        for value, target in zip(drawn, expected):
+            self.assertAlmostEqual(value, target)
+        self.assertIn("hidden generated-fingering share",
+                      [text.get_text() for text in ax.get_legend().get_texts()])
+
+    def test_a_frame_without_the_reference_keeps_the_fifty_percent_guide(self):
+        """The columns are optional, so an older frame still plots."""
+        usage = cas.condition_a_finger_usage(self.events)
+        plain = cas.participant_hand_usage(usage).drop(
+            columns=["reference_n", "reference_share_pct", "difference_pct"])
+        ax = cas_tab._participant_hand_usage_figure(plain).axes[0]
+        self.assertEqual([line.get_ydata()[0] for line in ax.lines], [50])
+        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()],
+                         ["left hand", "right hand"])
+
     def test_one_finger_trial_has_one_effective_finger_and_no_switches(self):
         frame = cas.condition_a_trial_strategy(self.events)
         row = frame[(frame["participant"] == "P01")
