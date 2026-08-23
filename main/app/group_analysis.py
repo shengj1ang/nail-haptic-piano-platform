@@ -419,6 +419,27 @@ ANOVA_EFFECT_LABELS: Dict[str, str] = {
     "condition * finger_id": "Condition × Finger ID",
 }
 
+# The second repeated factor is a parameter, not a constant: the same
+# two-way model is fitted with Finger ID, difficulty level, or within-cell
+# repetition in that slot. Each entry is (levels, display label); the
+# levels list also fixes the reporting order and is what a participant
+# must be complete on to enter the model.
+ANOVA_FACTORS: Dict[str, Tuple[list, str]] = {
+    "finger_id": (list(FINGER_IDS), "Finger ID (1–5)"),
+    "level": (list(LEVELS), "Difficulty (α, β, γ)"),
+    "repetition": ([1, 2, 3], "Repetition (1–3)"),
+}
+
+
+def anova_effect_labels(factor: str) -> Dict[str, str]:
+    """Source -> display label for a two-way model on `factor`."""
+    label = ANOVA_FACTORS[factor][1]
+    return {
+        "condition": "Condition (B vs C)",
+        factor: label,
+        f"condition * {factor}": f"Condition × {label.split(' (')[0]}",
+    }
+
 # A cell proportion is "at ceiling" when every judged event in it was
 # correct; compared with a tolerance because fa is a computed ratio.
 CEILING_TOL = 1e-9
@@ -447,6 +468,42 @@ def load_pingouin():
     return (None, _pingouin) if isinstance(_pingouin, str) else (_pingouin, None)
 
 
+def two_way_cell_frame(df: pd.DataFrame, metric: str, factor: str,
+                       conditions: Optional[List[str]] = None):
+    """(frame, dropped) for the balanced (participant x condition x
+    factor) design a two-way repeated-measures ANOVA needs.
+
+    Generalises the original finger-only version: `factor` is any key of
+    ANOVA_FACTORS, and completeness is judged against that factor's own
+    level list. Listwise as before - a participant missing any cell is
+    excluded whole and named in dropped."""
+    levels, _label = ANOVA_FACTORS[factor]
+    conditions = list(conditions or ANOVA_CONDITIONS)
+    cols = ["participant", "condition", factor, metric]
+    empty = pd.DataFrame(columns=cols)
+    if df.empty or metric not in df.columns or factor not in df.columns:
+        return empty, {}
+    sub = df[df["condition"].isin(conditions) & df[factor].isin(levels)][cols]
+    kept, dropped = [], {}
+    for participant, prow in sub.groupby("participant", sort=True):
+        present = prow.dropna(subset=[metric])
+        have = set(zip(present["condition"], present[factor]))
+        missing = [(c, f) for c in conditions for f in levels if (c, f) not in have]
+        if missing:
+            dropped[str(participant)] = "missing " + ", ".join(f"{c}/{f}" for c, f in missing)
+        else:
+            kept.append(present)
+    if not kept:
+        return empty, dropped
+    order = {c: i for i, c in enumerate(conditions)}
+    lorder = {lv: i for i, lv in enumerate(levels)}
+    frame = pd.concat(kept, ignore_index=True)
+    frame = (frame.assign(_c=frame["condition"].map(order), _f=frame[factor].map(lorder))
+                  .sort_values(["participant", "_c", "_f"], ignore_index=True)
+                  .drop(columns=["_c", "_f"]))
+    return frame, dropped
+
+
 def anova_cell_frame(pf_df: pd.DataFrame, metric: str,
                      conditions: Optional[List[str]] = None):
     """(frame, dropped) for the balanced (participant x condition x
@@ -457,32 +514,11 @@ def anova_cell_frame(pf_df: pd.DataFrame, metric: str,
     (listwise, as a repeated-measures model requires) and appears in
     dropped as {participant: "missing B/F3, C/F5"}. Nothing is imputed
     and no cell is zero-filled."""
-    conditions = list(conditions or ANOVA_CONDITIONS)
-    cols = ["participant", "condition", "finger_id", metric]
-    empty = pd.DataFrame(columns=cols)
-    if pf_df.empty or metric not in pf_df.columns:
-        return empty, {}
-    sub = pf_df[pf_df["condition"].isin(conditions)
-                & pf_df["finger_id"].isin(FINGER_IDS)][cols]
-    kept, dropped = [], {}
-    for participant, prow in sub.groupby("participant", sort=True):
-        present = prow.dropna(subset=[metric])
-        have = set(zip(present["condition"], present["finger_id"]))
-        missing = [(c, f) for c in conditions for f in FINGER_IDS if (c, f) not in have]
-        if missing:
-            dropped[str(participant)] = "missing " + ", ".join(f"{c}/F{f}" for c, f in missing)
-        else:
-            kept.append(present)
-    if not kept:
-        return empty, dropped
-    # Ordered by the requested condition order (not alphabetically) so the
-    # frame reads in the same order as everything else in the window; the
-    # column itself stays a plain string for pingouin and group_center.
-    order = {c: i for i, c in enumerate(conditions)}
-    frame = pd.concat(kept, ignore_index=True)
-    frame = (frame.assign(_ord=frame["condition"].map(order))
-                  .sort_values(["participant", "_ord", "finger_id"], ignore_index=True)
-                  .drop(columns="_ord"))
+    frame, dropped = two_way_cell_frame(pf_df, metric, "finger_id", conditions)
+    # Historical wording of the dropped-cell note, kept so the existing
+    # design paragraph and its test read unchanged.
+    dropped = {k: v.replace("missing ", "missing ").replace("/", "/F")
+               for k, v in dropped.items()}
     return frame, dropped
 
 
@@ -522,18 +558,26 @@ def _mauchly(pg, frame: pd.DataFrame, metric: str, within: List[str]) -> dict:
     return out
 
 
-def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
-                    conditions: Optional[List[str]] = None) -> dict:
-    """Two-way within-participant ANOVA, Condition x Finger ID, on one
-    per-finger metric. See the module docstring for the model, the error
-    terms, the effect size and why only reaction time is fitted.
+def rm_anova_two_way(df: pd.DataFrame, metric: str, factor: str,
+                     conditions: Optional[List[str]] = None) -> dict:
+    """Two-way within-participant ANOVA, Condition x `factor`, on one
+    participant-level cell metric. See the module docstring for the
+    model, the error terms and the effect size.
+
+    `factor` is any key of ANOVA_FACTORS: "finger_id" for the primary
+    per-digit model, "level" for the difficulty interaction, or
+    "repetition" for the within-cell practice interaction. The three are
+    the same model with a different second repeated factor, so they share
+    one implementation and one reporting contract.
 
     Returns a dict that is always complete enough to render: when the
     model cannot run, "reason" says why and "effects" is empty. Never
     raises for a data reason - a Group Analysis tab must not be able to
     take the window down."""
+    levels, factor_label = ANOVA_FACTORS[factor]
+    effect_labels = anova_effect_labels(factor)
     conditions = list(conditions or ANOVA_CONDITIONS)
-    frame, dropped = anova_cell_frame(pf_df, metric, conditions)
+    frame, dropped = two_way_cell_frame(df, metric, factor, conditions)
     n = int(frame["participant"].nunique()) if len(frame) else 0
     result = {
         "metric": metric,
@@ -542,7 +586,10 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
         "n_dropped": len(dropped),
         "dropped": dropped,
         "n_cells": len(frame),
-        "cells_per_participant": len(conditions) * len(FINGER_IDS),
+        "factor": factor,
+        "factor_label": factor_label,
+        "levels": list(levels),
+        "cells_per_participant": len(conditions) * len(levels),
         "exploratory": n < EXPLORATORY_N,
         "effects": [],
         "frame": frame,
@@ -551,7 +598,7 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
     if n < MIN_TEST_N:
         result["reason"] = (
             f"requires N ≥ {MIN_TEST_N} participants with a complete "
-            f"{len(conditions)} × {len(FINGER_IDS)} cell grid on {metric} (have {n})"
+            f"{len(conditions)} × {len(levels)} cell grid on {metric} (have {n})"
             + (f"; dropped for incomplete cells: {', '.join(sorted(dropped))}" if dropped else "")
         )
         return result
@@ -567,7 +614,7 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
         return result
 
     try:
-        aov = pg.rm_anova(data=frame, dv=metric, within=["condition", "finger_id"],
+        aov = pg.rm_anova(data=frame, dv=metric, within=["condition", factor],
                           subject="participant", detailed=True, effsize="np2")
     except Exception as e:  # degenerate data (zero variance, singular error term)
         result["reason"] = f"ANOVA could not be fitted ({type(e).__name__}: {e})"
@@ -575,11 +622,11 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
 
     sphericity_within = {
         "condition": ["condition"],
-        "finger_id": ["finger_id"],
-        "condition * finger_id": ["condition", "finger_id"],
+        factor: [factor],
+        f"condition * {factor}": ["condition", factor],
     }
     aov = aov.set_index("Source")
-    for source, label in ANOVA_EFFECT_LABELS.items():
+    for source, label in effect_labels.items():
         if source not in aov.index:
             continue
         row = aov.loc[source]
@@ -615,6 +662,30 @@ def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
             "correction": "Greenhouse–Geisser" if gg_applicable else "none",
         })
     return result
+
+
+def rm_anova_finger(pf_df: pd.DataFrame, metric: str = "rt_complete_s",
+                    conditions: Optional[List[str]] = None) -> dict:
+    """Primary model: Condition × Finger ID on the per-finger cells."""
+    return rm_anova_two_way(pf_df, metric, "finger_id", conditions)
+
+
+def rm_anova_difficulty(cell_df: pd.DataFrame, metric: str = "rt_complete_s",
+                        conditions: Optional[List[str]] = None) -> dict:
+    """Condition × Difficulty on the participant × condition × level
+    cells. The interaction tests whether the guidance advantage changes
+    with generated sequence difficulty; without it, a flat-looking set of
+    per-level differences is a description and not a result."""
+    return rm_anova_two_way(cell_df, metric, "level", conditions)
+
+
+def rm_anova_repetition(rep_df: pd.DataFrame, metric: str = "rt_complete_s",
+                        conditions: Optional[List[str]] = None) -> dict:
+    """Condition × Repetition on the participant × condition ×
+    within-cell repetition means. The interaction tests whether the two
+    guidance conditions improve at different rates across the three
+    repetitions of a cell, i.e. whether the gap closes with practice."""
+    return rm_anova_two_way(rep_df, metric, "repetition", conditions)
 
 
 def ceiling_diagnostics(pf_df: pd.DataFrame, metric: str = "fa",

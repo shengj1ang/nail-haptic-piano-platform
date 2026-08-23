@@ -34,7 +34,7 @@ peak (high Q). Two facts make a one-off calibration necessary:
   actuator shifts by several Hz with the attachment method, the mass it
   drives, and temperature, so f₀ must be measured on the assembled rig.
 - **Drive strength is nonlinear in the PWM duty.** With this rig's
-  unipolar (single-transistor) drive on a 10 V rail, the LRA responds
+  unipolar (single-transistor) drive on a 9 V rail, the LRA responds
   to the AC fundamental of the PWM square wave, whose amplitude is
   proportional to `sin(π·amp/255)` — it peaks at `amp = 128` and falls
   back to zero at 255. `amp` values are therefore only meaningful in
@@ -57,7 +57,7 @@ fact reported as subjectively uncomfortable during piloting.
 |------|------|
 | Actuator | Coin LRA, wired to motor **port 11**, stuck to the desk with Blu-Tack (adhesive putty) |
 | Sensor | LIS3DH accelerometer, sensor 0 (CS pin 36), coupled to the LRA through the same Blu-Tack mount; ±2 g high-resolution mode (1 count = 1 mg) |
-| Drive | Teensy 4.1 PWM through the motor driver board, 10 V motor rail; `haptic-piano` firmware **v2.6.0+** (`F` frequency command, `ACC,id,x,y,z` stream) |
+| Drive | Teensy 4.1 PWM through the motor driver board, 9 V motor rail; `haptic-piano` firmware **v2.6.0+** (`F` frequency command, `ACC,id,x,y,z` stream) |
 | Sampling | `A START 3` (3 ms interval; the LIS3DH ODR is 400 Hz) |
 
 The rig sits untouched on the desk for the whole run — hand-holding it
@@ -326,7 +326,7 @@ so it tracks the firmware, not the config.
   motor is not on port 11 (`MOTOR_INDEX`).
 - A peak at the edge of the sweep range: widen `COARSE_START_HZ` /
   `COARSE_STOP_HZ`.
-- `amp = 128` on the 10 V rail is a deliberate short-burst overdrive
+- `amp = 128` on the 9 V rail is a deliberate short-burst overdrive
   (0.4 s bursts are fine; haptic driver ICs overdrive on purpose for
   fast ring-up) — avoid holding the LRA at high `amp` continuously.
 

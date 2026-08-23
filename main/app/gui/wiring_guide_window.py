@@ -1,7 +1,7 @@
 """Wiring Guide - launcher section 1 (initial setup).
 
 A single reference for wiring the whole rig to the Teensy 4.1: the power
-rails (3.3 V / 5 V / 10 V / GND), the pin assignments for the finger
+rails (3.3 V / 5 V / 9 V / GND), the pin assignments for the finger
 motors, the two WS2812 LED strips and the LIS3DH accelerometer bus, all
 next to a labelled board pinout so the pin numbers map straight onto the
 physical header. The content mirrors the *Current Wiring* table in
@@ -122,7 +122,7 @@ POWER_HTML = """
   <tr><td><b>5 V</b></td>
       <td>WS2812 LED strips (cut to the length you need)</td>
       <td>Teensy <b>Vin</b> pin (5 V)</td></tr>
-  <tr><td><b>10 V</b></td>
+  <tr><td><b>9 V</b></td>
       <td>Motor drive rail (chopped by PWM)</td>
       <td>External supply via boost module</td></tr>
   <tr><td><b>GND</b></td>

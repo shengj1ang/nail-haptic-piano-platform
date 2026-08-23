@@ -41,11 +41,11 @@ All 12 motor pins (0–11) are initialized and fully addressable by every motor 
 
 | Rail | Powers | Source | Notes |
 |------|------|------|------|
-| 10 V | Motor power (drive side of the driver board) | External supply through a boost module | this is the rail the PWM chops, so effective motor voltage = `amp/255 × 10 V`; full duty (`amp = 255`) puts the full 10 V on a motor — keep `amp` within values validated for your motors. Check the boost module's current rating against all motors running at once |
+| 9 V | Motor power (drive side of the driver board) | USB 5 V boost cable set to its 9 V output (1 A) | this is the rail the PWM chops, so effective motor voltage = `amp/255 × 9 V`; full duty (`amp = 255`) puts the full 9 V on a motor — keep `amp` within values validated for your motors. Check the boost module's current rating against all motors running at once |
 | 5 V | WS2812 LED strips | Teensy `Vin` pin (5 V) | LED current scales with strip length — cut the strips to the length you actually need; put a 1000 µF capacitor across the strip power input and a 330 Ω resistor in each data line |
 | 3.3 V | Motor driver board logic (chip supply) + LIS3DH accelerometer(s) | Teensy `3.3V` pin | matches the Teensy's 3.3 V PWM/SPI signal levels; the LIS3DH is a 3.3 V part and Teensy 4.1 pins are **not 5 V tolerant** |
 | GND | everything | common | tie **all** grounds together (Teensy, boost module output, LED supply, driver board, sensors); without a shared ground the data signals have no return path and nothing works reliably |
-| — | Teensy itself | USB | The Teensy runs off USB; `Vin` carries that same 5 V by default (VIN–VUSB linked), and that is the 5 V the LED strips tap — size the strips so the USB 5 V can source their current. The external 10 V motor rail is separate and never back-feeds the Teensy. To instead power the Teensy from an external `Vin` supply while USB is also plugged in, cut the VIN–VUSB pad first (standard Teensy practice) |
+| — | Teensy itself | USB | The Teensy runs off USB; `Vin` carries that same 5 V by default (VIN–VUSB linked), and that is the 5 V the LED strips tap — size the strips so the USB 5 V can source their current. The external 9 V motor rail is separate and never back-feeds the Teensy. To instead power the Teensy from an external `Vin` supply while USB is also plugged in, cut the VIN–VUSB pad first (standard Teensy practice) |
 
 Wire count per accelerometer: 6 (3.3V, GND, SCK, MOSI, MISO, CS) — each additional sensor adds only its own CS wire, the other five are taps onto the shared bus/rails.
 

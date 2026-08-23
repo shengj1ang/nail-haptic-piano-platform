@@ -580,6 +580,15 @@ class GroupAnalysisWindow(QMainWindow):
                         + ", ".join(
                             f"{p} {c}/{LEVEL_DISPLAY_LABELS[lv]}"
                             for p, c, lv in missing))
+        anova = ga.rm_anova_difficulty(cells, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
+        anova_html = (
+            "<h3>Condition × Difficulty repeated-measures ANOVA</h3>"
+            "<p>Same two-way within-participant model as the RM-ANOVA tab, with <b>difficulty "
+            "level</b> (α, β, γ) in place of finger ID. The interaction is the effect of interest: "
+            "a non-significant Condition × Difficulty term means the per-level differences give no "
+            "evidence that the guidance advantage depends on load, which is a bounded statement and "
+            "not proof of invariance.</p>"
+            + self._anova_table_html(anova))
         caption = (
             "<h3>Condition × Difficulty</h3>"
             "<p>Performance-comparable guidance conditions only: B visual versus C haptic. "
@@ -589,16 +598,25 @@ class GroupAnalysisWindow(QMainWindow):
             "Cell means per group:</p>"
             "<p>" + "<br>".join(cap_rows) + "</p>"
             f"<p>{missing_note}</p>"
-            "<p>Descriptive within-subject comparison; the full condition × level interaction model "
-            "is not fitted in this version (see Contrasts for the paired condition tests).</p>")
+            "<p>The condition × level interaction model is fitted below: it tests whether the "
+            "guidance advantage changes with generated difficulty, which the per-level means alone "
+            "can only suggest.</p>"
+            + anova_html)
         datasets = {
             "condition_difficulty_participant_cells": cells,
+            "rm_anova_difficulty_effects": self._anova_effect_table(anova),
+            "rm_anova_difficulty_cells": anova["frame"],
             "condition_difficulty_group_summary": self._metric_centers(
                 cells, [m[0] for m in specs], ["condition", "level"]),
             "condition_difficulty_missing_cells": pd.DataFrame(
                 missing, columns=["participant", "condition", "level"]),
         }
-        return caption, {"group_condition_difficulty": fig}, datasets
+        figs = {"group_condition_difficulty": fig}
+        if len(anova["frame"]):
+            figs["group_rm_anova_difficulty"] = self._anova_factor_figure(
+                anova, "RT — key-and-finger-correct events",
+                [LEVEL_TICK_LABELS[lv] for lv in LEVELS], "difficulty level")
+        return caption, figs, datasets
 
     # ------------------------------------------------------------------
     # Paired contrasts
@@ -911,6 +929,7 @@ class GroupAnalysisWindow(QMainWindow):
 
     def _build_learning(self):
         rep = ga.participant_repetition_metrics(self._data.trial_rows)
+        rep_anova = ga.rm_anova_repetition(rep, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
         fig1 = Figure(figsize=(10.5, 3.8))
         ax_fa, ax_rt = fig1.subplots(1, 2)
         for ax, metric, scale, ylabel in ((ax_fa, "fa_main", 100, "Main FA (%)"),
@@ -996,7 +1015,16 @@ class GroupAnalysisWindow(QMainWindow):
             "plots key error rate (100% − key accuracy) on a symmetric-log scale. Lower is better. "
             "The small linear region around 0 keeps perfect trials visible, while the logarithmic "
             "region separates small non-zero error rates that overlap near 100% accuracy. No adjusted "
-            "scores are used in this figure.</p>")
+            "scores are used in this figure.</p>"
+            "<h3>Condition × Repetition repeated-measures ANOVA</h3>"
+            "<p>The same two-way within-participant model as the RM-ANOVA tab, with <b>within-cell "
+            "repetition</b> (1st, 2nd, 3rd presentation of a condition × level cell) as the second "
+            "repeated factor, fitted on the same complete-action reaction time as the other two models. The interaction asks whether the "
+            "two guidance conditions improve at different rates — that is, whether the gap between "
+            "them closes with practice. A non-significant interaction means these three repetitions "
+            "provide no evidence of convergence; it does not establish that none would appear over a "
+            "longer exposure.</p>"
+            + self._anova_table_html(rep_anova))
         datasets = {
             "learning_within_cell_repetition": ga.within_cell_repetition(
                 [t for t in self._data.trial_rows
@@ -1004,6 +1032,8 @@ class GroupAnalysisWindow(QMainWindow):
             "learning_participant_repetition": rep,
             "learning_repetition_group_summary": self._metric_centers(
                 rep, ["fa_main", "rt_correct_key_s"], ["condition", "repetition"]),
+            "rm_anova_repetition_effects": self._anova_effect_table(rep_anova),
+            "rm_anova_repetition_cells": rep_anova["frame"],
             "learning_session_position": pos,
             "learning_session_position_group_summary": self._metric_centers(
                 pos, ["fa_main_adjusted", "rt_correct_key_s_adjusted"], ["position"]),
@@ -1012,6 +1042,10 @@ class GroupAnalysisWindow(QMainWindow):
         }
         figures = {"group_learning_repetition": fig1,
                    "group_learning_session_position": fig2}
+        if len(rep_anova["frame"]):
+            figures["group_rm_anova_repetition"] = self._anova_factor_figure(
+                rep_anova, "RT — key-and-finger-correct events",
+                ["1st", "2nd", "3rd"], "repetition within cell")
         figures.update(difficulty_figures)
         return caption, figures, datasets
 
@@ -1544,6 +1578,66 @@ class GroupAnalysisWindow(QMainWindow):
               "interaction test — are not credible. FA is therefore reported here as means, SDs and "
               "95% t-CIs over the same complete-case participants as the reaction-time model, and "
               "no F test is computed on it. Reaction time carries the inferential result.</i>")
+
+    def _anova_factor_figure(self, res: dict, metric_label: str,
+                             tick_labels, xlabel: str, scale: float = 1000.0,
+                             unit: str = "ms") -> Figure:
+        """Cell means per condition across the second repeated factor,
+        plus the paired C - B difference per level (the interaction term,
+        drawn). Factor-agnostic twin of _anova_rt_figure, used by the
+        Condition x Difficulty and Condition x Repetition models."""
+        metric, frame = res["metric"], res["frame"]
+        factor, levels = res["factor"], res["levels"]
+        conditions = res["conditions"]
+        fig = Figure(figsize=(10.5, 4.0))
+        ax, ax_d = fig.subplots(1, 2)
+        x = np.arange(len(levels))
+
+        for c in conditions:
+            sub = frame[frame["condition"] == c]
+            for _, prow in sub.groupby("participant"):
+                ys = prow.set_index(factor)[metric].reindex(levels) * scale
+                ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
+                        linewidth=0.8, alpha=0.3, zorder=1)
+            center = (ga.group_center(sub, metric, [factor])
+                      .set_index(factor).reindex(levels))
+            means = center["mean"].to_numpy(dtype=float) * scale
+            lo = center["ci95_lo"].to_numpy(dtype=float) * scale
+            hi = center["ci95_hi"].to_numpy(dtype=float) * scale
+            ax.errorbar(x, means, yerr=[means - lo, hi - means], fmt="o-",
+                        color=CONDITION_COLORS[c], linewidth=2.0, capsize=4,
+                        label=self._cond_titles[c], zorder=3)
+        ax.set_xticks(x, tick_labels, fontsize=9)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(f"{metric_label.split(' — ')[0]} ({unit})")
+        ax.set_title(f"{metric_label} — condition × {xlabel} cell means", fontsize=10)
+        ax.legend(fontsize=7)
+
+        ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")
+        if len(conditions) == 2:
+            lo_c, hi_c = conditions[0], conditions[1]
+            pivot = frame.pivot_table(index=["participant", factor],
+                                      columns="condition", values=metric)
+            diffs = (pivot[hi_c] - pivot[lo_c]).rename("diff").reset_index()
+            for xi, lv in enumerate(levels):
+                vals = diffs[diffs[factor] == lv]["diff"].to_numpy(dtype=float) * scale
+                jitter = (np.arange(len(vals)) - (len(vals) - 1) / 2) * (0.3 / max(len(vals), 1))
+                ax_d.scatter(xi + jitter, vals, s=26, color="#3a76c4", alpha=0.75, zorder=2)
+            center = ga.group_center(diffs, "diff", [factor]).set_index(factor).reindex(levels)
+            means = center["mean"].to_numpy(dtype=float) * scale
+            lo = center["ci95_lo"].to_numpy(dtype=float) * scale
+            hi = center["ci95_hi"].to_numpy(dtype=float) * scale
+            ax_d.errorbar(x, means, yerr=[means - lo, hi - means], fmt="D", markersize=9,
+                          color="#d9663d", markeredgecolor="black", capsize=4,
+                          linewidth=1.3, linestyle="none", zorder=4)
+            ax_d.set_title(f"Paired {hi_c} − {lo_c} per level (interaction term)", fontsize=10)
+            ax_d.set_ylabel(f"{hi_c} − {lo_c} ({unit})")
+        else:
+            ax_d.set_title("Paired difference needs exactly two conditions", fontsize=10)
+        ax_d.set_xticks(x, tick_labels, fontsize=9)
+        ax_d.set_xlabel(xlabel)
+        fig.tight_layout()
+        return fig
 
     def _anova_rt_figure(self, res: dict, metric_label: str) -> Figure:
         """Cell means per condition across finger IDs, plus the paired

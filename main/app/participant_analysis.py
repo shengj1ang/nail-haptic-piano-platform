@@ -410,9 +410,15 @@ def within_cell_repetition(trial_rows: List[dict]) -> pd.DataFrame:
                 "repetition": rep,
                 "fa_main": t["fa_main"] if t.get("analyzed") else np.nan,
                 "rt_correct_key_s": t["rt_correct_key_s"] if t["rt_correct_key_s"] is not None else np.nan,
+                # Carried so the Condition x Repetition model can be fitted on
+                # the same complete-action RT as the other two ANOVAs; needs
+                # analyzed trials, since a complete action requires a finger
+                # judgement and not only the MIDI key.
+                "rt_complete_s": (t["rt_complete_s"] if t.get("analyzed")
+                                  and t.get("rt_complete_s") is not None else np.nan),
             })
     return pd.DataFrame(rows, columns=["participant", "condition", "level", "repetition",
-                                       "fa_main", "rt_correct_key_s"])
+                                       "fa_main", "rt_correct_key_s", "rt_complete_s"])
 
 
 def participant_repetition_metrics(trial_rows: List[dict]) -> pd.DataFrame:
@@ -427,9 +433,9 @@ def participant_repetition_metrics(trial_rows: List[dict]) -> pd.DataFrame:
         [t for t in trial_rows if t.get("condition") in GUIDANCE_CONDITIONS])
     if rep.empty:
         return pd.DataFrame(columns=["participant", "condition", "repetition",
-                                     "fa_main", "rt_correct_key_s"])
+                                     "fa_main", "rt_correct_key_s", "rt_complete_s"])
     out = (rep.groupby(["participant", "condition", "repetition"], sort=True)
-              [["fa_main", "rt_correct_key_s"]].mean().reset_index())
+              [["fa_main", "rt_correct_key_s", "rt_complete_s"]].mean().reset_index())
     return out
 
 
