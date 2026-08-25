@@ -11,12 +11,15 @@ are built on.
 app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
 launcher.py                     entry point - hub window for every tool below, grouped into the same
                                  numbered sections used throughout this README (1 Initial Setup ...
-                                 10 Tools). Section 8 Tele-training is the one
+                                 11 Rhythm Experiment). Section 8 Tele-training is the one
                                  section whose buttons start SEPARATE processes rather than a
                                  sub-window, because a student, a teacher and a relay have to run at
                                  the same time - see "Tele-training" below.
                                  Section 10 Tools is data housekeeping, not part of running or
                                  analysing a session - see "Quiz data maintenance tools" below.
+                                 Section 11 Rhythm Experiment is a separate study, deliberately
+                                 isolated so it cannot affect any of the others - see "Rhythm
+                                 experiment" below.
                                  Section 1 also holds two launcher-only settings windows: Visual
                                  Guidance Cue Selection (app/gui/cue_selection_window.py), which
                                  persists the quiz cue style (dot/hand) to config.json, and Haptic
@@ -138,6 +141,10 @@ validation_experiments/         small hardware-validation experiments, separate 
                                  README.md documents the shared metric/raw-data layer. Runs are saved
                                  as timestamped CSV/PNG/raw_acc.npz/meta.json sets under
                                  data/validation_experiments/<experiment>/
+melody_generator/               SEPARATE STUDY (launcher section 11): standalone generator of short,
+                                 simple, fixed-fingering practice melodies for the rhythm experiment.
+                                 Stdlib only, shares no code with app/sequence_generator.py, writes
+                                 only data/rhythm_experiment/ - see "Rhythm experiment" below
 test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
 read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old bare "x,y,z" serial
                                  format, pre-unified-firmware) - reference only, see its README;
@@ -295,6 +302,56 @@ python3 test-script/test_maintenance_tools.py
 Runs against a temporary `data/quiz` built for each test; the project's
 own data is never read or written. The conversion and archiving tests
 skip themselves if ffmpeg or 7z is not available.
+
+---
+
+## Rhythm experiment (launcher section 11)
+
+A study of its own, separate from the Main User Study: short, simple,
+fixed-fingering practice melodies on a whole-beat grid, for looking at
+rhythm and timing rather than at cue modality. One button, "Rhythm Melody
+Generator (15-note)", opens `app/gui/rhythm_melody_window.py` - pick a
+seed, a key and a five-finger hand position, press Play to hear it, press
+"Generate & Save files" to write the stimulus files.
+
+**It cannot affect any earlier experiment.** That is structural, not a
+convention:
+
+- it generates through `melody_generator/`, a self-contained package that
+  shares no code with `app/sequence_generator.py` (section 4) and has no
+  third-party dependencies;
+- it writes **only** into `data/rhythm_experiment/` - never `config.json`,
+  never a keyboard profile, never `data/sequence/`, `data/music/`,
+  `data/quiz/` or `data/MainUserStudy/`;
+- its melodies are not registered with `app/song_library.py`, so one can
+  never appear in the song pickers used by `music_playback.py`,
+  `student_quiz.py` or `student_quiz_haptic.py`;
+- the note range comes from the chosen hand position (always inside MIDI
+  48-72, white keys only), not from the active calibrated profile, so it
+  neither reads nor changes which profile is selected.
+
+The only thing it borrows is `note_audio.py`'s tone synthesiser for the
+Play button, which claims the audio output and writes nothing.
+
+Each generated melody is 15 note-on events by default, one voice, on a
+60 BPM whole-beat grid (1 beat = 1 s): every phrase ends on a 2- or 3-beat
+held note, some phrase endings are followed by a 1-beat rest, and every
+note carries a fixed target finger (L1-L5 / R1-R5) that is the same in
+every repetition. Each sequence is written as four files - `.mid` (playable),
+`.json` (every event with hand/finger/onset/duration/note-on/note-off/velocity,
+plus the rests, the scores and the validation report), `.csv` and a `.txt`
+summary.
+
+It runs equally well without the launcher:
+
+```bash
+python3 -m melody_generator --seed 42 --out ./data/rhythm_experiment
+python3 -m melody_generator --help
+python3 -m melody_generator.test_melody_generator     # self-checks
+```
+
+See `melody_generator/README.md` for the generation rules, the full list of
+rejection rules and the two scores.
 
 ---
 

@@ -82,6 +82,7 @@ from app.gui.quiz_backup_window import QuizBackupWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.remote_latency_analysis_window import RemoteLatencyAnalysisWindow
 from app.gui.review_compress_window import ReviewCompressWindow
+from app.gui.rhythm_melody_window import RhythmMelodyWindow
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
 from app.gui.single_song_metrics_window import SingleSongMetricsWindow
@@ -280,6 +281,37 @@ SECTIONS = [
         [
             ("Review Video Compression (ffmpeg)", ReviewCompressWindow),
             ("Participant ZIP Backup (7z)", QuizBackupWindow),
+        ],
+    ),
+    (
+        # A study of its own, separate from the Main User Study above:
+        # short, simple, fixed-fingering practice melodies on a whole-beat
+        # grid (15 note-on events, one voice, white keys, 60 BPM), for
+        # looking at rhythm and timing rather than at cue modality.
+        #
+        # DELIBERATELY ISOLATED FROM EVERY EXPERIMENT ABOVE IT. Nothing in
+        # this section can change the behaviour or the data of the earlier
+        # experiments, and that is structural rather than a convention:
+        #
+        #   - it generates through the standalone melody_generator package,
+        #     which shares no code with app.sequence_generator (section 4)
+        #     and has no third-party dependencies;
+        #   - it writes only into data/rhythm_experiment/ - never
+        #     config.json, never a keyboard profile, never data/sequence/,
+        #     data/music/, data/quiz/ or data/MainUserStudy/;
+        #   - its melodies are not registered with app.song_library, so one
+        #     cannot turn up in the song pickers used by music_playback,
+        #     student_quiz or student_quiz_haptic;
+        #   - the note range comes from the chosen five-finger hand
+        #     position (always inside MIDI 48-72), not from the active
+        #     calibrated profile, so it does not care which profile is
+        #     selected and does not touch it.
+        #
+        # The only thing it borrows is note_audio's tone synthesiser, for
+        # the Play button, which claims the audio output and writes nothing.
+        "11. Rhythm Experiment",
+        [
+            ("Rhythm Melody Generator (15-note)", RhythmMelodyWindow),
         ],
     ),
 ]
