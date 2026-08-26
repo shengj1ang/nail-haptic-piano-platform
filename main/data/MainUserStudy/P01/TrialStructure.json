@@ -31,8 +31,8 @@
       "level_symbol": "β",
       "sequence": "1799551287-β-1",
       "rest_after": false,
-      "status": "completed",
-      "started_at": 1784133976.118152,
+      "status": "in_progress",
+      "started_at": 1787584659.844054,
       "completed_at": 1784134027.534213,
       "quiz_name": "P01-T01-Bβ",
       "quiz_attempts": [
@@ -457,9 +457,9 @@
     }
   ],
   "progress": {
-    "completed": 27,
+    "completed": 26,
     "total": 27,
-    "next_trial_index": null,
-    "finished": true
+    "next_trial_index": 1,
+    "finished": false
   }
 }
