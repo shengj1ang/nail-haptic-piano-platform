@@ -17,6 +17,13 @@ The adjustment keeps the difficulty level's scale while preventing a changing
 mix of A/B/C at occurrence 1--9 from looking like practice or fatigue.  Raw
 values, conditions and original session positions remain in the tidy export so
 the transformation is fully inspectable.
+
+No figure plots the adjusted columns.  Every progression panel shows observed
+trials, because a shifted value cannot be traced back to a trial by eye; the
+adjusted columns exist so the condition-mix confound can be checked in the
+exported table instead.  On this data the adjustment moves a single trial's RT
+by 182 ms on average and up to 584 ms, and pushes adjusted key accuracy as high
+as 107%, which is why it belongs in a table rather than on an axis.
 """
 
 from typing import Dict, List

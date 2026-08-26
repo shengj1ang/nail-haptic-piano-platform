@@ -341,13 +341,18 @@ def error_bar_label(mode: str) -> str:
 
 
 def shared_rt_limits(points: pd.DataFrame) -> tuple:
-    """One x-range for all three figures so they compare directly."""
+    """One zero-based x-range for all three figures so they compare directly.
+
+    The axis starts at 0 ms rather than at the fastest trial: a cropped
+    RT axis makes the gap between two conditions look like whatever the
+    crop chooses, and these three figures are the ones a reader uses to
+    judge how large the haptic advantage is.
+    """
     inc = points[points["included"]] if len(points) else points
     if not len(inc):
         return (0.0, 1000.0)
-    lo, hi = float(inc["rt_ms"].min()), float(inc["rt_ms"].max())
-    pad = max((hi - lo) * 0.06, 20.0)
-    return (max(0.0, lo - pad), hi + pad)
+    hi = float(inc["rt_ms"].max())
+    return (0.0, hi * 1.05)
 
 
 _X_LABEL = "Mean RT of correct-key events (ms)"

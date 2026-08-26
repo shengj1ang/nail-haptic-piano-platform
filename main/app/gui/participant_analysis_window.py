@@ -59,6 +59,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import finger_benefit as fb
+from ..figure_axes import zero_based_ylim, zero_based_xlim
 from .. import finger_common as fc
 from .. import finger_equalisation as fq
 from .. import participant_analysis as pa
@@ -544,6 +545,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             ax.set_xlabel("presentation order (trial 1-27)")
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
+        zero_based_ylim(ax2)
         session_fa_slope = self._session_slope(ordered, "fa_main", 100)
         session_rt_slope = self._session_slope(ordered, "rt_correct_key_s", 1000)
 
@@ -584,6 +586,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             bx.set_ylabel(ylabel)
             bx.set_title(title, fontsize=10)
             bx.legend(fontsize=8)
+        zero_based_ylim(bx2)
         fig2.tight_layout()
 
         improvements = []
@@ -597,37 +600,12 @@ class ParticipantAnalysisWindow(QMainWindow):
                     + (f" ({(rt3 - rt1) * 1000:+.0f} ms)" if rt1 is not None and rt3 is not None else "")
                 )
 
-        # Composition-adjusted session progression: the honest version of
-        # the raw trend above. Each B/C trial is centred on this
-        # participant's own condition x level cell mean and returned to
-        # their B/C grand mean, so the randomised mix of modality and
-        # difficulty across positions cannot masquerade as learning.
+        # The per-position table is still exported (it carries both the
+        # observed and the condition-adjusted value per position), but it
+        # gets no figure of its own: figure 1 above already plots every
+        # observed trial at its real position, and the adjusted series
+        # would be the only thing a second figure added.
         pos = pa.session_position_metrics(trials)
-        fig3 = Figure(figsize=(9, 3.8))
-        cx1, cx2 = fig3.subplots(1, 2)
-        for ax, raw_col, adj_col, scale, ylabel in (
-                (cx1, "fa_main_raw", "fa_main_adjusted", 100, "FA main (%)"),
-                (cx2, "rt_correct_key_s_raw", "rt_correct_key_s_adjusted", 1000, "RT (ms)")):
-            if pos.empty:
-                continue
-            ordered_pos = pos.sort_values("position")
-            ax.scatter(ordered_pos["position"], ordered_pos[raw_col] * scale,
-                       s=22, color="#c4c4c4", zorder=1, label="observed")
-            for c in pa.GUIDANCE_CONDITIONS:
-                sub = ordered_pos[ordered_pos["condition"] == c]
-                ax.scatter(sub["position"], sub[adj_col] * scale, s=30,
-                           color=CONDITION_COLORS[c], zorder=2, label=f"adjusted ({c})")
-            adj = ordered_pos[["position", adj_col]].dropna()
-            if len(adj) >= 2:
-                slope, intercept = np.polyfit(adj["position"], adj[adj_col] * scale, 1)
-                xs_adj = adj["position"].to_numpy(dtype=float)
-                ax.plot(xs_adj, slope * xs_adj + intercept, "--", color="black", linewidth=1,
-                        label=f"adjusted trend ({slope:+.2f}/trial)")
-            ax.set_xlabel("actual trial position in session (1–27)")
-            ax.set_ylabel(ylabel)
-            ax.set_title(f"Adjusted session progression — {ylabel}", fontsize=10)
-            ax.legend(fontsize=6.5)
-        fig3.tight_layout()
 
         # Difficulty-aligned progression: all 27 trials, relabelled
         # occurrence 1-9 within each difficulty level.
@@ -644,32 +622,30 @@ class ParticipantAnalysisWindow(QMainWindow):
             "<p><b>Figure 1 — whole session:</b> every trial in presentation order, coloured by "
             "condition, with a least-squares trend line. "
             f"Overall FA trend {session_fa_slope:+.2f} pp/trial, RT trend {session_rt_slope:+.1f} ms/trial "
-            "(negative RT slope = getting faster). This raw trend mixes conditions and difficulty, so read "
-            "it as general familiarisation, not condition learning — the adjusted views below are the ones "
-            "that isolate position.</p>"
+            "(negative RT slope = getting faster). This trend mixes conditions and difficulty, so read "
+            "it as general familiarisation, not condition learning. The per-position table exported "
+            "with this tab carries a condition-adjusted value beside every observed one if you need "
+            "to separate the two numerically.</p>"
             "<p><b>Figure 2 — trial 1 → 3 within each condition-level cell:</b> the three unique "
             "sequences of a cell are averaged by their occurrence order. Because every sequence is seen only "
             "once, this is short-term exposure to the condition and difficulty, not sequence memorisation "
             "(the report's trial-order trend).</p>"
             "<p><b>1st → 3rd occurrence:</b><br>" + "<br>".join(improvements) + "</p>"
-            "<p><b>Figure 3 — composition-adjusted session progression (B/C):</b> at this participant's own "
-            "27 positions each slot carries exactly one randomly assigned condition × difficulty cell, so a "
-            "raw position curve is a schedule artefact as much as a trend. Each trial is therefore centred "
-            "on its own condition × level cell mean and returned to the participant's B/C grand mean; grey "
-            "dots are the observed values behind the adjustment, and only the adjusted trend should be read "
-            "as progression. Condition A is excluded from this B/C performance view.</p>"
-            "<p><b>Figures 4–5 — difficulty-aligned progression:</b> a complementary view keeping all 27 "
+            "<p><b>Figure 3 — difficulty-aligned progression:</b> a complementary view keeping all 27 "
             "trials. Within each difficulty, the nine trials are sorted by their real session position and "
             "relabelled occurrence 1–9, so α (alpha), β (beta) and γ (gamma) can be overlaid on one axis. "
-            "The left panel is observed, the right subtracts the Condition × Difficulty mean and restores "
-            "the difficulty mean, removing changing condition composition as a source of apparent "
-            "progression. Adjusted key-accuracy values are centred display scores and can fall slightly "
-            "outside 0–100%; the observed panel carries the actual percentages. At N = 1 the bold "
-            "\"group mean\" line coincides with this participant's own trajectory.</p>"
+            "Correct-key RT on the left, key accuracy on the right. Every plotted point is an observed "
+            "trial; at N = 1 the bold \"group mean\" line coincides with this participant's own "
+            "trajectory. Each position carries one randomly assigned condition, so part of any wobble is "
+            "that mix rather than progression — the exported "
+            "<i>learning_difficulty_progression_trials</i> table holds the condition-adjusted value "
+            "beside every observed one for checking that.</p>"
+            "<p><b>Axes:</b> RT panels start at zero on every figure in this tab. Accuracy panels "
+            "autoscale to this participant's own range, so their vertical scale differs between "
+            "participants — compare the tick values, not the shape.</p>"
         )
         fig1.tight_layout()
-        figures = {"learning_session": fig1, "learning_withincell": fig2,
-                   "learning_session_position": fig3}
+        figures = {"learning_session": fig1, "learning_withincell": fig2}
         figures.update(difficulty_figures)
         datasets = {
             "learning_within_cell_repetition": pa.within_cell_repetition(trials),
@@ -718,6 +694,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=8, title="Feedback condition", title_fontsize=8)
+        zero_based_ylim(ax2)
         fig.tight_layout()
         caption = (
             "<h3>Difficulty effect</h3>"
@@ -758,6 +735,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                        color=CONDITION_COLORS[c], edgecolor="black", zorder=5)
         ax.set_xlabel("mean RT of correct-key events (ms)")
         ax.set_ylabel("FA main (%)")
+        zero_based_xlim(ax)
         ax.set_title("Speed-accuracy trade-off: one point per trial, diamonds = condition centroids (±SD)",
                      fontsize=10)
         ax.legend(fontsize=8)
@@ -1085,6 +1063,7 @@ class ParticipantAnalysisWindow(QMainWindow):
         ax2.set_ylabel("RT (ms)")
         ax2.set_title("Mean reaction time per target finger", fontsize=10)
         ax2.legend(fontsize=8)
+        zero_based_ylim(ax2)
         fig.tight_layout()
 
         # B vs C per-finger RT distributions (boxplots; correct-key events).
@@ -1108,14 +1087,17 @@ class ParticipantAnalysisWindow(QMainWindow):
                     bx.scatter([pos] * len(rts), rts, s=18, color=CONDITION_COLORS[c], alpha=0.8)
                     if rts:
                         small_n_notes.append(f"{c}/{f} (n={len(rts)})")
-                bx.text(pos, bx.get_ylim()[0], f"{len(rts)}", ha="center", va="bottom", fontsize=6,
-                        color="#555555")
+                # y in axes fraction, so the count stays pinned to the
+                # bottom of the panel after the axis range is fixed below.
+                bx.text(pos, 0.01, f"{len(rts)}", ha="center", va="bottom", fontsize=6,
+                        color="#555555", transform=bx.get_xaxis_transform())
         bx.set_xticks(range(len(FINGER_ORDER)), FINGER_ORDER)
         bx.set_ylabel("RT (ms)")
         bx.set_title("Per-finger RT distributions, B (blue) vs C (orange) - correct-key events; "
                      "n under each box, fingers with n<3 drawn as raw points", fontsize=9)
         bx.legend(handles=[Patch(facecolor=CONDITION_COLORS["B"], alpha=0.55, label="B"),
                            Patch(facecolor=CONDITION_COLORS["C"], alpha=0.55, label="C")], fontsize=8)
+        zero_based_ylim(bx)
         fig2.tight_layout()
         if small_n_notes:
             caption_notes.append("small n (points, not boxes): " + ", ".join(small_n_notes))
@@ -1163,6 +1145,7 @@ class ParticipantAnalysisWindow(QMainWindow):
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7)
+        zero_based_ylim(hx_rt)
         fig3.tight_layout()
 
         caption = (
@@ -1397,6 +1380,7 @@ class ParticipantAnalysisWindow(QMainWindow):
                 patch.set_alpha(0.5)
         ax2.set_ylabel("RT (ms)")
         ax2.set_title("RT spread by condition", fontsize=10)
+        zero_based_ylim(ax2)
         fig.tight_layout()
         caption = (
             "<h3>Reaction-time distributions</h3>"

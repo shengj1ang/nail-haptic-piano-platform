@@ -103,29 +103,24 @@ class TestSummaryAndFigures(unittest.TestCase):
         ]["rt_correct_key_s_raw"].mean()
         self.assertAlmostEqual(float(cell["mean"]), float(expected))
 
-    def test_rt_and_key_accuracy_figures_show_individuals_and_means(self):
+    def test_rt_and_key_accuracy_share_one_row(self):
         figures = sp_figures.build_difficulty_progression_figures(
             self.frame, self.summary)
-        self.assertEqual(set(figures), {
-            "group_learning_difficulty_progression_rt",
-            "group_learning_difficulty_progression_key_accuracy",
-        })
-        key_figure = figures[
-            "group_learning_difficulty_progression_key_accuracy"
-        ]
-        figure_notes = " ".join(text.get_text() for text in key_figure.texts)
-        self.assertIn("exceed 100%", figure_notes)
-        self.assertIn("not observed percentages", figure_notes)
+        self.assertEqual(set(figures),
+                         {"group_learning_difficulty_progression"})
         for figure in figures.values():
+            # One row of two, not two stacked figures, and the two panels
+            # name different metrics so they cannot read as a duplicate.
             self.assertEqual(len(figure.axes), 2)
             self.assertTrue(figure.legends)
             self.assertEqual(figure.legends[0].get_title().get_text(),
                              "Difficulty")
             self.assertEqual(
                 [ax.get_title() for ax in figure.axes],
-                ["Observed progression by difficulty",
-                 "Composition-adjusted progression by difficulty"],
+                ["Correct-key reaction time", "Key accuracy"],
             )
+            self.assertEqual([ax.get_ylabel() for ax in figure.axes],
+                             ["RT (ms)", "key accuracy (%)"])
             visible_text = " ".join(
                 [ax.get_title() for ax in figure.axes]
                 + [text.get_text()
@@ -146,24 +141,40 @@ class TestSummaryAndFigures(unittest.TestCase):
                 for line in group_means:
                     np.testing.assert_array_equal(line.get_xdata(), np.arange(1, 10))
 
-    def test_key_error_log_figure_uses_bounded_observed_error_rates(self):
-        figure = sp_figures.build_key_error_log_figure(
+    def test_figures_plot_observed_columns_on_uncropped_axes(self):
+        """No adjusted value is drawn, and no axis is cropped to its data.
+
+        A cropped axis or a shifted value is the thing a reader cannot
+        reconstruct from the trial table, so both are asserted here
+        rather than left to review.
+        """
+        figures = sp_figures.build_difficulty_progression_figures(
             self.frame, self.summary)
-        self.assertEqual(len(figure.axes), 1)
-        ax = figure.axes[0]
-        self.assertEqual(ax.get_yscale(), "symlog")
-        self.assertEqual(ax.get_ylim()[0], 0)
-        self.assertIn("observed key error rate", ax.get_ylabel())
-        formatter = ax.yaxis.get_major_formatter()
-        self.assertEqual(
-            [formatter(value) for value in (0, 0.1, 1, 10)],
-            ["0", "0.1", "1", "10"],
-        )
-        group_means = [line for line in ax.lines if line.get_linewidth() > 2.0]
-        self.assertEqual(len(group_means), 3)
-        for line in group_means:
-            errors = np.asarray(line.get_ydata(), dtype=float)
-            self.assertTrue(np.all((errors >= 0) & (errors <= 100)))
+
+        rt_ax = figures["group_learning_difficulty_progression"].axes[0]
+        self.assertEqual(rt_ax.get_yscale(), "linear")
+        self.assertEqual(rt_ax.get_ylim()[0], 0.0)
+        observed_max = float(self.frame["rt_correct_key_s_raw"].max()) * 1000
+        self.assertGreaterEqual(rt_ax.get_ylim()[1], observed_max)
+        drawn = np.concatenate([
+            np.asarray(line.get_ydata(), dtype=float) for line in rt_ax.lines])
+        drawn = drawn[np.isfinite(drawn)]
+        adjusted = set(np.round(
+            self.frame["rt_correct_key_s_adjusted"].dropna() * 1000, 6))
+        observed = set(np.round(
+            self.frame["rt_correct_key_s_raw"].dropna() * 1000, 6))
+        self.assertTrue(observed)
+        for value in np.round(drawn, 6):
+            self.assertFalse(value in adjusted and value not in observed)
+
+        # Key accuracy autoscales: pinned to 0-100% the near-ceiling trace
+        # is a flat line and the per-occurrence movement is unreadable.
+        key_ax = figures["group_learning_difficulty_progression"].axes[1]
+        self.assertGreater(key_ax.get_ylim()[0], 0.0)
+
+    def test_key_error_log_figure_is_gone(self):
+        """The symlog error-rate panel existed only to magnify differences."""
+        self.assertFalse(hasattr(sp_figures, "build_key_error_log_figure"))
 
 
 if __name__ == "__main__":

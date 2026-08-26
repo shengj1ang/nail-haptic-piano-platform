@@ -15,6 +15,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
 from .. import condition_a_strategy as cas
+from ..figure_axes import zero_based_ylim
 
 
 PARTICIPANT_LINE = "#aaaaaa"
@@ -302,6 +303,9 @@ def _performance_figure(trials: pd.DataFrame,
         "key accuracy (%)", "Accuracy remains near ceiling",
         ylim=(90, 101),
     )
+    # RT from zero; the accuracy panel keeps its 90-101% window, where the
+    # per-repetition movement is actually visible.
+    zero_based_ylim(rt_ax)
     switch_ax.legend(fontsize=6.8, frameon=False, loc="best")
     fig.suptitle(
         "Condition A — strategy simplification alongside performance",
@@ -347,6 +351,10 @@ def _effort_figure(participant_effort: pd.DataFrame,
         ax.set_xlabel("generated sequence difficulty")
         ax.set_ylabel(ylabel)
         ax.grid(axis="y", color="#dddddd", linewidth=0.6, alpha=0.7)
+        # These are motor-demand magnitudes with a real zero, and the
+        # figure's whole claim is "observed sits below generated", so the
+        # gap must be read against the full quantity, not a crop of it.
+        zero_based_ylim(ax)
     fig.legend(
         handles=[
             Line2D([0], [0], color="#d77a47", marker="s", linestyle="--",

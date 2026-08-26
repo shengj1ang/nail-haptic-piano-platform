@@ -28,6 +28,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from .. import finger_benefit as fb
+from ..figure_axes import zero_based_xlim, zero_based_ylim
 from .. import finger_common as fc
 from .. import finger_equalisation as fe
 from .. import finger_weakest as fw
@@ -136,6 +137,10 @@ def _compensation_figure(res: dict) -> Figure:
         ax.set_xlabel(e["x_label"] + " (ms)", fontsize=8)
         ax.set_ylabel("benefit B − C (ms)", fontsize=8)
         ax.tick_params(labelsize=8)
+        # RT on the x axis starts at zero here too. r and p are printed in
+        # the panel title, so nothing is lost by refusing to crop, and a
+        # cropped baseline is what makes a modest slope look steep.
+        zero_based_xlim(ax)
     handles, labels = axes[0].get_legend_handles_labels()
     seen, uniq = set(), []
     for h, l in zip(handles, labels):
@@ -243,6 +248,7 @@ def _equalisation_figure(res: dict) -> Figure:
         ax.set_ylabel(ylabel, fontsize=9)
         ax.set_title(ylabel.split("(")[0].strip(), fontsize=10)
         ax.legend(fontsize=7)
+        zero_based_ylim(ax)
     fig.tight_layout()
     return fig
 

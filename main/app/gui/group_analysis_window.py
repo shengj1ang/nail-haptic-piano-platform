@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
 
 from .. import group_analysis as ga
 from .. import group_tradeoff as gt
+from ..figure_axes import shared_ylim, zero_based_ylim
 from .. import session_progression as sp
 from .. import session_progression_figures as sp_figures
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
@@ -476,14 +477,27 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylim(0, 105)
         fig1.tight_layout()
 
-        fig2 = Figure(figsize=(10.5, 3.6))
-        axes2 = fig2.subplots(1, 2)
-        self._condition_axis(axes2[0], "rt_correct_key_s", 1000, "ms", "RT — correct-key events")
-        self._condition_axis(axes2[1], "rt_complete_s", 1000, "ms", "RT — key-and-finger-correct events")
+        # One RT panel, not two. rt_complete_s is a strict subset of
+        # rt_correct_key_s (it drops the correct-key/wrong-finger events)
+        # and the two condition means agree to under a millisecond, so a
+        # second panel would be the same picture drawn twice. Both
+        # definitions stay in the table above and in the tidy export, and
+        # the caption reports the largest gap between them.
+        fig2 = Figure(figsize=(6.0, 3.6))
+        ax_rt = fig2.subplots(1, 1)
+        self._condition_axis(ax_rt, "rt_correct_key_s", 1000, "ms",
+                             "RT — correct-key events")
+        zero_based_ylim(ax_rt)
         fig2.tight_layout()
 
+        rt_note = self._rt_definition_note(self._pc, ["condition"])
+        if rt_note:
+            lines.append(rt_note)
         legend_note = ("<i>Figures: thin grey lines = individual participants (within-subject "
-                       "pairing), diamonds = group mean, bars = 95% CI across participants.</i>")
+                       "pairing), diamonds = group mean, bars = 95% CI across participants. "
+                       "RT axes start at zero. Accuracy panels autoscale to their own range, "
+                       "which is near the 100% ceiling — read the tick values, not the "
+                       "apparent size of the gap.</i>")
         lines.append(legend_note)
 
         # The participant x condition table is the source every group
@@ -500,6 +514,34 @@ class GroupAnalysisWindow(QMainWindow):
         return ("".join(f"<p>{line}</p>" for line in lines),
                 {"group_overview_accuracy": fig1, "group_overview_rt": fig2},
                 datasets)
+
+    @staticmethod
+    def _rt_definition_note(df, group_cols: List[str]) -> str:
+        """How far the two RT definitions actually diverge, in this data.
+
+        rt_correct_key_s averages every event whose KEY was right;
+        rt_complete_s averages the subset whose key AND finger were both
+        right. Only one of them is plotted, so the figure caption has to
+        say what the discarded panel would have shown - computed here
+        rather than asserted, so it cannot go stale.
+        """
+        strict = ga.group_center(df, "rt_complete_s", group_cols)
+        loose = ga.group_center(df, "rt_correct_key_s", group_cols)
+        merged = strict.merge(loose, on=group_cols, suffixes=("_strict", "_loose"))
+        gaps = (merged["mean_strict"] - merged["mean_loose"]).abs() * 1000
+        gaps = gaps[np.isfinite(gaps)]
+        if gaps.empty:
+            return ""
+        base = merged["mean_loose"].abs().max() * 1000
+        relative = (f" ({gaps.max() / base * 100:.2f}% of the largest cell mean)"
+                    if base else "")
+        return (
+            "<b>Why only one RT panel:</b> RT is plotted on correct-key events. The stricter "
+            "key-and-finger-correct definition (<i>rt_complete_s</i>, the one the repeated-measures "
+            f"ANOVA is fitted on) differs from it by at most <b>{gaps.max():.1f} ms</b>{relative} in "
+            "any cell shown here, so a second panel would be visually indistinguishable. Both "
+            "definitions are in the tables and the tidy export; dropping the correct-key/wrong-finger "
+            "events changes no conclusion, which is itself the sensitivity check.")
 
     @staticmethod
     def _metric_centers(df, metrics: List[str], group_cols: List[str]):
@@ -522,14 +564,18 @@ class GroupAnalysisWindow(QMainWindow):
 
     def _build_condition_difficulty(self):
         cells = self._cells[self._cells["condition"].isin(ga.GUIDANCE_CONDITIONS)]
+        # Plotted panels. rt_complete_s is deliberately absent: it is the
+        # correct-key subset that also has the right finger, and on this
+        # data the two agree to ~1 ms, so a fourth panel duplicated the
+        # third. It is still summarised in export_specs below.
         specs = [
             ("fa_main", 100, "%", "Main Finger Accuracy"),
             ("key_accuracy", 100, "%", "Key Accuracy"),
             ("rt_correct_key_s", 1000, "ms", "RT — correct-key"),
-            ("rt_complete_s", 1000, "ms", "RT — complete correct"),
         ]
-        fig = Figure(figsize=(10.5, 7.4))
-        axes = fig.subplots(2, 2).ravel()
+        export_specs = specs + [("rt_complete_s", 1000, "ms", "RT — complete correct")]
+        fig = Figure(figsize=(10.5, 3.9))
+        axes = fig.subplots(1, 3)
         x = np.arange(len(LEVELS))
         for ax, (metric, scale, unit, title) in zip(axes, specs):
             for c in ga.GUIDANCE_CONDITIONS:
@@ -552,6 +598,11 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylabel(unit)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7, title="Feedback condition", title_fontsize=7)
+        # RT on a zero-based axis; the two accuracy panels keep their own
+        # autoscaled windows. On a full 0-100% axis both conditions sit as
+        # flat lines against the ceiling and the per-level movement that
+        # this figure exists to show is no longer legible.
+        zero_based_ylim(axes[2])
         fig.tight_layout()
 
         # Caption: group means per cell + missing-cell report.
@@ -580,6 +631,7 @@ class GroupAnalysisWindow(QMainWindow):
                         + ", ".join(
                             f"{p} {c}/{LEVEL_DISPLAY_LABELS[lv]}"
                             for p, c, lv in missing))
+        rt_note = self._rt_definition_note(cells, ["condition", "level"])
         anova = ga.rm_anova_difficulty(cells, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
         anova_html = (
             "<h3>Condition × Difficulty repeated-measures ANOVA</h3>"
@@ -595,10 +647,13 @@ class GroupAnalysisWindow(QMainWindow):
             "Condition A is excluded because it provides no target-finger information.</p>"
             "<p>Faint lines: one per participant per condition (their mean over that cell's trials). "
             "Bold lines: group mean across participants; shaded band = 95% t-CI (needs N ≥ 2). "
-            "Cell means per group:</p>"
+            "The RT panel starts at zero. <b>The two accuracy panels are autoscaled and each spans "
+            "only the top few percent</b>, so their vertical gaps are magnified relative to the RT "
+            "panel — read them off the tick values. Cell means per group:</p>"
             "<p>" + "<br>".join(cap_rows) + "</p>"
             f"<p>{missing_note}</p>"
-            "<p>The condition × level interaction model is fitted below: it tests whether the "
+            + (f"<p>{rt_note}</p>" if rt_note else "")
+            + "<p>The condition × level interaction model is fitted below: it tests whether the "
             "guidance advantage changes with generated difficulty, which the per-level means alone "
             "can only suggest.</p>"
             + anova_html)
@@ -607,7 +662,7 @@ class GroupAnalysisWindow(QMainWindow):
             "rm_anova_difficulty_effects": self._anova_effect_table(anova),
             "rm_anova_difficulty_cells": anova["frame"],
             "condition_difficulty_group_summary": self._metric_centers(
-                cells, [m[0] for m in specs], ["condition", "level"]),
+                cells, [m[0] for m in export_specs], ["condition", "level"]),
             "condition_difficulty_missing_cells": pd.DataFrame(
                 missing, columns=["participant", "condition", "level"]),
         }
@@ -622,26 +677,30 @@ class GroupAnalysisWindow(QMainWindow):
     # Paired contrasts
 
     def _build_contrasts(self):
+        # Plotted panels; rt_complete_s is tested and exported below but
+        # not drawn - its paired C-B mean sits within a quarter of a
+        # millisecond of the correct-key one, so the panel was a copy.
         specs = [
             ("fa_main", 100, "pp", "Main Finger Accuracy (percentage points)"),
             ("key_accuracy", 100, "pp", "Key Accuracy (percentage points)"),
             ("rt_correct_key_s", 1000, "ms", "RT — correct-key (ms)"),
-            ("rt_complete_s", 1000, "ms", "RT — complete correct (ms)"),
         ]
+        tested_metrics = [m[0] for m in specs] + ["rt_complete_s"]
         contrast_labels = [f"{a}−{b}" for a, b in ga.CONTRASTS]
         all_diffs, inference_rows = [], []
-        fig = Figure(figsize=(10.5, 7.4))
-        axes = fig.subplots(2, 2).ravel()
+        fig = Figure(figsize=(10.5, 3.9))
+        axes = fig.subplots(1, 3)
         cap_blocks = ["<h3>Paired B–C guidance contrast (within-participant)</h3>",
                       "C−B compares haptic with visual target-finger guidance. Condition A is not "
                       "an inferential baseline because it provides no target-finger information. One dot per "
                       "participant (their paired difference), diamond = group mean, bar = 95% t-CI "
                       "(needs N ≥ 2). Accuracy differences are in percentage points; the underlying "
                       "proportions (previous tabs) stay the computation basis."]
+        for metric in tested_metrics:
+            all_diffs.append(ga.paired_differences(self._pc, metric).assign(metric=metric))
+            inference_rows.extend(self._inference_rows(metric))
         for ax, (metric, scale, unit, title) in zip(axes, specs):
             diffs = ga.paired_differences(self._pc, metric)
-            all_diffs.append(diffs.assign(metric=metric))
-            inference_rows.extend(self._inference_rows(metric))
             x = np.arange(len(contrast_labels))
             ax.axhline(0, color="#bbbbbb", linewidth=1)
             metric_lines = [f"<b>{title}</b>"]
@@ -670,7 +729,15 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_title(title, fontsize=10)
             metric_lines.append(self._inference_html(metric, scale, unit))
             cap_blocks.append("<br>".join(metric_lines))
+        # The two percentage-point panels measure the same thing in the
+        # same unit, so they share one range instead of each autoscaling.
+        shared_ylim(axes[0], axes[1])
         fig.tight_layout()
+        rt_note = self._rt_definition_note(self._pc, ["condition"])
+        if rt_note:
+            cap_blocks.append(
+                rt_note + " The paired C−B test on the stricter definition is still run and is in "
+                "<i>contrasts_tests.csv</i>.")
         datasets = {
             "contrasts_participant_differences": (pd.concat(all_diffs, ignore_index=True)
                                                   if all_diffs else pd.DataFrame()),
@@ -950,14 +1017,18 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylabel(ylabel)
             ax.set_title(f"Within-cell repetition 1 → 3 — {ylabel}", fontsize=10)
             ax.legend(fontsize=7)
+        zero_based_ylim(ax_rt)
         fig1.tight_layout()
 
         pos = ga.session_position_metrics(self._data.trial_rows)
         fig2 = Figure(figsize=(10.5, 3.8))
         bx_fa, bx_rt = fig2.subplots(1, 2)
+        # Observed values at their real positions. The condition-adjusted
+        # columns are still computed and exported, but a plotted point has
+        # to be a value someone can find in the trial table.
         for ax, metric, scale, ylabel in (
-                (bx_fa, "fa_main_adjusted", 100, "Adjusted Main FA (%)"),
-                (bx_rt, "rt_correct_key_s_adjusted", 1000, "Adjusted RT (ms)")):
+                (bx_fa, "fa_main_raw", 100, "Main FA (%)"),
+                (bx_rt, "rt_correct_key_s_raw", 1000, "RT (ms)")):
             positions = sorted(pos["position"].unique())
             for _, prow in pos.groupby("participant"):
                 by_pos = prow.set_index("position")[metric].reindex(positions) * scale
@@ -969,8 +1040,9 @@ class GroupAnalysisWindow(QMainWindow):
                     color="black", linewidth=2.0, label="group mean", zorder=3)
             ax.set_xlabel("actual trial position in session (1–27)")
             ax.set_ylabel(ylabel)
-            ax.set_title(f"Adjusted session progression — {ylabel}", fontsize=10)
+            ax.set_title(f"Observed session progression — {ylabel}", fontsize=10)
             ax.legend(fontsize=7)
+        zero_based_ylim(bx_rt)
         fig2.tight_layout()
 
         difficulty_progression = sp.difficulty_progression_metrics(
@@ -978,10 +1050,6 @@ class GroupAnalysisWindow(QMainWindow):
         difficulty_progression_summary = sp.difficulty_progression_summary(
             difficulty_progression)
         difficulty_figures = sp_figures.build_difficulty_progression_figures(
-            difficulty_progression, difficulty_progression_summary)
-        difficulty_figures[
-            "group_learning_difficulty_progression_key_error_log"
-        ] = sp_figures.build_key_error_log_figure(
             difficulty_progression, difficulty_progression_summary)
 
         caption = (
@@ -991,31 +1059,30 @@ class GroupAnalysisWindow(QMainWindow):
             "three levels; bold line = group mean across participants. Each repetition is a "
             "different unique sequence, so this is a short-term trial-order trend under the "
             "condition, not sequence memorisation or long-term learning.</p>"
-            "<p><b>Bottom — adjusted session progression:</b> B/C guidance trials at their actual "
-            "presentation positions (1–27). Within each participant and metric, each raw trial is "
-            "centred on that participant's Condition × Difficulty cell mean and returned to their "
-            "B/C grand mean before aggregation. This prevents the changing randomised mix of B/C "
-            "and α (alpha), β (beta), or γ (gamma) at a position from masquerading as "
-            "learning or fatigue. Grey lines: "
-            "individual adjusted trajectories; black: group mean among participants contributing "
-            "at each position. Condition A is excluded from this B/C performance progression.</p>"
+            "<p><b>Bottom — observed session progression:</b> B/C guidance trials at their actual "
+            "presentation positions (1–27), exactly as measured. Grey lines: individual "
+            "trajectories; black: group mean among participants contributing at each position. "
+            "Condition A is excluded from this B/C performance progression. Read the trend with the "
+            "schedule in mind: each position carries a different randomised mix of B/C and α "
+            "(alpha), β (beta) or γ (gamma), so part of any wobble here is composition, not "
+            "learning. The condition-adjusted columns that quantify exactly that are in "
+            "<i>learning_session_position.csv</i>; they are not plotted, because a shifted value "
+            "cannot be traced back to a trial by eye.</p>"
             "<p><b>Difficulty-aligned progression:</b> a complementary view using all trials. Within "
             "each participant and difficulty, the actual session order is relabelled occurrence "
             "1–9, so all individual trajectories can be overlaid with a bold participant-weighted "
             "group mean. α (alpha), β (beta), and γ (gamma) are shown together using different "
-            "colours and markers. The left "
-            "panel contains the observed trials; the right panel subtracts that participant's "
-            "Condition×Difficulty mean and restores their mean for that difficulty, retaining every trial while "
-            "removing changing condition composition as a source of apparent progression. RT is the "
-            "primary view; key accuracy is a companion because its definition is directly comparable "
-            "across the full data set. Adjusted key-accuracy values are centred display scores and can therefore "
-            "fall slightly outside 0–100%; the observed panel contains the actual percentages. This "
-            "remains descriptive and does not make a condition-effect claim.</p>"
-            "<p><b>Near-ceiling key-accuracy trend:</b> the final figure uses only observed values and "
-            "plots key error rate (100% − key accuracy) on a symmetric-log scale. Lower is better. "
-            "The small linear region around 0 keeps perfect trials visible, while the logarithmic "
-            "region separates small non-zero error rates that overlap near 100% accuracy. No adjusted "
-            "scores are used in this figure.</p>"
+            "colours and markers. Left panel: correct-key RT, the primary view. Right panel: key "
+            "accuracy, a companion because its definition is directly comparable across the full "
+            "data set — its axis is autoscaled to a near-ceiling range, so read the tick values. "
+            "Every plotted value is an observed trial; the condition-adjusted "
+            "counterparts stay in <i>learning_difficulty_progression_trials.csv</i> — on this data "
+            "the adjustment moves a single trial by up to 584 ms and can put adjusted key accuracy "
+            "above 100%, which is a table result rather than a plotted one. This remains "
+            "descriptive and does not make a condition-effect claim.</p>"
+            "<p><b>Axes:</b> RT panels start at zero on every figure on this tab. Accuracy panels "
+            "autoscale to their own near-ceiling range, so a visually large accuracy movement can "
+            "be a fraction of a percentage point — the tick values are the ones to quote.</p>"
             "<h3>Condition × Repetition repeated-measures ANOVA</h3>"
             "<p>The same two-way within-participant model as the RM-ANOVA tab, with <b>within-cell "
             "repetition</b> (1st, 2nd, 3rd presentation of a condition × level cell) as the second "
@@ -1036,7 +1103,8 @@ class GroupAnalysisWindow(QMainWindow):
             "rm_anova_repetition_cells": rep_anova["frame"],
             "learning_session_position": pos,
             "learning_session_position_group_summary": self._metric_centers(
-                pos, ["fa_main_adjusted", "rt_correct_key_s_adjusted"], ["position"]),
+                pos, ["fa_main_raw", "rt_correct_key_s_raw",
+                      "fa_main_adjusted", "rt_correct_key_s_adjusted"], ["position"]),
             "learning_difficulty_progression_trials": difficulty_progression,
             "learning_difficulty_progression_group_summary": difficulty_progression_summary,
         }
@@ -1112,6 +1180,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax2.set_xticks(range(len(CONDITIONS)), CONDITIONS)
         ax2.set_ylabel("% of valid events")
         ax2.set_title("Correct key + wrong finger — participant-level rate by condition", fontsize=10)
+        zero_based_ylim(ax2)
         fig2.tight_layout()
 
         # Caption: pooled counts (supplementary) + wrong-key distance.
@@ -1355,6 +1424,7 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7)
+        zero_based_ylim(ax_rt)
         fig.tight_layout()
 
         caption = (
@@ -1612,6 +1682,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel(f"{metric_label.split(' — ')[0]} ({unit})")
         ax.set_title(f"{metric_label} — condition × {xlabel} cell means", fontsize=10)
         ax.legend(fontsize=7)
+        zero_based_ylim(ax)
 
         ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")
         if len(conditions) == 2:
@@ -1668,6 +1739,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel("RT (ms)")
         ax.set_title(f"{metric_label} — condition × finger cell means", fontsize=10)
         ax.legend(fontsize=7)
+        zero_based_ylim(ax)
 
         # Paired difference: only defined for exactly two conditions.
         ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")

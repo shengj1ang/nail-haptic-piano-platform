@@ -323,5 +323,89 @@ class TestExportWritesFiles(unittest.TestCase):
             self.window._figures.pop("group_broken_figure", None)
 
 
+class TestAxisPolicy(unittest.TestCase):
+    """Latency axes may not be cropped, and no figure plots a transformed value.
+
+    A cropped RT baseline makes the gap between two conditions look like
+    whatever the crop chooses, which is the property a reader checks when
+    they ask how a figure was made - so it is asserted here rather than
+    reviewed.
+
+    Percentage axes are deliberately exempt. Accuracy in this study sits
+    at the ceiling, so pinning those panels to 0-100% turns every
+    condition into one flat line and hides the movement the panel exists
+    to show; they autoscale, and their captions say so.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.window = build_window()
+
+    # Measures whose scale does not bottom out at zero. "Effective number
+    # of fingers" is a diversity index over the ten fingers: one finger is
+    # its floor, so 1-10 already IS the full range and a 0-10 axis would
+    # reserve space for an impossible value.
+    NON_ZERO_FLOORS = {"effective number of fingers": 1.0}
+
+    @staticmethod
+    def _axes(figure):
+        """2D axes only - a 3D projection keeps its limits elsewhere."""
+        return [ax for ax in figure.axes if not hasattr(ax, "get_zlim")]
+
+    def test_no_axis_starts_above_zero_when_all_its_data_is_positive(self):
+        """Checked on every non-percentage y axis, and on any RT x axis.
+
+        Ordinal x axes (occurrence 1-9, repetition 1-3) are categories,
+        not quantities, so their tick range is not a baseline claim, and
+        percentage axes are exempt for the reason in the class docstring.
+        """
+        for slug, figure in self.window._figures.items():
+            for index, ax in enumerate(self._axes(figure)):
+                candidates = []
+                if "%" not in ax.get_ylabel():
+                    candidates.append(("y", ax.get_ylim, ax.dataLim.y0, ax.dataLim.y1))
+                if "(ms)" in ax.get_xlabel():
+                    candidates.append(("x", ax.get_xlim, ax.dataLim.x0, ax.dataLim.x1))
+                for name, get_lim, low, high in candidates:
+                    if not (np.isfinite(low) and np.isfinite(high)) or low < 0:
+                        continue
+                    lim = get_lim()
+                    if lim[0] > lim[1]:       # inverted, e.g. a matrix
+                        continue
+                    floor = self.NON_ZERO_FLOORS.get(
+                        ax.get_ylabel().lower().replace("\n", " ")
+                        if name == "y" else ax.get_xlabel().lower(), 0.0)
+                    self.assertLessEqual(
+                        lim[0], floor + 1e-9,
+                        f"{slug} axis {index} {name}-range starts at {lim[0]:.2f} "
+                        f"but its data is all >= {floor:.0f} - a cropped baseline")
+
+    def test_every_rt_axis_starts_at_zero(self):
+        """The positive form of the rule above, so it cannot pass vacuously."""
+        checked = 0
+        for slug, figure in self.window._figures.items():
+            for ax in self._axes(figure):
+                label = ax.get_ylabel()
+                if "(ms)" not in label and label != "ms":
+                    continue
+                if ax.dataLim.y0 < 0:     # a signed paired difference
+                    continue
+                self.assertLessEqual(ax.get_ylim()[0], 1e-9,
+                                     f"{slug}: RT axis starts at {ax.get_ylim()[0]:.1f} ms")
+                checked += 1
+        self.assertGreater(checked, 0, "found no RT axis to check")
+
+    def test_no_figure_plots_a_composition_adjusted_value(self):
+        """Every plotted point has to exist in the exported trial table."""
+        for slug in self.window._figures:
+            self.assertNotIn("adjusted", slug)
+            self.assertNotIn("error_log", slug)
+        for figure in self.window._figures.values():
+            for ax in self._axes(figure):
+                self.assertNotIn("adjusted", ax.get_ylabel().lower())
+                self.assertNotIn("adjusted", ax.get_title().lower())
+                self.assertNotEqual(ax.get_yscale(), "symlog")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
