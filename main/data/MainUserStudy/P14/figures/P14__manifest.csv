@@ -1,5 +1,5 @@
 file,kind,rows,columns
-(export),provenance,P14,"27 trials (27 analyzed), 810 events (810 valid); exported 2026-08-20T02:48:35"
+(export),provenance,P14,"27 trials (27 analyzed), 810 events (810 valid); exported 2026-08-26T12:06:49"
 P14_confusion_counts.png / P14_confusion_counts.svg,figure,,
 P14_confusion_paper.png / P14_confusion_paper.svg,figure,,
 P14_confusion_rownorm.png / P14_confusion_rownorm.svg,figure,,
@@ -13,10 +13,8 @@ P14_finger_benefit_estimators.png / P14_finger_benefit_estimators.svg,figure,,
 P14_fingers_accuracy.png / P14_fingers_accuracy.svg,figure,,
 P14_fingers_homologous.png / P14_fingers_homologous.svg,figure,,
 P14_fingers_rt_boxplot.png / P14_fingers_rt_boxplot.svg,figure,,
-P14_learning_difficulty_progression_key_accuracy.png / P14_learning_difficulty_progression_key_accuracy.svg,figure,,
-P14_learning_difficulty_progression_rt.png / P14_learning_difficulty_progression_rt.svg,figure,,
+P14_learning_difficulty_progression.png / P14_learning_difficulty_progression.svg,figure,,
 P14_learning_session.png / P14_learning_session.svg,figure,,
-P14_learning_session_position.png / P14_learning_session_position.svg,figure,,
 P14_learning_withincell.png / P14_learning_withincell.svg,figure,,
 P14_overview.png / P14_overview.svg,figure,,
 P14_quality_audit.png / P14_quality_audit.svg,figure,,
@@ -34,9 +32,9 @@ P14_fingers_by_target_finger.csv,table,30,"condition, target_finger, n, n_judged
 P14_fingers_homologous_cells.csv,table,15,"participant, condition, finger_id, n, n_left, n_right, n_judged, fa, rt_s, n_rt_complete, rt_complete_s"
 P14_learning_difficulty_progression_summary.csv,table,108,"level, level_symbol, difficulty_occurrence, metric, n, mean, sd, sem, ci95_lo, ci95_hi"
 P14_learning_difficulty_progression_trials.csv,table,27,"participant, level, level_symbol, difficulty_occurrence, session_position, condition, rt_correct_key_s_raw, rt_correct_key_s_adjusted, key_accuracy_raw, key_accuracy_adjusted"
-P14_learning_repetition_by_condition.csv,table,6,"participant, condition, repetition, fa_main, rt_correct_key_s"
+P14_learning_repetition_by_condition.csv,table,6,"participant, condition, repetition, fa_main, rt_correct_key_s, rt_complete_s"
 P14_learning_session_position.csv,table,18,"participant, position, condition, level, fa_main_raw, fa_main_adjusted, rt_correct_key_s_raw, rt_correct_key_s_adjusted"
-P14_learning_within_cell_repetition.csv,table,27,"participant, condition, level, repetition, fa_main, rt_correct_key_s"
+P14_learning_within_cell_repetition.csv,table,27,"participant, condition, level, repetition, fa_main, rt_correct_key_s, rt_complete_s"
 P14_overview_cell_metrics.csv,table,9,"participant, condition, level, n_trials, n_analyzed, key_accuracy, fa_main, fa_given_key, rt_correct_key_s, rt_complete_s"
 P14_overview_condition_metrics.csv,table,3,"participant, condition, n_trials, n_analyzed, key_accuracy, fa_main, fa_given_key, rt_correct_key_s, rt_complete_s"
 P14_quality_audit.csv,table,1,"participant, n_trials, n_analyzed, n_events, n_valid_events, excluded_carryover, suspected_carryover, manual_corrections, unresolved_rate, ambiguous_rate, borderline_events, qc_extra_presses, sync_methods"
