@@ -30,6 +30,24 @@ structural, not a convention:
   chosen five-finger hand position (always inside MIDI 48-72, white keys
   only), not from the active calibrated profile.
 
+## Reading a melody back
+
+`load.py` is the other half of `export.py`, and the only reader of the format:
+
+```python
+from melody_generator import list_melodies, load_melody
+
+for path in list_melodies("data/rhythm_experiment"):
+    melody = load_melody(path)
+    print(melody.summary_line(), melody.midi_agrees)
+```
+
+The `.json` is authoritative - it carries the fingering, which a MIDI file
+cannot - so a loaded melody is built from it, and the sibling `.mid` is parsed
+as a cross-check (`midi_agrees`) that the two still describe the same
+performance. A `.mid` with no `.json` beside it loads and plays as well, with
+no fingering.
+
 ## In the launcher
 
 `launcher.py` section **11. Rhythm Experiment** -> "Rhythm Melody Generator
@@ -40,7 +58,10 @@ melody can be watched and heard before its files are written. The only things
 that window borrows from the rest of the project are display and playback
 parts that write nothing: `note_audio.py`'s tone synthesiser and
 `test_virtual_piano_led.py`'s `PianoKey`/`KeyFeedback`, the latter given an
-empty LED table so no strip is touched. Everything below
+empty LED table so no strip is touched. The second button, "Playback
+Rhythm Melody" (`app/gui/rhythm_melody_player_window.py`), is a read-only
+browser over a folder of generated melodies, using `load.py` and the same
+preview panel. Everything below
 works identically from the command line, with or without the launcher.
 
 ---

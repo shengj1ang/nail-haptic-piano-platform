@@ -82,6 +82,7 @@ from app.gui.quiz_backup_window import QuizBackupWindow
 from app.gui.recording_wizard import RecordingWizard
 from app.gui.remote_latency_analysis_window import RemoteLatencyAnalysisWindow
 from app.gui.review_compress_window import ReviewCompressWindow
+from app.gui.rhythm_melody_player_window import RhythmMelodyPlayerWindow
 from app.gui.rhythm_melody_window import RhythmMelodyWindow
 from app.gui.sequence_generator_window import SequenceGeneratorWindow
 from app.gui.sequence_metrics_window import SequenceMetricsWindow
@@ -312,6 +313,11 @@ SECTIONS = [
         "11. Rhythm Experiment",
         [
             ("Rhythm Melody Generator (15-note)", RhythmMelodyWindow),
+            # Read-only replay of what the generator already wrote: loads a
+            # melody's .json (for the fingering and the exact note-on/note-off
+            # times) plus its .mid as a cross-check, and plays it on the same
+            # piano the generator previews on.
+            ("Playback Rhythm Melody", RhythmMelodyPlayerWindow),
         ],
     ),
 ]

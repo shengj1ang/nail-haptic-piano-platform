@@ -23,6 +23,7 @@ from .config import (
 from .export import export_sequence, sequence_to_dict
 from .generator import generate_sequence
 from .layouts import LAYOUTS
+from .load import MelodyLoadError, list_melodies, load_melody
 from .midi_writer import read_midi_file
 from .theory import KEYS, note_name
 from .timing import sounding_beats
@@ -234,6 +235,68 @@ def test_exports_are_written_and_complete():
 
         rows = paths["csv"].read_text(encoding="utf-8").strip().splitlines()
         assert len(rows) == 1 + len(sequence.notes) + len(sequence.rests)
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+def test_a_written_melody_loads_back_identically():
+    """export -> load is lossless for everything playback needs."""
+    sequence = generate_sequence(11)
+    out = Path(tempfile.mkdtemp(prefix="melodygen_"))
+    try:
+        paths = export_sequence(sequence, out)
+
+        listed = list_melodies(out)
+        assert [p.name for p in listed] == [paths["json"].name]
+
+        loaded = load_melody(paths["json"])
+        assert loaded.name == sequence.name
+        assert loaded.seed == sequence.seed
+        assert loaded.validation_ok is True
+        assert loaded.midi_agrees is True, "the .mid disagrees with the .json"
+        assert loaded.midi_note_count == len(sequence.notes)
+        assert len(loaded.notes) == len(sequence.notes)
+        for original, back in zip(sequence.notes, loaded.notes):
+            assert back.midi_note == original.midi_note
+            assert back.finger == original.finger
+            assert back.hand == original.hand
+            assert back.note_on_time_sec == original.note_on_time_sec
+            assert back.note_off_time_sec == original.note_off_time_sec
+            assert back.velocity == original.velocity
+        assert len(loaded.rests) == len(sequence.rests)
+        assert abs(loaded.total_seconds - sequence.total_seconds) < 1e-6
+        assert loaded.has_fingering
+
+        # a .mid handed over on its own still plays, just without fingering
+        bare = out / "bare.mid"
+        shutil.copyfile(paths["midi"], bare)
+        alone = load_melody(bare)
+        assert len(alone.notes) == len(sequence.notes)
+        assert not alone.has_fingering
+        assert [n.midi_note for n in alone.notes] == [
+            n.midi_note for n in sequence.notes
+        ]
+
+        # a .mid that no longer matches its .json is reported, not ignored
+        other = generate_sequence(12)
+        mixed = out / "mixed.json"
+        mixed.write_text(
+            paths["json"].read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        export_sequence(other, out)
+        shutil.copyfile(out / f"{other.name}.mid", out / "mixed.mid")
+        assert load_melody(mixed).midi_agrees is False
+
+        # anything not written by this package is refused
+        alien = out / "alien.json"
+        alien.write_text('{"format": "something/else"}', encoding="utf-8")
+        try:
+            load_melody(alien)
+        except MelodyLoadError:
+            pass
+        else:
+            raise AssertionError("a foreign json was accepted")
+        assert alien not in list_melodies(out)
     finally:
         shutil.rmtree(out, ignore_errors=True)
 

@@ -16,6 +16,7 @@ See README.md in this folder for the full option list.
 from .config import GeneratorConfig, MelodyConfig, RhythmConfig, TimingConfig, ValidationConfig
 from .generator import MelodySequence, generate_sequence, generate_and_export
 from .layouts import LAYOUTS, Layout
+from .load import LoadedMelody, list_melodies, load_melody
 from .theory import KEYS, note_name
 
 __all__ = [
@@ -29,6 +30,9 @@ __all__ = [
     "generate_and_export",
     "LAYOUTS",
     "Layout",
+    "LoadedMelody",
+    "list_melodies",
+    "load_melody",
     "KEYS",
     "note_name",
 ]
