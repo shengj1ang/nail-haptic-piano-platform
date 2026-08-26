@@ -311,8 +311,13 @@ A study of its own, separate from the Main User Study: short, simple,
 fixed-fingering practice melodies on a whole-beat grid, for looking at
 rhythm and timing rather than at cue modality. One button, "Rhythm Melody
 Generator (15-note)", opens `app/gui/rhythm_melody_window.py` - pick a
-seed, a key and a five-finger hand position, press Play to hear it, press
-"Generate & Save files" to write the stimulus files.
+seed, a key and a five-finger hand position, then press Preview. The
+preview half of that window is the Song Playback UI: the same 88-key
+piano, the same ten finger dots and the same Play/Pause/Stop/seek
+transport, so a generated melody is auditioned exactly the way a recorded
+song is - each key lights while it is held, with the dot for its target
+finger. "Generate & Save files" writes the file set for the melody
+currently shown.
 
 **It cannot affect any earlier experiment.** That is structural, not a
 convention:

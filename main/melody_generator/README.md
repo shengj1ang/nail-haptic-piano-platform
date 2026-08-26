@@ -34,10 +34,13 @@ structural, not a convention:
 
 `launcher.py` section **11. Rhythm Experiment** -> "Rhythm Melody Generator
 (15-note)" opens `app/gui/rhythm_melody_window.py`, a GUI over this package:
-the same parameters, a Play button that auditions the melody through
-`note_audio.py`'s tone synthesiser (the only thing borrowed from the rest of
-the project - it claims the audio output and writes nothing), and a
-"Generate & Save files" button that writes the file set. Everything below
+the same parameters on the left, and on the right the Song Playback preview -
+an 88-key piano, ten finger dots and a Play/Pause/Stop/seek transport - so a
+melody can be watched and heard before its files are written. The only things
+that window borrows from the rest of the project are display and playback
+parts that write nothing: `note_audio.py`'s tone synthesiser and
+`test_virtual_piano_led.py`'s `PianoKey`/`KeyFeedback`, the latter given an
+empty LED table so no strip is touched. Everything below
 works identically from the command line, with or without the launcher.
 
 ---
