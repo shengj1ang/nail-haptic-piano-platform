@@ -84,7 +84,7 @@ class SessionInfo:
     created_at: Optional[float]
     state: Optional[str]
     cue_rows: int          # performance rows for this session
-    timed_rows: int        # of those, how many carry a full timings dict
+    timed_rows: int        # unique cues carrying a full timings dict
 
     def label(self) -> str:
         import datetime
@@ -127,8 +127,10 @@ def list_sessions(db_path: Path = DEFAULT_DB) -> List[SessionInfo]:
         out: List[SessionInfo] = []
         for r in rows:
             timed = conn.execute(
-                "SELECT COUNT(*) FROM performance_events "
-                "WHERE session_id = ? AND json_extract(payload_json, '$.timings') IS NOT NULL",
+                "SELECT COUNT(DISTINCT COALESCE(guidance_message_id, "
+                "json_extract(payload_json, '$.guidance_message_id'), id)) "
+                "FROM performance_events WHERE session_id = ? "
+                "AND json_extract(payload_json, '$.timings') IS NOT NULL",
                 (r["sid"],),
             ).fetchone()[0]
             out.append(
@@ -182,6 +184,16 @@ def _timings(conn: sqlite3.Connection, session_id: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _unique_cues(payloads: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep the latest performance row for each guidance cue."""
+    unique: Dict[str, Dict[str, Any]] = {}
+    for index, payload in enumerate(payloads):
+        cue_id = payload.get("guidance_message_id")
+        key = str(cue_id) if cue_id is not None else f"__row_{index}"
+        unique[key] = payload
+    return list(unique.values())
+
+
 def analyse_session(session_id: str, db_path: Path = DEFAULT_DB) -> SessionLatency:
     conn = _connect(db_path)
     try:
@@ -191,7 +203,10 @@ def analyse_session(session_id: str, db_path: Path = DEFAULT_DB) -> SessionLaten
             raise KeyError(f"no session {session_id} in {db_path}")
 
         payloads = _timings(conn, session_id)
-        T = [p["timings"] for p in payloads if isinstance(p.get("timings"), dict)]
+        timed_payloads = _unique_cues(
+            [p for p in payloads if isinstance(p.get("timings"), dict)]
+        )
+        T = [p["timings"] for p in timed_payloads]
 
         def same_clock(a: str, b: str) -> List[float]:
             out = []
@@ -228,11 +243,12 @@ def analyse_session(session_id: str, db_path: Path = DEFAULT_DB) -> SessionLaten
         excess = [x - floor for x in span] if floor is not None else []
 
         # -- behavioural, verbatim from the student's final rows --
-        finals = [p for p in payloads if p.get("stage") == "final"]
+        scored = _unique_cues(payloads)
+        finals = [p for p in scored if p.get("stage") == "final"]
         rt = [p["reaction_time_ns"] / 1e6 for p in finals if p.get("reaction_time_ns") is not None]
         note_ok = [p.get("note_correct") for p in finals if p.get("note_correct") is not None]
         finger_ok = [p.get("finger_correct") for p in finals if p.get("finger_correct") is not None]
-        timeouts = sum(1 for p in payloads if p.get("timed_out"))
+        timeouts = sum(1 for p in scored if p.get("timed_out"))
 
         return SessionLatency(
             info=info,

@@ -30,43 +30,43 @@
       "frac_over_100ms": 0.355
     }
   },
-  "onset_alignment": {
-    "source": "real two-machine remote sessions 08-18..08-20, n_sessions=11, rows_with_timings=717",
+  "software_dispatch_alignment": {
+    "source": "real two-machine remote sessions 08-18..08-20, n_sessions=11, unique_timed_cues=244",
     "note": "student-local monotonic clock only; wall-clock cross-machine diffs excluded (teacher/server clocks offset ~1.4s, never NTP-synced)",
     "local_dispatch_ms": {
-      "n": 717,
-      "min": 0.14,
-      "median": 1.1,
-      "mean": 1.97,
-      "sd": 2.81,
-      "p95": 8.55,
-      "p99": 10.92,
-      "max": 14.5
+      "n": 244,
+      "min": 0.138,
+      "median": 1.108,
+      "mean": 2.004,
+      "sd": 2.842,
+      "p95": 8.555,
+      "p99": 10.921,
+      "max": 14.499
     },
     "visual_haptic_skew_signed_ms": {
-      "n": 467,
-      "min": -0.47,
-      "median": -0.2,
-      "mean": -0.21,
-      "sd": 0.06,
-      "p95": -0.15,
-      "p99": -0.09,
-      "max": -0.09
+      "n": 160,
+      "min": -0.468,
+      "median": -0.199,
+      "mean": -0.212,
+      "sd": 0.059,
+      "p95": -0.131,
+      "p99": -0.093,
+      "max": -0.089
     },
     "abs_visual_haptic_skew_ms": {
-      "n": 467,
-      "min": 0.09,
-      "median": 0.2,
-      "mean": 0.21,
-      "sd": 0.06,
-      "p95": 0.15,
-      "p99": 0.09,
-      "max": 0.47
+      "n": 160,
+      "min": 0.089,
+      "median": 0.199,
+      "mean": 0.212,
+      "sd": 0.059,
+      "p95": 0.352,
+      "p99": 0.406,
+      "max": 0.468
     }
   },
   "targets": {
     "event_loss": "0 -> MET",
     "mean_one_way_lt_30ms": "RTT/2 mean=37.9ms (median 18.3); see caveat",
-    "p95_abs_skew_lt_30ms": "0.15ms -> MET (software-level)"
+    "p95_abs_skew_lt_30ms": "0.352ms -> MET (software-level)"
   }
 }
