@@ -1,21 +1,21 @@
 block,parameter,estimate
-cue evidence,match_hand[B],5.167194368947201
-cue evidence,match_digit[B],1.7482282505165956
-cue evidence,digit_distance[B],-1.8371281062796194
-cue evidence,match_hand[C],8.83735975416449
-cue evidence,match_digit[C],1.1950310735555083
-cue evidence,digit_distance[C],-2.5484982011839215
-motor,repeat_finger,0.07564422834591257
-motor,repeat_hand,0.4507407723325007
-prior weight,w[B],0.4848816902996786
-prior weight,w[C],0.5481681983642687
-habitual prior,prior[L1],-1.2459795375479885
-habitual prior,prior[L2],1.5874509154850875
-habitual prior,prior[L3],1.1509907378347497
-habitual prior,prior[L4],-0.12793215088585252
-habitual prior,prior[L5],-1.4161608357898736
-habitual prior,prior[R1],-0.6197939990672826
-habitual prior,prior[R2],2.2089507580975094
-habitual prior,prior[R3],0.6501965930463043
-habitual prior,prior[R4],-0.26646094162238587
-habitual prior,prior[R5],-1.9212615395506878
+cue evidence,match_hand[B],5.164990779274776
+cue evidence,match_digit[B],1.7475669812480972
+cue evidence,digit_distance[B],-1.8360835799434263
+cue evidence,match_hand[C],8.81601404398376
+cue evidence,match_digit[C],1.1954805345626716
+cue evidence,digit_distance[C],-2.547909601917129
+motor,repeat_finger,0.07478990446344601
+motor,repeat_hand,0.4434772461963951
+prior weight,w[B],0.48370415907038733
+prior weight,w[C],0.5479116620906751
+habitual prior,prior[L1],-1.23343077277762
+habitual prior,prior[L2],1.6002983441951286
+habitual prior,prior[L3],1.1640369176340943
+habitual prior,prior[L4],-0.11483458956894672
+habitual prior,prior[L5],-1.4017851106080141
+habitual prior,prior[R1],-0.633201535313713
+habitual prior,prior[R2],2.194652826529204
+habitual prior,prior[R3],0.6365873048062761
+habitual prior,prior[R4],-0.27933167739625286
+habitual prior,prior[R5],-1.9329917075005243

@@ -58,11 +58,14 @@ prediction against the observed confusion counts.
 
 Design decisions worth stating
 ------------------------------
-- Conditioning is on the key ACTUALLY pressed, not the cued key: the
-  detected finger is defined relative to the key that was struck, and the
-  question is which effector executed that press.  Key accuracy is 98.9%
-  (B) / 99.7% (C), so this is close to conditioning on the target;
-  target_key_id is available for a sensitivity fit.
+- Every input is knowable BEFORE the response.  The reach term reads the
+  CUED key, not the key actually struck (ModelSpec.key_source): the
+  pressed key is part of the response, so a model that reads it can
+  describe an event but cannot be said to predict it.  The previous
+  keypress is fair game - it has already happened.  Conditioning on the
+  pressed key remains available as a descriptive sensitivity fit, and
+  changes almost nothing: key accuracy is 98.9% (B) / 99.7% (C), and the
+  held-out log loss under B moves from 0.3470 to 0.3484.
 - Reachability is a FITTED term (one intercept per hand x key), not a
   hard mask over the choice set.  A mask would decide by fiat which
   cross-hand actions are possible, which is exactly the quantity in
@@ -182,7 +185,13 @@ def build_events(event_rows: List[dict]) -> pd.DataFrame:
     df["target_digit"] = df["target_finger"].str[1].astype(int)
     df["actual_hand"] = df["actual_finger"].str[0]
     df["actual_digit"] = df["actual_finger"].str[1].astype(int)
-    df["key"] = df["actual_key_id"].astype(int)
+    # Both keys are kept, and `key` - the one the model reads - defaults to
+    # the CUED key. See ModelSpec.key_source: the pressed key is not known
+    # until the response has happened, so a model that reads it cannot be
+    # described as predicting anything before the response.
+    df["key_target"] = df["target_key_id"].astype(int)
+    df["key_pressed"] = df["actual_key_id"].astype(int)
+    df["key"] = df["key_target"]
 
     by_trial = df.groupby(["participant", "trial_index"], sort=False)
     df["prev_finger"] = by_trial["actual_finger"].shift(1)
@@ -315,6 +324,26 @@ class ModelSpec:
     # the data are saying; the value the unbounded fit drifts to is the
     # same one, reached slowly.
     reach_bound: float = 20.0
+    # Which key the reach term reads: "target" (the cued key, known as
+    # soon as the cue is delivered) or "pressed" (the key actually
+    # struck).
+    #
+    # This is the difference between a prospective prediction and a
+    # retrospective description, so it is a stated choice rather than an
+    # implementation detail. Everything about the event that the model
+    # uses must be knowable BEFORE the response: the cue, the previous
+    # keypress (which has already happened), and the participant's
+    # history. The pressed key is not - it is part of the response - so
+    # "target" is the default and the only setting under which the
+    # prediction wording is honest.
+    #
+    # "pressed" remains available because the detected finger is defined
+    # relative to the key actually struck, which makes it the right
+    # conditioning for a purely descriptive fit. It changes almost
+    # nothing either way: key accuracy is 98.9% (B) and 99.7% (C), and
+    # switching moves the held-out log loss under B from 0.3470 to
+    # 0.3484 and leaves the risk-enrichment counts identical.
+    key_source: str = "target"
 
 
 # The comparison ladder.  Each step is a hypothesis about what the cue
@@ -452,7 +481,13 @@ class _Problem:
         self.motor = (np.stack([feats[f] for f in spec.motor], axis=-1) if spec.motor
                       else np.zeros((self.n, N_FINGERS, 0)))
 
-        key = np.clip(df["key"].to_numpy(int), 0, n_keys - 1)
+        column = {"target": "key_target", "pressed": "key_pressed"}.get(spec.key_source)
+        if column is None:
+            raise EffectorModelError(
+                f"unknown key_source {spec.key_source!r}; expected 'target' or 'pressed'")
+        if column not in df.columns:      # frames built before both were kept
+            column = "key"
+        key = np.clip(df[column].to_numpy(int), 0, n_keys - 1)
         # Flat index into a (2, n_keys) reach table, per candidate.
         self.reach_index = (IS_RIGHT.astype(int)[None, :] * n_keys + key[:, None])
         index_of = {p: i for i, p in enumerate(participants)}

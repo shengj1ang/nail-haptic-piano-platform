@@ -584,14 +584,38 @@ def choice_metrics_by_participant(predictions: pd.DataFrame) -> pd.DataFrame:
 
 def compare_models_paired(by_participant: pd.DataFrame, reference: str,
                           metric: str = "log_loss",
-                          condition: Optional[str] = None) -> pd.DataFrame:
+                          conditions: Sequence[str] = CUED_CONDITIONS,
+                          variant: str = POPULATION) -> pd.DataFrame:
     """Paired over participants: each model against the reference model on
-    the same held-out people."""
+    the same held-out people.
+
+    The scope has to be pinned before anything is averaged, and both
+    halves of it matter:
+
+    - VARIANT. The same model appears under `population` and
+      `personalised`, and the baselines appear under `population` only.
+      Averaging across them compares a mean of two variants for one model
+      against a single variant for another, which is not a paired
+      comparison of anything. It also silently changes the answer: mixed,
+      the M3-against-multinomial contrast came out at p = .19; scoped to
+      the population rows it is p = .16.
+    - CONDITION. Condition A has no finger cue, so a model's score there
+      is dominated by how stereotyped the person's free choice is rather
+      than by anything the cue models differ on. Folding it in drags every
+      contrast towards zero. The default is the cued conditions, which is
+      what the comparison is about.
+
+    Both defaults are the reportable scope; pass others deliberately.
+    """
     from scipy import stats as sstats
 
     frame = by_participant
-    if condition is not None:
-        frame = frame[frame["condition"] == condition]
+    if variant is not None:
+        frame = frame[frame["variant"] == variant]
+    if conditions is not None:
+        frame = frame[frame["condition"].isin(list(conditions))]
+    if frame.empty:
+        return pd.DataFrame()
     pivot = (frame.groupby(["model_name", "participant"])[metric].mean()
              .unstack("model_name"))
     if reference not in pivot.columns:
@@ -610,6 +634,8 @@ def compare_models_paired(by_participant: pd.DataFrame, reference: str,
         t_stat, p_value = sstats.ttest_rel(pair[model], pair[reference])
         rows.append({
             "model": model, "reference": reference, "metric": metric,
+            "variant": variant,
+            "conditions": "+".join(conditions) if conditions else "all",
             "mean_model": float(pair[model].mean()),
             "mean_reference": float(pair[reference].mean()),
             "mean_difference": float(difference.mean()),
@@ -694,8 +720,12 @@ def expected_calibration_error(calibration: pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Error-risk prediction
 #
-# The question is whether the model can flag, BEFORE the keypress, that
-# this event is likely to go wrong and in which way.  Accuracy is
+# The question is whether the model can flag, BEFORE THE RESPONSE, that
+# this event is likely to go wrong and in which way. Every input it uses
+# is available at that moment: the cue, the previous keypress (which has
+# already happened), and the participant's history. In particular the
+# reach term reads the CUED key, not the key actually struck - see
+# ModelSpec.key_source, without which none of this wording would be true.  Accuracy is
 # worthless here: predicting "correct" on every event scores 98.7% under
 # B and 99.96% on the wrong-hand class under C.  What matters is whether
 # the events the model calls risky are the ones that actually fail.
@@ -1084,6 +1114,36 @@ def run_predictions(df: pd.DataFrame,
                          n_events=len(df))
 
 
+def risk_concentration_by_model(predictions: pd.DataFrame,
+                                outcome: str = OUTCOME_HOMOLOGOUS,
+                                column: str = "p_homologous",
+                                condition: str = "B",
+                                top_fraction: float = 0.2) -> pd.DataFrame:
+    """The same risk-enrichment measure for every model that produced a
+    probability for this class.
+
+    Reported because the single-model version invites a claim it does not
+    support. Enriching wrong-hand risk turns out not to be specific to
+    the structured model: a plain multinomial logistic reaches almost the
+    same capture. What the result establishes is that these mistakes are
+    predictable before the response, which is a property of the events;
+    what it does not establish is that the mechanistic structure is what
+    predicts them. Having the whole column present makes the difference
+    between those two statements checkable instead of rhetorical.
+    """
+    rows = []
+    for model in sorted(predictions["model_name"].unique()):
+        entry = risk_concentration(predictions, outcome=outcome, column=column,
+                                   condition=condition, model_name=model,
+                                   top_fraction=top_fraction)
+        if entry:
+            rows.append({"model_name": model, **entry})
+    frame = pd.DataFrame(rows)
+    if len(frame):
+        frame = frame.sort_values("share_captured", ascending=False)
+    return frame
+
+
 def prediction_summary(run: PredictionRun) -> pd.DataFrame:
     """The headline table: one row per model, held-out log loss and
     accuracy on the cued conditions, ordered by log loss."""
@@ -1160,7 +1220,7 @@ def risk_concentration(predictions: pd.DataFrame, outcome: str = OUTCOME_HOMOLOG
 
     The summary form of the error-risk result, and the one that can be
     stated without any statistics: rank every held-out event by the
-    probability the model gave this outcome BEFORE the keypress, take the
+    probability the model gave this outcome BEFORE THE RESPONSE, take the
     riskiest fraction, and count how many of the failures are in there
     against how many would be if the ranking carried no information.
     """

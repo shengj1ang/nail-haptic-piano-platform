@@ -1,0 +1,8 @@
+model_name,condition,outcome,n_events,n_top_events,top_fraction,n_errors,n_errors_in_top,share_captured,expected_if_uninformative,lift
+M4 per-digit evidence (secondary),B,"wrong hand, homologous digit",5399,1080,0.2,53,51,0.9622641509433962,10.600000000000001,4.811320754716981
+multinomial logistic,B,"wrong hand, homologous digit",5399,1080,0.2,53,50,0.9433962264150944,10.600000000000001,4.716981132075471
+M3 (primary),B,"wrong hand, homologous digit",5399,1080,0.2,53,47,0.8867924528301887,10.600000000000001,4.433962264150943
+M1 unitary cue (no channel split),B,"wrong hand, homologous digit",5399,1080,0.2,53,46,0.8679245283018868,10.600000000000001,4.339622641509433
+M3 without habitual prior,B,"wrong hand, homologous digit",5399,1080,0.2,53,46,0.8679245283018868,10.600000000000001,4.339622641509433
+empirical by key x cue x condition,B,"wrong hand, homologous digit",5399,1080,0.2,53,46,0.8679245283018868,10.600000000000001,4.339622641509433
+empirical finger frequency,B,"wrong hand, homologous digit",5399,1080,0.2,53,17,0.32075471698113206,10.600000000000001,1.6037735849056602

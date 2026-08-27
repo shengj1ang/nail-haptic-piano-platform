@@ -807,25 +807,35 @@ class ComputationalModelWindow(QMainWindow):
                 "tab, labelled as the bound it is.</p>")
         if concentration:
             lines.append(
-                f"<p><b>And it predicts them.</b> Held out one participant at a time — the "
-                f"model never saw the person it was scoring — "
+                f"<p><b>And they are predictable in advance.</b> Held out one participant "
+                f"at a time — the model never saw the person it was scoring, and every "
+                f"input it used was available before the response — "
                 f"{concentration['n_errors_in_top']} of "
                 f"{concentration['n_errors']} of those wrong-hand mistakes happened in the "
                 f"{int(concentration['top_fraction'] * 100)}% of events it had flagged as "
-                f"riskiest, before the key was pressed. If the flag meant nothing, about "
-                f"{concentration['expected_if_uninformative']:.0f} would have.</p>")
+                f"riskiest. If the flag meant nothing, about "
+                f"{concentration['expected_if_uninformative']:.0f} would have.</p>"
+                "<p style='color:#666666'>This is a property of the events, not of this "
+                "model in particular. The other models in the comparison enrich the same "
+                "class about as well, so the honest claim is that wrong-hand risk is "
+                "predictable before the response — not that the mechanistic structure is "
+                "what makes it predictable. The cross-model figures are on the "
+                "Out-of-Sample Summary tab.</p>")
             if within_hand:
                 lines.append(
                     f"<p><b>And it fails on the other kind.</b> The same warning finds only "
                     f"{within_hand['n_errors_in_top']} of {within_hand['n_errors']} "
-                    f"within-hand slips in that same riskiest slice — below the "
+                    f"within-hand substitutions in that same riskiest slice — below the "
                     f"{within_hand['expected_if_uninformative']:.0f} that picking at random "
-                    f"would give. Which digit slips to its neighbour is not something this "
-                    f"model can anticipate, and the panel says so rather than reporting "
-                    f"only the half that worked. That fits the mechanism: a slip to the "
-                    f"next finger of the correct hand is a matter of execution and of "
-                    f"where the camera drew the line, not of choosing the wrong "
-                    f"effector.</p>")
+                    f"would give. The panel reports that rather than only the half that "
+                    f"worked.</p>"
+                    "<p style='color:#666666'>Two limits on how far that contrast can be "
+                    "read. The within-hand class here is every detected-finger mismatch, "
+                    "which is wider than the report's genuine substitutions (359 against "
+                    "166 under the screen cue), so the two bars do not share a "
+                    "denominator. And the selection-versus-execution argument is <b>not</b> "
+                    "made here: it belongs to the reaction-time decomposition, which uses "
+                    "one definition throughout.</p>")
         else:
             lines.append("<p><b>Prediction</b> has not been run yet — press “Run "
                          "out-of-sample prediction” to fill in the third panel.</p>")
@@ -847,14 +857,65 @@ class ComputationalModelWindow(QMainWindow):
                  "model_risk_concentration": (pd.DataFrame([concentration])
                                               if concentration else None)}, [])
 
+    # One canonical geometry, used on screen and in the report export
+    # alike. The panels were previously laid out by tight_layout, which
+    # picks different widths for different figure sizes - so text placed
+    # to look right in the window spilled into the neighbouring panel once
+    # the figure was re-rendered at report proportions. Fixed margins mean
+    # what is checked once is what ships.
+    SUMMARY_SIZE = (13.2, 5.6)
+    SUMMARY_MARGINS = dict(left=0.045, right=0.985, top=0.885, bottom=0.30, wspace=0.32)
+    SUMMARY_WIDTHS = (1.12, 1.0, 1.0)
+
     def _plot_summary(self, headline, concentration, within_hand=None) -> Figure:
-        figure = Figure(figsize=(13.0, 5.2))
-        axes = figure.subplots(1, 3, width_ratios=[1.15, 1.0, 1.05])
+        figure = Figure(figsize=self.SUMMARY_SIZE)
+        grid = figure.add_gridspec(1, 3, width_ratios=list(self.SUMMARY_WIDTHS),
+                                   **self.SUMMARY_MARGINS)
+        axes = [figure.add_subplot(grid[0, i]) for i in range(3)]
         self._panel_mechanism(axes[0])
         self._panel_channels(axes[1], headline)
         self._panel_prediction(axes[2], concentration, within_hand)
-        figure.tight_layout(pad=1.6, w_pad=2.6, rect=(0, 0.09, 1, 1))
+
+        # Notes sit at FIGURE level under their own column, so no note can
+        # reach into the panel beside it however long the text runs.
+        notes = [
+            "Nothing in the model mentions “wrong hand”. It is told only whether a\n"
+            "candidate matches the cued hand and whether it matches the cued finger.",
+            "Direction and raw counts, not a ratio: under the finger cue the wrong hand\n"
+            "was used twice in 5,400 events, which fixes that channel only from below.",
+            self._prediction_note(within_hand),
+        ]
+        # Panel C's takeaway also lives at figure level. Inside the axes it
+        # had only the plot's width to fit in - the narrowest of the three,
+        # because the y-label eats into it - so it was clipped when short
+        # and collided with the note when wrapped. Out here it has the
+        # whole column, and the two rows sit at fixed heights that cannot
+        # drift into each other.
+        takeaways = [None, None,
+                     ("Wrong-hand mistakes are predictable in advance —\n"
+                      "and simpler models rank them about as well."
+                      if concentration else None)]
+        for axis, note, takeaway in zip(axes, notes, takeaways):
+            box = axis.get_position()
+            centre = box.x0 + box.width / 2
+            if takeaway:
+                figure.text(centre, 0.145, takeaway, ha="center", va="bottom",
+                            fontsize=9.2, fontweight="bold", color="#26313d",
+                            linespacing=1.45)
+            if note:
+                figure.text(centre, 0.035, note, ha="center", va="bottom",
+                            fontsize=7.4, color="#666666", style="italic",
+                            linespacing=1.6)
         return figure
+
+    @staticmethod
+    def _prediction_note(within_hand) -> str:
+        note = ("Held out one participant at a time; every input is\n"
+                "known before the response.")
+        if within_hand:
+            note += ("\nWithin-hand counts every detected mismatch, a wider\n"
+                     "class than the report's genuine substitutions.")
+        return note
 
     @staticmethod
     def _panel_mechanism(ax) -> None:
@@ -865,111 +926,116 @@ class ComputationalModelWindow(QMainWindow):
         ax.set_ylim(0, 10)
         ax.axis("off")
         ax.set_title("A.  How the model chooses a finger", fontsize=11, loc="left",
-                     fontweight="bold", pad=12)
+                     fontweight="bold", pad=10)
 
-        hub = (5.75, 5.4)
+        hub_x, hub_y = 6.0, 5.0
         boxes = [
-            (8.7, "what this person\nusually does", "#8fa8c8"),
-            (7.0, "what the hand\ncan reach", "#8fa8c8"),
-            (4.4, "the cue says\nWHICH HAND", "#d98f3d"),
-            (2.7, "the cue says\nWHICH FINGER", "#d98f3d"),
+            (8.6, "what this person\nusually does", "#8fa8c8"),
+            (6.9, "what the hand\ncan reach", "#8fa8c8"),
+            (3.9, "the cue says\nWHICH HAND", "#d98f3d"),
+            (2.2, "the cue says\nWHICH FINGER", "#d98f3d"),
         ]
         for y, text, colour in boxes:
-            ax.add_patch(FancyBboxPatch((0.15, y - 0.62), 3.75, 1.24,
-                                        boxstyle="round,pad=0.06", linewidth=0,
+            ax.add_patch(FancyBboxPatch((0.1, y - 0.6), 4.1, 1.2,
+                                        boxstyle="round,pad=0.05", linewidth=0,
                                         facecolor=colour, alpha=0.9))
-            ax.text(2.02, y, text, ha="center", va="center", fontsize=7.6,
-                    color="white", fontweight="bold", linespacing=1.35)
-            ax.add_patch(FancyArrowPatch((4.0, y), (hub[0] - 0.85, hub[1]),
-                                         arrowstyle="-|>", mutation_scale=10,
-                                         linewidth=1.0, color="#9aa6b2", alpha=0.85,
+            ax.text(2.15, y, text, ha="center", va="center", fontsize=7.2,
+                    color="white", fontweight="bold", linespacing=1.3)
+            ax.add_patch(FancyArrowPatch((4.3, y), (hub_x - 0.85, hub_y),
+                                         arrowstyle="-|>", mutation_scale=9,
+                                         linewidth=0.9, color="#9aa6b2", alpha=0.85,
                                          connectionstyle="arc3,rad=0.1"))
 
-        ax.add_patch(FancyBboxPatch((hub[0] - 0.82, 4.0), 1.7, 2.9,
-                                    boxstyle="round,pad=0.08", linewidth=1.2,
+        ax.add_patch(FancyBboxPatch((hub_x - 0.8, 3.7), 1.65, 2.6,
+                                    boxstyle="round,pad=0.06", linewidth=1.1,
                                     edgecolor="#3a4a5a", facecolor="#eef2f6"))
-        ax.text(hub[0] + 0.03, hub[1], "the ten\nfingers\ncompete", ha="center",
-                va="center", fontsize=8.6, color="#26313d", fontweight="bold",
-                linespacing=1.35)
-        ax.add_patch(FancyArrowPatch((hub[0] + 0.92, hub[1]), (7.55, hub[1]),
-                                     arrowstyle="-|>", mutation_scale=12,
-                                     linewidth=1.3, color="#3a4a5a"))
+        ax.text(hub_x + 0.02, hub_y, "the ten\nfingers\ncompete", ha="center",
+                va="center", fontsize=7.4, color="#26313d", fontweight="bold",
+                linespacing=1.3)
+        ax.add_patch(FancyArrowPatch((hub_x + 0.92, hub_y), (7.55, hub_y),
+                                     arrowstyle="-|>", mutation_scale=11,
+                                     linewidth=1.2, color="#3a4a5a"))
 
-        # A miniature probability profile: the point is the SHAPE - one
-        # finger clearly ahead, a neighbour close behind - not the values.
         heights = np.array([0.05, 0.08, 0.55, 1.0, 0.22, 0.10, 0.06, 0.04, 0.03, 0.02])
         x = np.linspace(7.85, 9.75, len(heights))
         colours = ["#c4453a" if h == heights.max() else "#a8b8c8" for h in heights]
-        ax.bar(x, heights * 2.3, width=0.15, bottom=4.35, color=colours)
-        ax.text(8.8, 7.15, "one finger\nacts", ha="center", fontsize=8.4,
-                color="#26313d", fontweight="bold", linespacing=1.35)
-        ax.text(8.8, 3.75, "chance of each\nof the ten fingers", ha="center", va="top",
-                fontsize=7.4, color="#777777", linespacing=1.3)
-        ax.text(0.15, 1.15, "Nothing in the model mentions “wrong hand”. It knows only\n"
-                            "whether a candidate matches the cued hand, and whether it\n"
-                            "matches the cued finger — the mistakes follow from that.",
-                fontsize=7.6, color="#666666", style="italic", va="top", linespacing=1.5)
+        ax.bar(x, heights * 2.1, width=0.14, bottom=4.1, color=colours)
+        ax.text(8.8, 6.9, "one finger\nacts", ha="center", fontsize=7.8,
+                color="#26313d", fontweight="bold", linespacing=1.3)
+        ax.text(8.8, 3.6, "chance of each\nof the ten fingers", ha="center", va="top",
+                fontsize=6.9, color="#777777", linespacing=1.3)
 
     def _panel_channels(self, ax, headline) -> None:
-        """B) What the haptic cue actually strengthens.
+        """B) What the haptic cue strengthens.
 
-        Deliberately NOT an odds ratio. The hand-evidence parameter under
-        the haptic cue is identified by two cross-hand actions in 5,400,
-        so it is a lower bound and any multiple computed from it - "39
-        times stronger" - would read as a measurement when it is a floor.
-        What this panel shows instead is the direction, which is solid,
-        and the raw counts behind it, which are not model quantities at
-        all and can be checked by counting.
+        Deliberately not an odds ratio: the hand-evidence parameter under
+        the haptic cue rests on two cross-hand actions in 5,400, so any
+        multiple computed from it would read as a measurement when it is a
+        floor. The direction is solid, and the counts are observations
+        rather than model quantities.
         """
+        from matplotlib.patches import FancyBboxPatch
+
         ax.set_xlim(0, 10)
         ax.set_ylim(0, 10)
         ax.axis("off")
         ax.set_title("B.  What the haptic cue strengthens", fontsize=11, loc="left",
-                     fontweight="bold", pad=12)
+                     fontweight="bold", pad=10)
 
         rows = [
-            (8.3, "WHICH HAND acts", "Haptic  \u226b  Visual", "#b03a2e", "#fbeae8"),
-            (5.7, "WHICH FINGER of that hand", "about the same", "#3a6a44", "#e9f2eb"),
+            (8.4, "WHICH HAND acts", "Haptic  \u226b  Visual", "#b03a2e", "#fbeae8"),
+            (6.0, "WHICH FINGER of that hand", "about the same", "#3a6a44", "#e9f2eb"),
         ]
-        from matplotlib.patches import FancyBboxPatch
-
-        # Stacked, not side by side. Putting the label and the verdict on
-        # one line means the two texts have to be kept apart by guessing
-        # their rendered widths, and the panel is narrow enough that any
-        # font substitution slides them into each other. One above the
-        # other cannot collide however wide either turns out to be.
         for y, channel, verdict, colour, fill in rows:
-            ax.add_patch(FancyBboxPatch((0.2, y - 1.15), 9.6, 2.3,
-                                        boxstyle="round,pad=0.06", linewidth=1.0,
+            ax.add_patch(FancyBboxPatch((0.15, y - 1.05), 9.7, 2.1,
+                                        boxstyle="round,pad=0.05", linewidth=1.0,
                                         edgecolor=colour, facecolor=fill, alpha=0.95))
-            ax.text(5.0, y + 0.62, channel, ha="center", va="center", fontsize=8.8,
+            ax.text(5.0, y + 0.55, channel, ha="center", va="center", fontsize=8.2,
                     color="#26313d", fontweight="bold")
-            ax.text(5.0, y - 0.48, verdict, ha="center", va="center", fontsize=13,
+            ax.text(5.0, y - 0.5, verdict, ha="center", va="center", fontsize=12,
                     color=colour, fontweight="bold")
 
         counts = (headline.get("cross_hand_events|B"), headline.get("cross_hand_events|C"))
         if all(c is not None for c in counts):
-            ax.text(5.0, 3.75, "Actions that used the wrong hand, out of 5,400 each",
-                    ha="center", va="center", fontsize=8.6, color="#3a4a5a")
+            ax.text(5.0, 3.9, "Actions that used the wrong hand, out of 5,400 each",
+                    ha="center", va="center", fontsize=8.0, color="#3a4a5a")
             for x_position, count, condition, caption in (
-                    (3.0, counts[0], "B", "screen cue"),
-                    (7.0, counts[1], "C", "finger cue")):
-                ax.text(x_position, 2.45, f"{count}", ha="center", va="center",
-                        fontsize=26, fontweight="bold", color=CONDITION_COLORS[condition])
-                ax.text(x_position, 1.35, caption, ha="center", va="center",
-                        fontsize=8.4, color="#5a6a7a")
-            ax.text(5.0, 2.45, "vs", ha="center", va="center", fontsize=11,
+                    (3.1, counts[0], "B", "screen cue"),
+                    (6.9, counts[1], "C", "finger cue")):
+                ax.text(x_position, 2.6, f"{count}", ha="center", va="center",
+                        fontsize=24, fontweight="bold", color=CONDITION_COLORS[condition])
+                ax.text(x_position, 1.5, caption, ha="center", va="center",
+                        fontsize=8.0, color="#5a6a7a")
+            ax.text(5.0, 2.6, "vs", ha="center", va="center", fontsize=10,
                     color="#8a96a2")
 
-        ax.text(5.0, 0.25, "Haptic mainly strengthens hand identity.",
-                ha="center", va="center", fontsize=11.5, fontweight="bold",
+        ax.text(5.0, 0.4, "Haptic mainly strengthens hand identity.",
+                ha="center", va="center", fontsize=10.5, fontweight="bold",
                 color="#26313d")
 
     @staticmethod
     def _panel_prediction(ax, concentration, within_hand=None) -> None:
-        """C) What it can predict, on people it never saw - and what it cannot."""
-        ax.set_title("C.  Predicting mistakes before they happen", fontsize=11,
-                     loc="left", fontweight="bold", pad=12)
+        """C) How well the risk ranking held up on participants the model
+        never saw.
+
+        Two things this panel does NOT say, both of which an earlier
+        version did.
+
+        It does not claim the ranking as this model's achievement. The
+        other models in the comparison enrich the same class about as
+        well - M4 catches 51 of 53 and a plain multinomial logistic 50 -
+        so what is shown is that wrong-hand risk is predictable in
+        advance, not that the mechanistic structure is what predicts it.
+
+        It does not carry the selection-versus-execution argument. The
+        within-hand bar counts every detected-finger mismatch, a wider
+        class than the report's genuine substitutions, so the two bars sit
+        on different denominators and their contrast cannot be read as a
+        mechanistic dissociation. That argument belongs to the
+        reaction-time decomposition, which uses one definition throughout.
+        """
+        ax.set_title("C.  Predicting mistakes in advance", fontsize=11,
+                     loc="left", fontweight="bold", pad=10)
         if not concentration:
             ax.axis("off")
             ax.text(0.5, 0.55, "Run the out-of-sample prediction\nto fill in this panel",
@@ -977,40 +1043,32 @@ class ComputationalModelWindow(QMainWindow):
                     linespacing=1.5)
             return
 
-        classes = [("wrong HAND", concentration, "#c4453a")]
+        classes = [("wrong\nHAND", concentration, "#c4453a")]
         if within_hand:
-            classes.append(("wrong FINGER", within_hand, "#b8c2cc"))
+            classes.append(("wrong\nFINGER", within_hand, "#b8c2cc"))
         share_of_events = concentration["top_fraction"]
 
         x = np.arange(len(classes))
         shares = [100.0 * c["share_captured"] for _, c, _ in classes]
-        ax.bar(x, shares, width=0.5, color=[colour for _, _, colour in classes], zorder=3)
+        ax.bar(x, shares, width=0.46, color=[colour for _, _, colour in classes], zorder=3)
         ax.axhline(100.0 * share_of_events, color="#3a4a5a", linestyle="--",
-                   linewidth=1.3, zorder=2)
-        ax.annotate(f"chance: {share_of_events * 100:.0f}%",
-                    (len(classes) - 0.36, 100.0 * share_of_events), xytext=(0, 4),
-                    textcoords="offset points", ha="right", va="bottom", fontsize=7.8,
-                    color="#3a4a5a")
+                   linewidth=1.2, zorder=2)
         for position, (_, entry, _) in enumerate(classes):
             ax.annotate(f"{entry['n_errors_in_top']} of {entry['n_errors']}",
-                        (position, 100.0 * entry["share_captured"]), xytext=(0, 9),
-                        textcoords="offset points", ha="center", fontsize=11,
+                        (position, 100.0 * entry["share_captured"]), xytext=(0, 6),
+                        textcoords="offset points", ha="center", fontsize=10.5,
                         fontweight="bold", color="#26313d")
-        ax.set_xticks(x, [label for label, _, _ in classes], fontsize=10)
-        ax.set_xlim(-0.78, len(classes) - 0.22)
-        ax.set_ylim(0, 122)
-        ax.set_ylabel(f"share caught in the {share_of_events * 100:.0f}% of events\n"
-                      f"the model flagged riskiest", fontsize=8.6)
+        ax.annotate(f"chance: {share_of_events * 100:.0f}%",
+                    (len(classes) - 0.34, 100.0 * share_of_events), xytext=(0, 4),
+                    textcoords="offset points", ha="right", va="bottom", fontsize=7.6,
+                    color="#3a4a5a")
+        ax.set_xticks(x, [label for label, _, _ in classes], fontsize=9.5)
+        ax.set_xlim(-0.7, len(classes) - 0.3)
+        ax.set_ylim(0, 118)
+        ax.set_ylabel("caught in the riskiest 20%  (%)", fontsize=8.4)
         ax.grid(axis="y", alpha=0.25, zorder=0)
         ax.set_axisbelow(True)
-        ax.text(0.5, -0.24, "The model predicts wrong-hand risk,\nbut not within-hand slips.",
-                transform=ax.transAxes, ha="center", va="top", fontsize=10.5,
-                fontweight="bold", color="#26313d", linespacing=1.4)
-        ax.text(0.5, -0.45, "Held out one participant at a time: the model had never seen "
-                            "the person it was scoring,\nand the warning is issued before "
-                            "the key is pressed.",
-                transform=ax.transAxes, ha="center", fontsize=7.6, color="#666666",
-                style="italic", va="top", linespacing=1.5)
+
 
     # ------------------------------------------------------------------
     # Model tabs
@@ -1655,7 +1713,12 @@ class ComputationalModelWindow(QMainWindow):
     def _build_prediction_summary(self):
         summary = ep.prediction_summary(self._run)
         by_participant = ep.choice_metrics_by_participant(self._run.predictions)
-        paired = ep.compare_models_paired(by_participant, reference=self._run.primary_model)
+        # Scoped explicitly: population rows only, cued conditions only.
+        # The defaults say the same thing, but a contrast table whose
+        # scope is implicit is one nobody can quote safely.
+        paired = ep.compare_models_paired(
+            by_participant, reference=self._run.primary_model,
+            conditions=em.CUED_CONDITIONS, variant=ep.POPULATION)
         figures = {"prediction_summary": self._plot_prediction_summary(summary)}
         lines = ["<h3>Out-of-sample prediction summary</h3>",
                  self._PREDICTION_PREAMBLE,
@@ -1779,11 +1842,22 @@ class ComputationalModelWindow(QMainWindow):
                      "risky ones actually risky”. Below it are the individual held-out "
                      "events the model flagged hardest under visual guidance, with what "
                      "each one actually did.</p>")
+        by_model = ep.risk_concentration_by_model(self._run.predictions)
+        lines.append(
+            "<p><b>Is this the model's doing?</b> Not on its own. The table below runs the "
+            "same enrichment for every model in the comparison, and the simpler ones reach "
+            "much the same capture. The supportable claim is that wrong-hand mistakes are "
+            "predictable before the response; the claim that the mechanistic structure is "
+            "what predicts them is <b>not</b> supported by this measure, and the structured "
+            "model's case rests instead on its parameters meaning something and on the "
+            "error structure it reproduces without being told about it.</p>")
         widgets = [self._table_widget(metrics, decimals=4),
+                   self._table_widget(by_model, decimals=3),
                    self._table_widget(deciles, decimals=4),
                    self._table_widget(risky, decimals=3)]
         return ("".join(lines), figures,
                 {"prediction_error_risk_metrics": metrics,
+                 "prediction_error_risk_by_model": by_model,
                  "prediction_error_risk_deciles": deciles,
                  "prediction_highest_risk_events": risky}, widgets)
 
@@ -2121,7 +2195,7 @@ class ComputationalModelWindow(QMainWindow):
         lines = ["<h3>Event viewer</h3>",
                  self._PREDICTION_PREAMBLE,
                  "<p>One held-out event at a time: what was cued, what the model expected "
-                 "before the keypress, and what actually happened. The distribution below "
+                 "before the response, and what actually happened. The distribution below "
                  "is the model's full ten-way answer for that event, produced by the fold "
                  "that excluded this participant.</p>"]
         return ("".join(lines), {}, {}, [selector, self.viewer_detail,
@@ -2339,10 +2413,13 @@ class ComputationalModelWindow(QMainWindow):
         self._log("Loaded. Cross-validation, ablations and bootstrap are not stored in the "
                   "fit file - refit if those tabs are needed.")
 
-    # Report figures are wider and shorter than the on-screen one: a
-    # figure sits in a column at a fixed width, and the panels have to
-    # stay legible when it is scaled to fit rather than filling a window.
-    SUMMARY_FIGURE_SIZE = (13.0, 4.9)
+    # The report figure is the SAME figure at the same proportions, only
+    # at higher resolution. Re-sizing it for print was what broke it: the
+    # panels were laid out by tight_layout, which chose different widths
+    # at a different figure size, and text positioned to look right in the
+    # window ran into the panel beside it in the exported file. The
+    # geometry is fixed in SUMMARY_MARGINS now, so screen and report show
+    # the same thing and one visual check covers both.
     SUMMARY_FIGURE_DPI = 400
 
     def _export_summary_figure(self) -> None:
@@ -2364,14 +2441,15 @@ class ComputationalModelWindow(QMainWindow):
                 self._run.predictions, outcome=ep.OUTCOME_WITHIN_HAND,
                 column="p_within_hand", model_name=self._run.primary_model)
         figure = self._plot_summary(headline, concentration, within_hand)
-        figure.set_size_inches(*self.SUMMARY_FIGURE_SIZE)
-        figure.tight_layout(pad=1.5, w_pad=2.2)
 
         written, failures = [], []
         for suffix, options in ((".png", {"dpi": self.SUMMARY_FIGURE_DPI}), (".svg", {})):
             path = MODEL_FIGURE_DIR / f"computational_model_summary{suffix}"
             try:
-                figure.savefig(path, bbox_inches="tight", facecolor="white", **options)
+                # No bbox_inches="tight": it re-crops to the drawn extent,
+                # which moves the figure-level notes relative to the panels
+                # they belong under. The margins are already set.
+                figure.savefig(path, facecolor="white", **options)
                 written.append(path.name)
             except Exception as error:
                 failures.append(f"{path.name} ({type(error).__name__}: {error})")
