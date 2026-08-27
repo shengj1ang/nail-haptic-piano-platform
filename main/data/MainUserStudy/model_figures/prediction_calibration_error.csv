@@ -1,31 +1,31 @@
 model_name,variant,condition,expected_calibration_error,n
-M1 unitary cue (no channel split),personalised,B,0.05034011245465682,5399
-M1 unitary cue (no channel split),personalised,C,0.04172573166091485,5400
-M1 unitary cue (no channel split),population,A,0.04654000502515722,5396
-M1 unitary cue (no channel split),population,B,0.042309144537572174,5399
-M1 unitary cue (no channel split),population,C,0.03752453604847354,5400
-M3 (primary),personalised,B,0.031074179388575943,5399
-M3 (primary),personalised,C,0.02661980641425092,5400
-M3 (primary),population,A,0.04652604284468029,5396
-M3 (primary),population,B,0.03148503775205755,5399
-M3 (primary),population,C,0.022873692916907676,5400
-M3 (primary),within-participant,A,0.02361563735275306,5396
-M3 (primary),within-participant,B,0.017688137877622565,5399
-M3 (primary),within-participant,C,0.006534297932582458,5400
-M3 without habitual prior,population,A,0.01810202189755575,5396
-M3 without habitual prior,population,B,0.03409618960988943,5399
-M3 without habitual prior,population,C,0.02240731214107889,5400
-M4 per-digit evidence (secondary),personalised,B,0.023236509274682546,5399
-M4 per-digit evidence (secondary),personalised,C,0.018715359491165637,5400
-M4 per-digit evidence (secondary),population,A,0.04304045161911162,5396
-M4 per-digit evidence (secondary),population,B,0.01309966677289075,5399
-M4 per-digit evidence (secondary),population,C,0.019861814508748604,5400
+M1 unitary cue (no channel split),personalised,B,0.049969586246040816,5399
+M1 unitary cue (no channel split),personalised,C,0.04172555374792846,5400
+M1 unitary cue (no channel split),population,A,0.046517813212170106,5396
+M1 unitary cue (no channel split),population,B,0.042383164493500616,5399
+M1 unitary cue (no channel split),population,C,0.0375233716281543,5400
+M3 (primary),personalised,B,0.031070611256736182,5399
+M3 (primary),personalised,C,0.026620388491909414,5400
+M3 (primary),population,A,0.04652523746364141,5396
+M3 (primary),population,B,0.031484848219322646,5399
+M3 (primary),population,C,0.022874238619466157,5400
+M3 (primary),within-participant,A,0.023615836090546072,5396
+M3 (primary),within-participant,B,0.017648990116331614,5399
+M3 (primary),within-participant,C,0.006535079315586333,5400
+M3 without habitual prior,population,A,0.01810209329136944,5396
+M3 without habitual prior,population,B,0.03409619469322747,5399
+M3 without habitual prior,population,C,0.02240755770642152,5400
+M4 per-digit evidence (secondary),personalised,B,0.023233903725859727,5399
+M4 per-digit evidence (secondary),personalised,C,0.018715581428895997,5400
+M4 per-digit evidence (secondary),population,A,0.042931560085582646,5396
+M4 per-digit evidence (secondary),population,B,0.013099223105559183,5399
+M4 per-digit evidence (secondary),population,C,0.019860686961579572,5400
 empirical by key x cue x condition,population,A,0.023158997277247958,5396
 empirical by key x cue x condition,population,B,0.06114127778972625,5399
 empirical by key x cue x condition,population,C,0.0625153212815521,5400
 empirical finger frequency,population,A,0.09052394982132195,5396
 empirical finger frequency,population,B,0.8161189914744807,5399
 empirical finger frequency,population,C,0.8336044119415535,5400
-multinomial logistic,population,A,0.029523940627845843,5396
-multinomial logistic,population,B,0.020351688181384796,5399
-multinomial logistic,population,C,0.017148908114536284,5400
+multinomial logistic,population,A,0.029523933940709256,5396
+multinomial logistic,population,B,0.020351669730513337,5399
+multinomial logistic,population,C,0.01714887991176261,5400

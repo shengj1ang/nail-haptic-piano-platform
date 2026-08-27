@@ -481,10 +481,7 @@ class _Problem:
         self.motor = (np.stack([feats[f] for f in spec.motor], axis=-1) if spec.motor
                       else np.zeros((self.n, N_FINGERS, 0)))
 
-        column = {"target": "key_target", "pressed": "key_pressed"}.get(spec.key_source)
-        if column is None:
-            raise EffectorModelError(
-                f"unknown key_source {spec.key_source!r}; expected 'target' or 'pressed'")
+        column = key_column(spec)
         if column not in df.columns:      # frames built before both were kept
             column = "key"
         key = np.clip(df[column].to_numpy(int), 0, n_keys - 1)
@@ -688,6 +685,30 @@ class ChoiceFit:
         return pd.DataFrame(rows)
 
 
+def key_column(spec: ModelSpec) -> str:
+    """The event column the reach term reads, from the spec's key_source."""
+    try:
+        return {"target": "key_target", "pressed": "key_pressed"}[spec.key_source]
+    except KeyError:
+        raise EffectorModelError(
+            f"unknown key_source {spec.key_source!r}; expected 'target' or 'pressed'") from None
+
+
+def key_count(df: pd.DataFrame, spec: ModelSpec) -> int:
+    """How many reach cells this spec needs.
+
+    Derived from the column the spec actually reads, not from the
+    default one: the pressed key runs to 18 where the cued key stops at
+    14, and sizing the table from the wrong column silently clipped four
+    keys onto the last cell - so the "pressed" sensitivity fit was not
+    reproducing the behaviour it exists to reproduce.
+    """
+    column = key_column(spec)
+    if column not in df.columns:      # frames built before both were kept
+        column = "key"
+    return int(df[column].max() + 1)
+
+
 def parameter_bounds(layout: "_Layout", spec: ModelSpec):
     """Box constraints for L-BFGS-B: the cue block only, everything else
     free.  See ModelSpec.cue_bound for why the bound is stated rather
@@ -713,7 +734,7 @@ def fit_choice_model(df: pd.DataFrame, spec: Optional[ModelSpec] = None,
     """
     spec = spec or ModelSpec()
     participants = list(participants) if participants is not None else sorted(df["participant"].unique())
-    n_keys = int(n_keys if n_keys is not None else df["key"].max() + 1)
+    n_keys = int(n_keys) if n_keys is not None else key_count(df, spec)
     problem = _Problem(df, spec, participants, n_keys)
 
     x0 = np.zeros(problem.layout.size) if start is None else np.asarray(start, float).copy()
@@ -817,7 +838,7 @@ def leave_one_participant_out(df: pd.DataFrame, spec: Optional[ModelSpec] = None
     """
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     if len(participants) < 2:
         raise EffectorModelError("leave-one-participant-out needs at least 2 participants")
     rows = []
@@ -845,7 +866,7 @@ def leave_one_trial_out(df: pd.DataFrame, spec: Optional[ModelSpec] = None,
     """
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     trials = df[["participant", "trial_index"]].drop_duplicates().reset_index(drop=True)
     rng = np.random.default_rng(seed)
     trials["fold"] = rng.integers(0, n_folds, len(trials))
@@ -1144,7 +1165,7 @@ def bootstrap_parameters(df: pd.DataFrame, spec: Optional[ModelSpec] = None,
     """
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     full = fit_choice_model(df, spec, participants=participants, n_keys=n_keys)
     names = list(full.layout.cue_names) + list(full.layout.motor_names)
     if "prior_weight" in full.layout.slices:
@@ -1266,7 +1287,7 @@ def condition_a_transfer(df: pd.DataFrame, spec: Optional[ModelSpec] = None,
     participants = sorted(df["participant"].unique())
     if len(participants) < 2:
         raise EffectorModelError("Condition A transfer needs at least 2 participants")
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     rows = []
     for participant in participants:
         if progress is not None:
@@ -1516,7 +1537,7 @@ def constrained_contrast_test(df: pd.DataFrame, spec: Optional[ModelSpec] = None
 
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     full = fit_choice_model(df, spec, participants=participants, n_keys=n_keys)
     problem = _Problem(df, spec, participants, n_keys)
     names = full.layout.cue_names
@@ -1622,7 +1643,7 @@ def fit_two_stage(df: pd.DataFrame, spec: Optional[ModelSpec] = None) -> TwoStag
     """Stage 1 on Condition A, stage 2 on B and C with the prior frozen."""
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
 
     a_events = df[df["condition"] == "A"]
     cued_events = df[df["condition"].isin(CUED_CONDITIONS)]
@@ -1682,7 +1703,7 @@ def prior_weight_bounds(df: pd.DataFrame, spec: Optional[ModelSpec] = None) -> p
     """
     spec = spec or ModelSpec()
     participants = sorted(df["participant"].unique())
-    n_keys = int(df["key"].max() + 1)
+    n_keys = key_count(df, spec)
     two_stage = fit_two_stage(df, spec)
     cued_events = df[df["condition"].isin(CUED_CONDITIONS)]
     problem = _Problem(cued_events, spec, participants, n_keys)

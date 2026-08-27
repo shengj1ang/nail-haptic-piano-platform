@@ -202,6 +202,9 @@ class MultinomialLogistic(_Baseline):
     def fit(self, train):
         from sklearn.linear_model import LogisticRegression
 
+        # `key` is the cued key (app.effector_model.build_events), so this
+        # baseline sees the same before-the-response information the
+        # structured models do.
         self.n_keys = int(train["key"].max()) + 1
         X = self._design(train)
         y = np.array([FINGER_INDEX[f] for f in train["actual_finger"]])
@@ -235,7 +238,7 @@ class ChoiceModelPredictor(_Baseline):
 
     def fit(self, train, participants=None, n_keys=None):
         self.participants = participants or sorted(train["participant"].unique())
-        self.n_keys = n_keys or int(train["key"].max()) + 1
+        self.n_keys = n_keys or em.key_count(train, self.spec)
         self.fit_result = em.fit_choice_model(train, self.spec,
                                               participants=self.participants,
                                               n_keys=self.n_keys)
@@ -398,7 +401,9 @@ def _fold(train: pd.DataFrame, test: pd.DataFrame, predictor: _Baseline,
             "personalised calibration may only use Condition A events"
 
     participants = sorted(train["participant"].unique())
-    n_keys = int(max(train["key"].max(), test["key"].max())) + 1
+    spec = getattr(predictor, "spec", None)
+    n_keys = (max(em.key_count(train, spec), em.key_count(test, spec)) if spec is not None
+              else int(max(train["key"].max(), test["key"].max())) + 1)
     if isinstance(predictor, ChoiceModelPredictor):
         predictor.fit(train, participants=participants, n_keys=n_keys)
         if predictor.personalised and calibration is not None and participant is not None:

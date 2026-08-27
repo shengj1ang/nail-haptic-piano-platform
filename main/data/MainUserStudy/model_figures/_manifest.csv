@@ -21,6 +21,8 @@ prediction_error_risk.png / prediction_error_risk.svg,figure,,,,,
 prediction_population_vs_personalised.png / prediction_population_vs_personalised.svg,figure,,,,,
 prediction_rt.png / prediction_rt.svg,figure,,,,,
 prediction_summary.png / prediction_summary.svg,figure,,,,,
+model_ablations.csv,table,,,,5,"model, n_params, loglik, AIC, BIC, converged, cv_loglik_A, cv_top1_A, cv_loglik_B, cv_top1_B, cv_loglik_C, cv_top1_C"
+model_bootstrap.csv,table,,,,10,"parameter, estimate, boot_mean, boot_sd, ci95_lo, ci95_hi, n_resamples, n_resamples_unidentified, reading"
 model_channel_test.csv,table,,,,3,"channel, constraint, loglik_free, loglik_constrained, delta_loglik, chi2, df, p, delta_AIC"
 model_coefficients.csv,table,,,,20,"block, parameter, estimate"
 model_cross_hand_rates.csv,table,,,,40,"participant, condition, n_events, n_substitutions, n_cross_hand, cross_hand_rate"
@@ -32,6 +34,7 @@ model_free_choice_usage.csv,table,,,,200,"participant, finger, share, count"
 model_genuine_error_structure.csv,table,,,,3,"condition, genuine_substitutions, cross_hand, homologous, within_hand"
 model_headline.csv,table,,,,1,"hand advantage|B, hand advantage|B|odds, digit sharpness|B, digit sharpness|B|odds, cross_hand_events|B, hand_is_bound|B, hand advantage|C, hand advantage|C|odds, digit sharpness|C, digit sharpness|C|odds, cross_hand_events|C, hand_is_bound|C, hand_ratio, digit_ratio"
 model_identifiability.csv,table,,,,8,"condition, parameter, identifying_events, n_identifying, n_condition_events, verdict"
+model_ladder.csv,table,,,,5,"model, n_params, loglik, AIC, BIC, converged, cv_loglik_A, cv_top1_A, cv_loglik_B, cv_top1_B, cv_loglik_C, cv_top1_C"
 model_paired_parameter_contrast.csv,table,,,,4,"parameter, mean_B, mean_C, mean_difference, sd_difference, ci95_lo, ci95_hi, dz, t, df, p, wilcoxon_p, n_participants, n_higher_in_C"
 model_participant_cue_parameters.csv,table,,,,20,"participant, n_events, converged, match_hand[B], match_digit[B], digit_distance[B], match_hand[C], match_digit[C], digit_distance[C], w[B], w[C]"
 model_participant_priors.csv,table,,,,200,"participant, finger, logit, probability"
