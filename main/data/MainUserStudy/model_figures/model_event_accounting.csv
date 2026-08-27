@@ -1,0 +1,7 @@
+stage,n
+exported events,16200
+excluded: confirmed carry-over,1
+excluded: no response (timeout),4
+excluded: finger unresolved,0
+excluded: missing key or RT,0
+modelled events,16195

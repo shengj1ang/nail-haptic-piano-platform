@@ -12,6 +12,7 @@ Run from main/:  python test-script/test_progress_task.py
 
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,7 @@ sys.path.insert(0, str(HERE))
 
 from PySide6.QtWidgets import QApplication, QProgressDialog  # noqa: E402
 
+from app.gui import progress_task  # noqa: E402
 from app.gui.progress_task import run_with_progress  # noqa: E402
 
 _APP = QApplication.instance() or QApplication([])
@@ -161,6 +163,128 @@ class TestWrappingTabs(unittest.TestCase):
         # exactly one tab reads as selected
         self.assertEqual(sum(b.isChecked() for b in tabs._buttons), 1)
 
+
+
+class TestLongStepsStayResponsive(unittest.TestCase):
+    """A step that runs for minutes must not look like a hung program.
+
+    It runs on the GUI thread, so nothing repaints while it does - which
+    is why the fix is the step checking in, not the bar's style. These
+    pin that the check-in actually moves the bar, in both of its forms.
+    """
+
+    def _spy(self):
+        values, labels = [], []
+        original_value = progress_task.QProgressDialog.setValue
+        original_label = progress_task.QProgressDialog.setLabelText
+
+        def set_value(dialog, value):
+            values.append(value)
+            return original_value(dialog, value)
+
+        def set_label(dialog, text):
+            labels.append(text)
+            return original_label(dialog, text)
+
+        progress_task.QProgressDialog.setValue = set_value
+        progress_task.QProgressDialog.setLabelText = set_label
+        return values, labels, (original_value, original_label)
+
+    def _restore(self, originals):
+        progress_task.QProgressDialog.setValue = originals[0]
+        progress_task.QProgressDialog.setLabelText = originals[1]
+
+    def test_a_step_reporting_a_fraction_advances_the_bar(self):
+        values, labels, originals = self._spy()
+        try:
+            def step(report):
+                for i in range(20):
+                    report(f"resample {i + 1}/20", (i + 1) / 20)
+                    time.sleep(0.01)
+
+            self.assertTrue(progress_task.run_with_progress(None, "t", [("work", step)]))
+        finally:
+            self._restore(originals)
+        inside = [v for v in values if 0 < v < progress_task._TICKS_PER_STEP]
+        self.assertGreater(len(inside), 1, "the bar never moved inside the step")
+        self.assertEqual(inside, sorted(inside), "a measured fraction must not go backwards")
+
+    def test_a_step_without_a_fraction_sweeps_back_and_forth(self):
+        """The 'still working, cannot say how far' case: the bar has to
+        move, and it has to be visibly different from real progress."""
+        values, labels, originals = self._spy()
+        try:
+            def step(report):
+                deadline = time.monotonic() + 2.2
+                while time.monotonic() < deadline:
+                    report("fitting something")
+                    time.sleep(0.01)
+
+            self.assertTrue(progress_task.run_with_progress(None, "t", [("work", step)]))
+        finally:
+            self._restore(originals)
+        inside = [v for v in values if v < progress_task._TICKS_PER_STEP]
+        self.assertGreater(len(inside), 4)
+        rises = sum(1 for i in range(len(inside) - 1) if inside[i + 1] > inside[i])
+        falls = sum(1 for i in range(len(inside) - 1) if inside[i + 1] < inside[i])
+        self.assertGreater(rises, 0)
+        self.assertGreater(falls, 0, "the indicator never swept back")
+
+    def test_the_sweep_never_reaches_the_end_of_the_step(self):
+        """A bounce that touched the far end would read as 'finished'."""
+        values, _, originals = self._spy()
+        try:
+            def step(report):
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    report("working")
+                    time.sleep(0.01)
+
+            progress_task.run_with_progress(None, "t", [("work", step)])
+        finally:
+            self._restore(originals)
+        inside = [v for v in values if v < progress_task._TICKS_PER_STEP]
+        self.assertLess(max(inside), progress_task._TICKS_PER_STEP)
+
+    def test_a_step_can_be_cancelled_part_way_without_returning_a_partial(self):
+        completed = []
+
+        def step(report):
+            for i in range(500):
+                report(f"item {i}", i / 500)
+            completed.append("finished")
+
+        original = progress_task.QProgressDialog.wasCanceled
+        calls = {"n": 0}
+
+        def cancelled_after_a_while(dialog):
+            calls["n"] += 1
+            return calls["n"] > 20
+
+        progress_task.QProgressDialog.wasCanceled = cancelled_after_a_while
+        try:
+            result = progress_task.run_with_progress(
+                None, "t", [("work", step), ("later", lambda: completed.append("later"))])
+        finally:
+            progress_task.QProgressDialog.wasCanceled = original
+        self.assertFalse(result)
+        self.assertNotIn("finished", completed)
+        self.assertNotIn("later", completed)
+
+    def test_zero_argument_steps_still_work_unchanged(self):
+        """Every existing caller passes zero-argument steps."""
+        ran = []
+        result = progress_task.run_with_progress(
+            None, "t", [("a", lambda: ran.append("a")), ("b", lambda: ran.append("b"))])
+        self.assertTrue(result)
+        self.assertEqual(ran, ["a", "b"])
+
+    def test_a_step_taking_an_argument_is_given_the_reporter(self):
+        received = []
+        progress_task.run_with_progress(
+            None, "t", [("a", lambda report: received.append(report))])
+        self.assertEqual(len(received), 1)
+        self.assertIsInstance(received[0], progress_task.StepProgress)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

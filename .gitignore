@@ -9,3 +9,19 @@ main/runtime/Python311
 main/runtime/bin/*
 !main/runtime/bin/README.md
 main/normalisation/
+
+# The full per-event prediction table from Computational Model Analysis:
+# every model in the comparison set x every held-out event, ~80 MB, which
+# would be the largest tracked file in the repository by a factor of 2.6
+# and would be stored again in full on every regeneration (its floats all
+# change, so git cannot delta it).
+#
+# It is left out because it is REGENERABLE, not because it is unwanted:
+# the inputs (data/MainUserStudy/P*/P*_events.csv) and the code are both
+# tracked and the split seeds are fixed, so re-running the prediction
+# reproduces it exactly. The file itself is not deleted - only untracked.
+#
+# prediction_events_primary.csv, the primary model's one-row-per-event
+# subset, is deliberately NOT ignored: a few megabytes, opens in a
+# spreadsheet, and is what an event-level question is answered from.
+main/data/MainUserStudy/model_figures/prediction_events.csv

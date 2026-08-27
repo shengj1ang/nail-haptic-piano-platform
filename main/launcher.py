@@ -68,6 +68,7 @@ from app.config import Config
 from app.gui.accelerometer_window import AccelerometerWindow
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.camera_selection_window import CameraSelectionWindow
+from app.gui.computational_model_window import ComputationalModelWindow
 from app.gui.cue_selection_window import CueSelectionWindow
 from app.gui.experiment_session_window import ExperimentSessionWindow
 from app.gui.finger_detector_window import FingerDetectorWindow
@@ -224,6 +225,13 @@ SECTIONS = [
             ("Quiz Analysis", QuizAnalysisWindow),
             ("Participant Analysis", ParticipantAnalysisWindow),
             ("Group Analysis (Multi-Participant)", GroupAnalysisWindow),
+            # Sits after the descriptive analyses because it consumes the
+            # same exported CSVs and asks a different question of them:
+            # not what happened, but whether one mechanism accounts for it
+            # and whether that mechanism predicts a participant the model
+            # has never seen. Adds nothing to the pipeline the three above
+            # depend on.
+            ("Computational Model Analysis", ComputationalModelWindow),
         ],
     ),
     (
@@ -329,15 +337,19 @@ SECTIONS = [
 # None of these claims hardware, and each has its own reason to survive
 # another button being pressed:
 #
-#   - the two Analysis windows are read-only views over the exported CSVs,
-#     and they are the pair you actually want side by side, reading a
-#     participant's own numbers against the group they sit in;
+#   - the three Analysis windows are read-only views over the exported
+#     CSVs, and they are what you actually want side by side: a
+#     participant's own numbers against the group they sit in, and the
+#     model's account of both. The model window also runs fits and
+#     cross-validation for minutes at a time, which closing it to open
+#     something else would throw away;
 #   - the two Tools windows run ffmpeg or 7z over hundreds of files for
 #     minutes at a time, and closing one mid-run to open something else
 #     would abandon a conversion or an archive halfway.
 CONCURRENT_TOOLS = {
     ParticipantAnalysisWindow,
     GroupAnalysisWindow,
+    ComputationalModelWindow,
     ReviewCompressWindow,
     QuizBackupWindow,
     RemoteLatencyAnalysisWindow,

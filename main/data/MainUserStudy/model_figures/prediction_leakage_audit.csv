@@ -1,0 +1,7 @@
+check,holds
+every leave-one-participant-out row was predicted by the fold that excluded that participant,True
+every participant was held out exactly once per model and variant,True
+"personalised predictions cover only cued (B/C) events, so the Condition A calibration data are never also scored",True
+each trial appears in exactly one within-participant fold (no trial split across the boundary),True
+no prediction row is missing its fold identifier,True
+each model predicted all 16195 modelled events under the population variant,True

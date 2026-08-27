@@ -1,0 +1,9 @@
+condition,parameter,identifying_events,n_identifying,n_condition_events,verdict
+B,match_hand[B],actions using the hand that was not cued,67,5399,estimated
+B,match_digit[B],actions using the cued digit on either hand,53,5399,estimated
+B,digit_distance[B],actions on a digit adjacent to or further from the cued one,359,5399,estimated
+B,match_finger[B],actions not using the cued finger,426,5399,estimated
+C,match_hand[C],actions using the hand that was not cued,2,5400,lower bound only
+C,match_digit[C],actions using the cued digit on either hand,1,5400,lower bound only
+C,digit_distance[C],actions on a digit adjacent to or further from the cued one,321,5400,estimated
+C,match_finger[C],actions not using the cued finger,323,5400,estimated

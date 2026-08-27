@@ -1,0 +1,68 @@
+file,kind,participants,model,events,rows,columns
+(export),provenance,"P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14, P15, P16, P17, P18, P19, P20",M3 hand + digit + digit gradient,16195.0,,
+model_channel_test.png / model_channel_test.svg,figure,,,,,
+model_confusion_B.png / model_confusion_B.svg,figure,,,,,
+model_confusion_C.png / model_confusion_C.svg,figure,,,,,
+model_cross_hand.png / model_cross_hand.svg,figure,,,,,
+model_cue_parameters.png / model_cue_parameters.svg,figure,,,,,
+model_error_structure.png / model_error_structure.svg,figure,,,,,
+model_participant_parameters.png / model_participant_parameters.svg,figure,,,,,
+model_prior.png / model_prior.svg,figure,,,,,
+model_rt_components.png / model_rt_components.svg,figure,,,,,
+model_selection_execution.png / model_selection_execution.svg,figure,,,,,
+model_summary.png / model_summary.svg,figure,,,,,
+prediction_by_condition.png / prediction_by_condition.svg,figure,,,,,
+prediction_by_finger.png / prediction_by_finger.svg,figure,,,,,
+prediction_calibration.png / prediction_calibration.svg,figure,,,,,
+prediction_choice_metrics.png / prediction_choice_metrics.svg,figure,,,,,
+prediction_confusion_B.png / prediction_confusion_B.svg,figure,,,,,
+prediction_confusion_C.png / prediction_confusion_C.svg,figure,,,,,
+prediction_error_risk.png / prediction_error_risk.svg,figure,,,,,
+prediction_population_vs_personalised.png / prediction_population_vs_personalised.svg,figure,,,,,
+prediction_rt.png / prediction_rt.svg,figure,,,,,
+prediction_summary.png / prediction_summary.svg,figure,,,,,
+model_channel_test.csv,table,,,,3,"channel, constraint, loglik_free, loglik_constrained, delta_loglik, chi2, df, p, delta_AIC"
+model_coefficients.csv,table,,,,20,"block, parameter, estimate"
+model_cross_hand_rates.csv,table,,,,40,"participant, condition, n_events, n_substitutions, n_cross_hand, cross_hand_rate"
+model_error_structure.csv,table,,,,3,"condition, n_events, observed_substitutions, predicted_substitutions, observed_cross_hand, predicted_cross_hand, observed_homologous, predicted_homologous, observed_within_hand, predicted_within_hand"
+model_event_accounting.csv,table,,,,6,"stage, n"
+model_evidence_contrasts.csv,table,,,,4,"condition, contrast, definition, log_odds, identified_by"
+model_fit_summary.csv,table,,,,11,"item, value"
+model_free_choice_usage.csv,table,,,,200,"participant, finger, share, count"
+model_genuine_error_structure.csv,table,,,,3,"condition, genuine_substitutions, cross_hand, homologous, within_hand"
+model_headline.csv,table,,,,1,"hand advantage|B, hand advantage|B|odds, digit sharpness|B, digit sharpness|B|odds, cross_hand_events|B, hand_is_bound|B, hand advantage|C, hand advantage|C|odds, digit sharpness|C, digit sharpness|C|odds, cross_hand_events|C, hand_is_bound|C, hand_ratio, digit_ratio"
+model_identifiability.csv,table,,,,8,"condition, parameter, identifying_events, n_identifying, n_condition_events, verdict"
+model_paired_parameter_contrast.csv,table,,,,4,"parameter, mean_B, mean_C, mean_difference, sd_difference, ci95_lo, ci95_hi, dz, t, df, p, wilcoxon_p, n_participants, n_higher_in_C"
+model_participant_cue_parameters.csv,table,,,,20,"participant, n_events, converged, match_hand[B], match_digit[B], digit_distance[B], match_hand[C], match_digit[C], digit_distance[C], w[B], w[C]"
+model_participant_priors.csv,table,,,,200,"participant, finger, logit, probability"
+model_risk_concentration.csv,table,,,,1,"condition, outcome, n_events, n_top_events, top_fraction, n_errors, n_errors_in_top, share_captured, expected_if_uninformative, lift"
+model_rt_components.csv,table,,,,3,"model, r_squared, n, C(condition)[T.B], C(condition)[T.C], B_minus_C_gap_log, conflict, entropy"
+model_rt_condition_by_digit.csv,table,,,,8,"model, term, estimate, se, t, p"
+model_rt_decomposition.csv,table,,,,9,"term, estimate, se, t, p, ci95_lo, ci95_hi, component, interpretation"
+model_rt_entropy_check.csv,table,,,,3,"condition, n, mean_rt_s, mean_entropy, mean_conflict, mean_margin"
+model_rt_evidence_time_link.csv,table,,,,2,"condition, parameter, n_participants, pearson_r, p, spearman_rho, spearman_p, prediction"
+model_rt_observed_vs_predicted.csv,table,,,,60,"participant, condition, n, observed_rt_s, predicted_rt_s"
+model_rt_residuals.csv,table,,,,8,"cell, n, mean, sd, grouping"
+model_selection_vs_execution.csv,table,,,,5,"digit, digit_name, n, mean_rt_ms, fitted_rt_ms, adjusted_rt_ms, selection_cost_ms, mean_conflict, log_rt_vs_thumb_raw, log_rt_vs_thumb_after_selection, selection_share, vs_thumb_raw_ms, vs_thumb_adjusted_ms"
+prediction_by_condition_choice.csv,table,,,,8,"model_name, variant, condition, n, log_loss, top1_accuracy, top2_accuracy, mean_p_correct, observed_correct, chance_log_loss"
+prediction_by_condition_rt.csv,table,,,,8,"model_name, variant, condition, n, mae_s, rmse_s, r2, mean_observed_s, mean_predicted_s, bias_s"
+prediction_by_digit.csv,table,,,,15,"condition, digit, n, log_loss, top1, predicted_correct, observed_correct, digit_name"
+prediction_by_finger.csv,table,,,,30,"condition, target_finger, n, log_loss, top1, predicted_correct, observed_correct"
+prediction_by_participant.csv,table,,,,600,"model_name, variant, condition, participant, n, log_loss, top1_accuracy, top2_accuracy"
+prediction_calibration.csv,table,,,,170,"model_name, variant, condition, bin, n, predicted, observed, bin_lo, bin_hi, gap"
+prediction_calibration_error.csv,table,,,,30,"model_name, variant, condition, expected_calibration_error, n"
+prediction_calibration_homologous.csv,table,,,,117,"model_name, variant, condition, bin, n, predicted, observed, bin_lo, bin_hi, gap"
+prediction_choice_metrics.csv,table,,,,30,"model_name, variant, condition, n, log_loss, top1_accuracy, top2_accuracy, mean_p_correct, observed_correct, chance_log_loss"
+prediction_error_risk_deciles.csv,table,,,,300,"model_name, variant, condition, risk_bin, n, mean_predicted, observed_rate, n_observed"
+prediction_error_risk_metrics.csv,table,,,,120,"model_name, variant, condition, outcome, n_events, n_positives, base_rate, mean_predicted, warning, average_precision, lift_over_base_rate, precision_at_0.5, recall_at_0.5, precision_in_top_10, precision_in_top_50"
+prediction_events.csv,table,,,,161957,"participant, trial, event, condition, target_finger, actual_finger, predicted_finger, p_L1, p_L2, p_L3, p_L4, p_L5, p_R1, p_R2, p_R3, p_R4, p_R5, p_correct, p_wrong_hand, p_homologous, predicted_rt, actual_rt, fold_id, model_name, variant, level, target_key, second_choice, p_within_hand, observed_outcome, log_loss, top1_hit, top2_hit, conflict, rt_residual"
+prediction_events_primary.csv,table,,,,16195,"participant, trial, event, condition, target_finger, actual_finger, predicted_finger, p_L1, p_L2, p_L3, p_L4, p_L5, p_R1, p_R2, p_R3, p_R4, p_R5, p_correct, p_wrong_hand, p_homologous, predicted_rt, actual_rt, fold_id, model_name, variant, level, target_key, second_choice, p_within_hand, observed_outcome, log_loss, top1_hit, top2_hit, conflict, rt_residual"
+prediction_folds.csv,table,,,,205,"model_name, variant, fold_id, n_events"
+prediction_highest_risk_events.csv,table,,,,25,"participant, trial, event, condition, target_key, target_finger, actual_finger, predicted_finger, p_correct, p_within_hand, p_wrong_hand, p_homologous, observed_outcome, actual_rt, predicted_rt, fold_id"
+prediction_leakage_audit.csv,table,,,,6,"check, holds"
+prediction_model_contrasts.csv,table,,,,6,"model, reference, metric, mean_model, mean_reference, mean_difference, ci95_lo, ci95_hi, t, df, p, n_participants, better"
+prediction_population_vs_personalised.csv,table,,,,9,"model, metric, population, personalised, mean_difference, ci95_lo, ci95_hi, t, df, p, n_participants, n_improved, verdict"
+prediction_rt_by_participant.csv,table,,,,60,"participant, condition, n, observed_rt_s, predicted_rt_s"
+prediction_rt_metrics.csv,table,,,,21,"model_name, variant, condition, n, mae_s, rmse_s, r2, mean_observed_s, mean_predicted_s, bias_s"
+prediction_rt_residuals.csv,table,,,,8,"cell, n, mean, sd, p05, p95, grouping"
+prediction_summary.csv,table,,,,7,"model_name, n, log_loss, top1_accuracy, top2_accuracy, rt_mae_s, rank"
