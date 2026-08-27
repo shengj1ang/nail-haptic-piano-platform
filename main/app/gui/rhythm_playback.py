@@ -92,6 +92,9 @@ class FullPianoWidget(QWidget):
     def __init__(self, feedback: KeyFeedback):
         super().__init__()
         self.keys_by_note: dict[int, PianoKey] = {}
+        # note -> (x, width), so the falling-notes strip above can drop each
+        # block onto the exact key it plays.
+        self.note_rects: dict[int, tuple[int, int]] = {}
 
         white_positions = []  # (note, x)
         black_positions = []  # (note, x)
@@ -106,6 +109,11 @@ class FullPianoWidget(QWidget):
                 white_index += 1
 
         self.setFixedSize(white_index * self.WHITE_W, self.WHITE_H)
+
+        for note, x in white_positions:
+            self.note_rects[note] = (x, self.WHITE_W)
+        for note, x in black_positions:
+            self.note_rects[note] = (x, self.BLACK_W)
 
         # White keys first, then black keys on top - Qt stacks later-created
         # siblings above earlier ones.
@@ -172,6 +180,76 @@ class HandsWidget(QWidget):
     def clear_all(self) -> None:
         for dot in self.dots.values():
             dot.set_active(False)
+
+
+class FallingNotesWidget(QWidget):
+    """Synthesia-style "piano roll" above the keyboard: each note is a coloured
+    block that falls down a dark lane and lands on its key at the moment the
+    note sounds.
+
+    Time flows bottom-up: the strike line (y = height) is *now* and the top of
+    the widget is ``WINDOW_S`` seconds into the future. A note occupies the band
+    between ``note_on_time_sec`` (its bottom, when the key is struck) and
+    ``note_off_time_sec`` (its top, when it is released). The per-note x/width
+    match the keyboard below, so blocks line up with their keys, and it sits
+    inside the same horizontal scroll area so the two scroll together.
+    Right-hand notes are warm coral, left-hand notes amber."""
+
+    WINDOW_S = 3.0  # seconds of upcoming music visible, strike line to top.
+    HEIGHT = 260
+
+    BG = QColor(38, 38, 40)
+    GRID = QColor(58, 58, 62)
+    RIGHT_HAND = QColor(240, 130, 110)
+    LEFT_HAND = QColor(245, 175, 95)
+    NOTE_BORDER = QColor(20, 20, 20)
+
+    def __init__(self, note_rects: dict[int, tuple[int, int]], width: int):
+        super().__init__()
+        self.note_rects = note_rects
+        self.setFixedSize(width, self.HEIGHT)
+        self.events: List[object] = []
+        self._time = 0.0
+
+    def set_events(self, events: List[object]) -> None:
+        self.events = events
+        self.update()
+
+    def set_time(self, elapsed: float) -> None:
+        self._time = elapsed
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        h = self.height()
+        painter.fillRect(self.rect(), self.BG)
+
+        # Vertical guide lines at each octave boundary (every C).
+        painter.setPen(QPen(self.GRID))
+        for note, (x, _width) in self.note_rects.items():
+            if note % 12 == 0:  # C
+                painter.drawLine(x, 0, x, h)
+
+        px_per_s = h / self.WINDOW_S
+        painter.setPen(QPen(self.NOTE_BORDER, 1))
+        for ev in self.events:
+            start = ev.note_on_time_sec - self._time  # seconds until struck
+            end = max(ev.note_off_time_sec, ev.note_on_time_sec + 0.05) - self._time
+            if end < 0 or start > self.WINDOW_S:
+                continue  # already passed, or still too far ahead
+            rect = self.note_rects.get(ev.midi_note)
+            if rect is None:
+                continue
+            x, width = rect
+            y_bottom = h - start * px_per_s
+            y_top = h - end * px_per_s
+            finger = getattr(ev, "finger", "") or ""
+            hand = self.LEFT_HAND if finger.startswith("L") else self.RIGHT_HAND
+            painter.setBrush(hand)
+            painter.drawRoundedRect(
+                x + 1, int(y_top), max(width - 2, 2), int(y_bottom - y_top), 3, 3
+            )
 
 
 class MelodyPlaybackPanel(QWidget):
@@ -258,10 +336,27 @@ class MelodyPlaybackPanel(QWidget):
         # drives the on-screen highlight and the audio here.
         feedback = DisplayFeedback(NoteLEDMapper(None, {}), self.audio_player)
         self.piano = FullPianoWidget(feedback)
+        # Falling-notes strip, exactly as wide as the keyboard and lined up on
+        # the same per-note x positions. Both live in one container inside the
+        # scroll area, so a horizontal scroll moves them together and the blocks
+        # stay directly above their keys.
+        self.falling = FallingNotesWidget(self.piano.note_rects, self.piano.width())
+        roll = QWidget()
+        roll.setFixedSize(
+            self.piano.width(), FallingNotesWidget.HEIGHT + FullPianoWidget.WHITE_H
+        )
+        roll_layout = QVBoxLayout(roll)
+        roll_layout.setContentsMargins(0, 0, 0, 0)
+        roll_layout.setSpacing(0)
+        roll_layout.addWidget(self.falling)
+        roll_layout.addWidget(self.piano)
+
         self.piano_scroll = QScrollArea()
-        self.piano_scroll.setWidget(self.piano)
+        self.piano_scroll.setWidget(roll)
         self.piano_scroll.setWidgetResizable(False)
-        self.piano_scroll.setFixedHeight(FullPianoWidget.WHITE_H + 18)
+        self.piano_scroll.setFixedHeight(
+            FallingNotesWidget.HEIGHT + FullPianoWidget.WHITE_H + 18
+        )
         self.piano_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -282,6 +377,8 @@ class MelodyPlaybackPanel(QWidget):
         self.seek_slider.setRange(0, int(self.total_duration * 1000))
         self.seek_slider.setEnabled(bool(self.events))
         self._sync_slider(0)
+        self.falling.set_events(self.events)
+        self.falling.set_time(0.0)
         self._centre_piano()
 
     def clear(self) -> None:
@@ -293,6 +390,8 @@ class MelodyPlaybackPanel(QWidget):
         self.seek_slider.setEnabled(False)
         self.seek_slider.setRange(0, 0)
         self.progress_label.setText("")
+        self.falling.set_events([])
+        self.falling.set_time(0.0)
 
     def _centre_piano(self) -> None:
         if not self.events:
@@ -348,6 +447,7 @@ class MelodyPlaybackPanel(QWidget):
         self.hands.clear_all()
         self._active_events = []
         self._sync_slider(0)
+        self.falling.set_time(0.0)
         if self.events:
             self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")
 
@@ -400,6 +500,7 @@ class MelodyPlaybackPanel(QWidget):
 
         self.progress_label.setText(f"{target_s:.1f}s / {self.total_duration:.1f}s")
         self._sync_slider(int(target_s * 1000))
+        self.falling.set_time(target_s)
 
     def _tick(self) -> None:
         elapsed = self.elapsed()
@@ -411,6 +512,7 @@ class MelodyPlaybackPanel(QWidget):
             )
         if not self._slider_down:
             self._sync_slider(int(max(elapsed, 0.0) * 1000))
+        self.falling.set_time(elapsed)
 
         while (
             self._next_event_idx < len(self.events)

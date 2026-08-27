@@ -82,6 +82,9 @@ class FullPianoWidget(QWidget):
     def __init__(self, feedback: KeyFeedback):
         super().__init__()
         self.keys_by_note: dict[int, PianoKey] = {}
+        # note -> (x, width) of the *visible top* of the key, so the falling-
+        # notes strip above can drop each block onto the exact key it plays.
+        self.note_rects: dict[int, tuple[int, int]] = {}
 
         white_positions = []  # (note, x)
         black_positions = []  # (note, x)
@@ -94,6 +97,11 @@ class FullPianoWidget(QWidget):
                 white_index += 1
 
         self.setFixedSize(white_index * self.WHITE_W, self.WHITE_H)
+
+        for note, x in white_positions:
+            self.note_rects[note] = (x, self.WHITE_W)
+        for note, x in black_positions:
+            self.note_rects[note] = (x, self.BLACK_W)
 
         # White keys first, then black keys on top - Qt stacks later-created
         # siblings above earlier ones (same reasoning as PianoWidget).
@@ -109,6 +117,75 @@ class FullPianoWidget(QWidget):
             key.move(x, 0)
             key.raise_()
             self.keys_by_note[note] = key
+
+
+class FallingNotesWidget(QWidget):
+    """Synthesia-style "piano roll": each note is a coloured block that falls
+    down a dark lane and lands on its key at the exact moment the note sounds.
+
+    Time flows bottom-up: the strike line (y = height) is *now*, and the top of
+    the widget is WINDOW_S seconds into the future. A note at song-time ``t``
+    with duration ``d`` occupies the vertical band between ``t`` (its bottom,
+    when the key is struck) and ``t + d`` (its top, when it's released). The
+    same per-note x/width as the keyboard below keeps every block lined up with
+    the key it plays. Right-hand notes are warm coral, left-hand notes amber,
+    so the two hands read apart at a glance."""
+
+    # How many seconds of upcoming music are visible from strike line to top.
+    WINDOW_S = 3.0
+
+    BG = QColor(38, 38, 40)
+    GRID = QColor(58, 58, 62)
+    RIGHT_HAND = QColor(240, 130, 110)
+    LEFT_HAND = QColor(245, 175, 95)
+    NOTE_BORDER = QColor(20, 20, 20)
+
+    def __init__(self, note_rects: dict[int, tuple[int, int]], width: int):
+        super().__init__()
+        self.note_rects = note_rects
+        self.setFixedSize(width, 340)
+        self.events: list[PlaybackEvent] = []
+        self._time = 0.0
+
+    def set_events(self, events: list["PlaybackEvent"]) -> None:
+        self.events = events
+        self.update()
+
+    def set_time(self, elapsed: float) -> None:
+        self._time = elapsed
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        h = self.height()
+        w = self.width()
+
+        painter.fillRect(self.rect(), self.BG)
+
+        # Vertical guide lines at each octave boundary (every C), like the
+        # reference view - a light rhythmic grid without drawing all 88 keys.
+        painter.setPen(QPen(self.GRID))
+        for note, (x, _width) in self.note_rects.items():
+            if note % 12 == 0:  # C
+                painter.drawLine(x, 0, x, h)
+
+        px_per_s = h / self.WINDOW_S
+        painter.setPen(QPen(self.NOTE_BORDER, 1))
+        for ev in self.events:
+            start = ev.time - self._time  # seconds until this note is struck
+            end = start + max(ev.duration, 0.05)
+            if end < 0 or start > self.WINDOW_S:
+                continue  # already passed, or still too far in the future
+            rect = self.note_rects.get(ev.note)
+            if rect is None:
+                continue
+            x, width = rect
+            y_bottom = h - start * px_per_s
+            y_top = h - end * px_per_s
+            hand = self.LEFT_HAND if (ev.finger or "").startswith("L") else self.RIGHT_HAND
+            painter.setBrush(hand)
+            painter.drawRoundedRect(x + 1, int(y_top), max(width - 2, 2), int(y_bottom - y_top), 3, 3)
 
 
 class FingerDot(QWidget):
@@ -238,6 +315,9 @@ class PlaybackWindow(QMainWindow):
         # 88-key layout doesn't depend on any profile, so it's built once.
         feedback = KeyFeedback(NoteLEDMapper(None, {}), self.audio_player)
         self.piano = FullPianoWidget(feedback)
+        # Falling-notes strip, exactly as wide as the keyboard and lined up on
+        # the same per-note x positions, so blocks drop straight onto their key.
+        self.falling = FallingNotesWidget(self.piano.note_rects, self.piano.width())
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -246,7 +326,10 @@ class PlaybackWindow(QMainWindow):
         layout.addLayout(audio_row)
         layout.addLayout(transport_row)
         layout.addWidget(self.hands)
-        layout.addWidget(self.piano)
+        # Equal-width and centred, so the strip's grid stays aligned with the
+        # keys directly beneath it.
+        layout.addWidget(self.falling, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.piano, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.setCentralWidget(central)
 
         self.events: list[PlaybackEvent] = []
@@ -313,6 +396,8 @@ class PlaybackWindow(QMainWindow):
         self.seek_slider.setRange(0, int(self.total_duration * 1000))
         self.seek_slider.setEnabled(bool(self.events))
         self._sync_slider(0)
+        self.falling.set_events(self.events)
+        self.falling.set_time(0.0)
 
     # ------------------------------------------------------------------
     # Transport
@@ -357,6 +442,7 @@ class PlaybackWindow(QMainWindow):
         self.hands.clear_all()
         self._active_events = []
         self._sync_slider(0)
+        self.falling.set_time(0.0)
         if self.events:
             self.progress_label.setText(f"0.0s / {self.total_duration:.1f}s")
 
@@ -415,6 +501,7 @@ class PlaybackWindow(QMainWindow):
 
         self.progress_label.setText(f"{target_s:.1f}s / {self.total_duration:.1f}s")
         self._sync_slider(int(target_s * 1000))
+        self.falling.set_time(target_s)
 
     def _tick(self) -> None:
         elapsed = self._elapsed()
@@ -424,6 +511,7 @@ class PlaybackWindow(QMainWindow):
             self.progress_label.setText(f"{elapsed:.1f}s / {self.total_duration:.1f}s")
         if not self._slider_down:
             self._sync_slider(int(max(elapsed, 0.0) * 1000))
+        self.falling.set_time(elapsed)
 
         while self._next_event_idx < len(self.events) and self.events[self._next_event_idx].time <= elapsed:
             ev = self.events[self._next_event_idx]
