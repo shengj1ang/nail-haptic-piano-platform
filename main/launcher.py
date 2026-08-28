@@ -252,9 +252,10 @@ class ActionEntry:
 # ActionEntry carries its own tooltip and SECTIONS builds the entry at import.
 DEMO_TOOLTIP = (
     "Opens a chooser for showing the platform off in screenshots: the Visual "
-    "Cue screen (with a finger you pick already lit), and the Teacher and "
-    "Student tele-training windows shown OFFLINE - no relay, no login, no "
-    "peer - with their camera and MIDI still working locally.\n\n"
+    "Cue screen (with a finger you pick already lit), the keyboard backlight "
+    "with one LED held steadily on, and the Teacher and Student tele-training "
+    "windows shown OFFLINE - no relay, no login, no peer - with their camera "
+    "and MIDI still working locally.\n\n"
     "The chosen windows all stay open together, unlike the one-at-a-time "
     "tools, and close with the launcher."
 )

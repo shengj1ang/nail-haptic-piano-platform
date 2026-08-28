@@ -172,6 +172,11 @@ class PianoKey(QWidget):
         # Stays lit after a click while LatchMode is enabled, until clicked
         # again or the latch is turned off.
         self.latched = False
+        # Held on continuously by the "backlight always on" control - lit with
+        # no click at all until it is turned off. Independent of the click,
+        # latch and MIDI states, so it never fights them: the key's LED is on
+        # if ANY of the four want it on.
+        self.always_on = False
         self.setFixedSize(BLACK_W if is_black else WHITE_W, BLACK_H if is_black else WHITE_H)
 
     def _current_color(self):
@@ -179,8 +184,8 @@ class PianoKey(QWidget):
         if self.midi_active:
             return MIDI_PRESSED
         # A latched key is a mouse-driven state, so it wears the same blue as
-        # a held click.
-        if self.mouse_pressed or self.latched:
+        # a held click; an always-on key is lit the same way.
+        if self.mouse_pressed or self.latched or self.always_on:
             return MOUSE_PRESSED
         return idle
 
@@ -209,7 +214,7 @@ class PianoKey(QWidget):
             if self.latched:
                 if not self.feedback.on(self.note):
                     print(f"note {self.note} has no LED mapping")
-            elif not self.midi_active:
+            elif not self.midi_active and not self.always_on:
                 self.feedback.off(self.note)
             return
         self.mouse_pressed = True
@@ -226,7 +231,7 @@ class PianoKey(QWidget):
             return
         self.mouse_pressed = False
         self.update()
-        if not self.midi_active:
+        if not self.midi_active and not self.always_on:
             self.feedback.off(self.note)
 
     def clear_latch(self):
@@ -237,7 +242,22 @@ class PianoKey(QWidget):
             return
         self.latched = False
         self.update()
-        if not self.midi_active:
+        if not self.midi_active and not self.always_on:
+            self.feedback.off(self.note)
+
+    def set_always_on(self, on: bool):
+        """Light this key's LED continuously (or stop), no click needed - drives
+        the 'backlight always on' control. Independent of the click/latch/MIDI
+        states: turning it off only clears the LED if none of those are still
+        holding the key lit."""
+        if self.note is None or on == self.always_on:
+            return
+        self.always_on = on
+        self.update()
+        if on:
+            if not self.feedback.on(self.note):
+                print(f"note {self.note} has no LED mapping")
+        elif not self.mouse_pressed and not self.latched and not self.midi_active:
             self.feedback.off(self.note)
 
     def set_midi_active(self, active: bool):
@@ -249,8 +269,8 @@ class PianoKey(QWidget):
         if active:
             if not self.feedback.on(self.note):
                 print(f"note {self.note} has no LED mapping")
-        elif not self.mouse_pressed and not self.latched:
-            # A latched key stays lit after the real key is released.
+        elif not self.mouse_pressed and not self.latched and not self.always_on:
+            # A latched / always-on key stays lit after the real key released.
             self.feedback.off(self.note)
 
 
@@ -314,11 +334,20 @@ class MidiBridge(QObject):
 
 
 class PianoWindow(QMainWindow):
-    def __init__(self, cfg: Config | None = None):
+    def __init__(self, cfg: Config | None = None, *, demo_always_on: bool = False):
         super().__init__()
         self.setWindowTitle("Virtual Piano -> LED (manual test)")
 
         self.cfg = cfg if cfg is not None else Config.load()
+
+        # Demo Mode opens this window to photograph one backlight LED lit
+        # steadily: with this set, the first profile load ticks "backlight
+        # always on" and pre-selects a key so a light shows with no interaction.
+        self._demo_always_on = demo_always_on
+        self._demo_default_applied = False
+        # MIDI note currently held on by the "backlight always on" control, or
+        # None. Kept so a profile change / LED (re)connect can re-light it.
+        self._always_on_note: int | None = None
 
         # Both the LED controller and the MIDI port are optional, manually
         # (button-)triggered connections - never opened automatically on
@@ -369,6 +398,7 @@ class PianoWindow(QMainWindow):
             "Click and hold a key to light its LED and play its tone (label = MIDI note); release to "
             "turn both off. Blue = clicked here, orange = pressed on the real keyboard.\n"
             "Tick \"Latch keys lit\" to make a click keep a key lit until you click it again.\n"
+            "Tick \"Backlight always on\" and pick a key to light one LED steadily with no click at all.\n"
             "LED and MIDI are both optional - connect them with the buttons below; the on-screen "
             "piano and audio work fine with neither connected."
         )
@@ -379,6 +409,18 @@ class PianoWindow(QMainWindow):
             "Off: a key lights only while you press and hold it (the default)."
         )
         self.latch_check.toggled.connect(self._on_latch_toggled)
+
+        # "Backlight always on": light one chosen key's LED steadily with no
+        # click at all - for photographing / inspecting a single backlight. The
+        # key combo is filled per profile (physical left-to-right) in _load_profile.
+        self.always_on_check = QCheckBox("Backlight always on (light a key with no click)")
+        self.always_on_check.setToolTip(
+            "On: the key picked on the right is lit continuously, no click needed.\n"
+            "Connect the LED to light the real keyboard; the on-screen key lights either way."
+        )
+        self.always_on_check.toggled.connect(self._apply_always_on)
+        self.always_on_combo = QComboBox()
+        self.always_on_combo.currentIndexChanged.connect(self._apply_always_on)
 
         self.midi_bridge = MidiBridge()
         self.midi_bridge.note_event.connect(self._on_midi_note)
@@ -402,6 +444,11 @@ class PianoWindow(QMainWindow):
         audio_row.addWidget(QLabel("Timbre:"))
         audio_row.addWidget(self.timbre_combo)
 
+        backlight_row = QHBoxLayout()
+        backlight_row.addWidget(self.always_on_check)
+        backlight_row.addWidget(QLabel("Key:"))
+        backlight_row.addWidget(self.always_on_combo, 1)
+
         self.piano_slot = QVBoxLayout()
 
         central = QWidget()
@@ -413,6 +460,7 @@ class PianoWindow(QMainWindow):
         layout.addWidget(self.midi_status)
         layout.addWidget(self.instructions)
         layout.addWidget(self.latch_check)
+        layout.addLayout(backlight_row)
         layout.addLayout(self.piano_slot)
         self.setCentralWidget(central)
 
@@ -432,6 +480,67 @@ class PianoWindow(QMainWindow):
             self.piano.clear_latched()
 
     # ------------------------------------------------------------------
+    # Backlight always on (light one key steadily, no click)
+    # ------------------------------------------------------------------
+
+    def _populate_backlight_keys(self, visual_sequence) -> None:
+        """Refill the key picker for the loaded profile: one entry per playable
+        key, labelled by physical left-to-right position, keeping the previous
+        pick if that key still exists. Then (re-)apply the always-on light."""
+        prev_note = self.always_on_combo.currentData()
+
+        self.always_on_combo.blockSignals(True)
+        self.always_on_combo.clear()
+        self.always_on_combo.addItem("None", None)
+        white_i = black_i = 0
+        for is_black, note in visual_sequence:
+            if is_black:
+                black_i += 1
+                label = f"Black {black_i}"
+            else:
+                white_i += 1
+                label = f"White {white_i}"
+            if note is not None:
+                self.always_on_combo.addItem(f"{label}  (note {note})", note)
+
+        # Restore the previous key if it survived the profile change; otherwise,
+        # the first time a Demo Mode window loads, pick a middle key so a light
+        # shows with no interaction.
+        target_idx = self.always_on_combo.findData(prev_note) if prev_note is not None else -1
+        if target_idx < 0 and self._demo_always_on and not self._demo_default_applied:
+            self._demo_default_applied = True
+            self.always_on_check.setChecked(True)
+            target_idx = self.always_on_combo.findText("White 8", Qt.MatchStartsWith)
+            if target_idx < 0:
+                target_idx = 1 if self.always_on_combo.count() > 1 else 0
+        self.always_on_combo.setCurrentIndex(max(target_idx, 0))
+        self.always_on_combo.blockSignals(False)
+
+        self._apply_always_on()
+
+    def _apply_always_on(self) -> None:
+        """Make exactly the picked key (or none) held on by the always-on
+        control - moving the steady light off any previous key first."""
+        self.always_on_combo.setEnabled(self.always_on_check.isChecked())
+        if self.piano is None:
+            return
+
+        note = self.always_on_combo.currentData() if self.always_on_check.isChecked() else None
+        if note == self._always_on_note:
+            return
+
+        if self._always_on_note is not None:
+            prev_key = self.piano.keys_by_note.get(self._always_on_note)
+            if prev_key is not None:
+                prev_key.set_always_on(False)
+
+        self._always_on_note = note
+        if note is not None:
+            key = self.piano.keys_by_note.get(note)
+            if key is not None:
+                key.set_always_on(True)
+
+    # ------------------------------------------------------------------
     # LED connection (manual)
     # ------------------------------------------------------------------
 
@@ -448,17 +557,41 @@ class PianoWindow(QMainWindow):
             self.led_connect_btn.setText("Connect LED")
             return
 
+        error = self._open_led_connection()
+        if error is not None:
+            QMessageBox.warning(self, "LED connection failed", error)
+
+    def _open_led_connection(self) -> str | None:
+        """Open the LED strip. Returns None on success, or an error string (no
+        pop-up - the caller decides how to report it). On success it re-lights a
+        key already held by "backlight always on", whose light_key was a no-op
+        while the strip was disconnected."""
         try:
             self.led.connect()
             self.led.off()
         except Exception as exc:
-            QMessageBox.warning(self, "LED connection failed", str(exc))
             self.led_status.setText(f"LED: not connected ({exc})")
-            return
+            return str(exc)
 
         self.led_connected = True
         self.led_status.setText(f"LED: connected on {self.led.port}")
         self.led_connect_btn.setText("Disconnect LED")
+        if self.mapper is not None and self._always_on_note is not None:
+            try:
+                self.mapper.light_key(self._always_on_note)
+            except RuntimeError:
+                pass
+        return None
+
+    def connect_led_for_demo(self) -> None:
+        """Demo Mode autostart hook: connect the strip so an always-on backlight
+        lights the real keyboard for a photo. Never raises and never pops a
+        dialog - if no strip is wired up, the on-screen key still shows lit."""
+        if self.led_connected:
+            return
+        error = self._open_led_connection()
+        if error is not None:
+            print(f"Demo backlight: LED not connected ({error})")
 
     # ------------------------------------------------------------------
     # MIDI connection (manual)
@@ -546,6 +679,11 @@ class PianoWindow(QMainWindow):
         feedback = KeyFeedback(self.mapper, self.audio_player)
         self.piano = PianoWidget(feedback, visual_sequence, self.latch)
         self.piano_slot.addWidget(self.piano)
+
+        # The old keys (and their always-on state) were just destroyed; refill
+        # the backlight picker for this profile and re-light on the new keys.
+        self._always_on_note = None
+        self._populate_backlight_keys(visual_sequence)
 
         # Just preselect this profile's usual MIDI port in the combo, if it's
         # currently available - connecting is still a manual step (see

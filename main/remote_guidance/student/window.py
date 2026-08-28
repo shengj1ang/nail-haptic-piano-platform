@@ -569,7 +569,7 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self.room = room
         self.room_label.setText(room_summary(room))
         if self.demo:
-            self.link_label.setText("Demo mode — offline, no relay")
+            self.link_label.setText(" ")
             self.start_btn.setEnabled(True)
             self.stop_btn.setEnabled(False)
             self._set_status(

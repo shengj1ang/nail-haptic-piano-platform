@@ -575,7 +575,7 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self.room = room
         self.room_label.setText(room_summary(room))
         if self.demo:
-            self.link_label.setText("Demo mode — offline, no relay")
+            self.link_label.setText(" ")
             self._set_status(
                 "Demo mode — offline. No relay and no student; Get ready still "
                 "opens the local camera and MIDI.",

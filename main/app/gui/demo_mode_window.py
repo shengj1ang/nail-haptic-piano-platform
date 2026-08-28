@@ -16,6 +16,11 @@ This dialog is only the chooser. It lets you pick any combination of:
     their session page with no server, no login and no peer (see the
     windows' `demo` flag), and their camera / MIDI / LED still open locally
     from the normal in-window buttons, so a photo shows the live view.
+  - Keyboard backlight (LED) - the real Virtual Piano -> LED window
+    (test_virtual_piano_led.PianoWindow), opened with "backlight always on"
+    enabled so one chosen key's backlight LED lights steadily for a photo
+    (no click needed) and, unlike that tool's normal launch, the LED strip
+    is connected on show so the real keyboard lights up too.
 
 The launcher (launcher.py) opens the windows this panel hands it and keeps
 them: they are ordinary top-level windows, so unlike the one-at-a-time tools
@@ -55,6 +60,7 @@ from app.gui.cue_window import CUE_STYLES, DEFAULT_CUE_STYLE, FINGER_ORDER, CueW
 from remote_guidance.config import RemoteGuidanceConfig
 from remote_guidance.student.window import StudentRemoteWindow
 from remote_guidance.teacher.window import TeacherRemoteWindow
+from test_virtual_piano_led import PianoWindow
 
 # Camera indices offered per client. Not probed (probing opens and releases
 # each device and takes a noticeable moment) - the operator knows which
@@ -141,6 +147,7 @@ class DemoModeDialog(QDialog):
         root.addWidget(intro)
 
         root.addWidget(self._build_cue_group())
+        root.addWidget(self._build_backlight_group())
         root.addWidget(self._build_teacher_group())
         root.addWidget(self._build_student_group())
 
@@ -205,6 +212,32 @@ class DemoModeDialog(QDialog):
         self.cue_group = box
         return box
 
+    def _build_backlight_group(self) -> QGroupBox:
+        box = QGroupBox("Keyboard backlight (LED)")
+        box.setCheckable(True)
+        box.setChecked(self._checked_default("backlight"))
+        lay = QVBoxLayout(box)
+
+        note = QLabel(
+            "Opens the Virtual Piano → LED window. With “backlight always on” "
+            "ticked, pick a key there to light one backlight LED steadily for a "
+            "photo — no clicking."
+        )
+        note.setObjectName("hint")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        self.backlight_always_on = QCheckBox("Start with “backlight always on” enabled")
+        self.backlight_always_on.setChecked(True)
+        lay.addWidget(self.backlight_always_on)
+
+        self.backlight_connect = QCheckBox("Connect the LED strip on launch (light the real keyboard)")
+        self.backlight_connect.setChecked(True)
+        lay.addWidget(self.backlight_connect)
+
+        self.backlight_group = box
+        return box
+
     def _client_group(self, kind: str, title: str, configured_index) -> tuple[QGroupBox, QComboBox, QCheckBox]:
         box = QGroupBox(title)
         box.setCheckable(True)
@@ -261,6 +294,9 @@ class DemoModeDialog(QDialog):
         if self.cue_group.isChecked() and "cue" not in already_open:
             windows.append(self._make_cue_window())
 
+        if self.backlight_group.isChecked() and "backlight" not in already_open:
+            windows.append(self._make_backlight_window())
+
         if self.teacher_group.isChecked() and "teacher" not in already_open:
             windows.append(self._make_client_window(
                 "teacher",
@@ -292,6 +328,16 @@ class DemoModeDialog(QDialog):
             window.set_target(None, "Visual guidance cue")
         window.demo_kind = "cue"
         window.demo_autostart = None
+        return window
+
+    def _make_backlight_window(self) -> PianoWindow:
+        window = PianoWindow(self.cfg, demo_always_on=self.backlight_always_on.isChecked())
+        window.setWindowTitle("Demo — Keyboard backlight (LED)")
+        window.demo_kind = "backlight"
+        # The strip is connected once the window is on screen (like the cameras
+        # for the client windows). connect_led_for_demo swallows its own errors
+        # and never pops a dialog, so a rig with no strip wired up is fine.
+        window.demo_autostart = window.connect_led_for_demo if self.backlight_connect.isChecked() else None
         return window
 
     def _make_client_window(self, kind: str, window_cls, camera_index,
