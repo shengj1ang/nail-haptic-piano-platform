@@ -169,11 +169,18 @@ code list is in the generator README). The structure group is what rejects a
 sequence that is technically legal but reads as random digits
 (`no_phrase_structure`, `pitch_entropy_high`, `weak_cadence`). The generator
 then builds up to `candidate_attempts = 400` candidates, keeps a pool of
-`candidate_pool = 40`, and selects the best on
+`candidate_pool = 40`, ranks them on
 
 ```
 musicality - 0.3 x difficulty
 ```
+
+and lets the seed choose between the best five. Choosing between them rather
+than always taking the single highest is what keeps two seeds from returning
+the same tune — an argmax discarded the ~39 distinct melodies each pool holds,
+and one of them then came up in 9.3% of runs. See
+[`melody_generator/README.md`](melody_generator/README.md) for the
+measurements. Which candidate was taken is recorded in the melody's JSON.
 
 Both scores are plain weighted means of features in `[0, 1]`, and every feature
 is written into the melody's JSON so a selection can be audited rather than

@@ -34,6 +34,23 @@ from rhythm_study import schedule as rs  # noqa: E402
 FINGERS = ("L1", "L2", "L3", "L4", "L5", "R1", "R2", "R3", "R4", "R5")
 
 
+def first_melody():
+    """The melody these tests build synthetic sessions on.
+
+    data/rhythm_experiment/ is a working folder - melodies get generated
+    and deleted there - so an empty one is an ordinary state, not a
+    failure. Every entry point goes through here so that state always
+    skips rather than raising IndexError in some tests and skipping in
+    others.
+    """
+    names = rs.discover_melodies()
+    if not names:
+        raise unittest.SkipTest(
+            "no melodies under data/rhythm_experiment/ - generate one to run these"
+        )
+    return names[0]
+
+
 class SyntheticStudy:
     """A temp tree holding whole rhythm sessions, wired up so the analysis
     reads it instead of the real data folders."""
@@ -208,10 +225,7 @@ class SyntheticStudy:
 
 
 def make_study(test, participants=8, **kwargs):
-    names = rs.discover_melodies()
-    if not names:
-        raise unittest.SkipTest("no melodies under data/rhythm_experiment/")
-    study = SyntheticStudy(names[0])
+    study = SyntheticStudy(first_melody())
     study.install(test)
     rng = random.Random(11)
     people = [f"P{i:02d}" for i in range(1, participants + 1)]
@@ -283,7 +297,7 @@ class TestAccuracyDenominators(unittest.TestCase):
         # The tempting bug is to average over the notes that have a
         # verdict, which would score a participant who played 5 of 15
         # notes the same as one who played all 15 equally well.
-        study = SyntheticStudy(rs.discover_melodies()[0])
+        study = SyntheticStudy(first_melody())
         study.install(self)
         study.add_participant("P01", seed=1, played_notes=5)
         events = ra.collect_participant("P01")
@@ -298,7 +312,7 @@ class TestAccuracyDenominators(unittest.TestCase):
 
 class TestStrictFingerAnalysis(unittest.TestCase):
     def test_an_unanalysed_trial_stops_the_analysis_and_names_itself(self):
-        study = SyntheticStudy(rs.discover_melodies()[0])
+        study = SyntheticStudy(first_melody())
         study.install(self)
         study.add_participant("P01", seed=1, analysed=False)
         with self.assertRaises(ra.RhythmAnalysisError) as caught:
@@ -359,7 +373,7 @@ class TestProbeStatistics(unittest.TestCase):
                 self.assertLessEqual(pair["mean_difference"], high)
 
     def test_a_tiny_sample_is_described_but_not_tested(self):
-        study = SyntheticStudy(rs.discover_melodies()[0])
+        study = SyntheticStudy(first_melody())
         study.install(self)
         for index, person in enumerate(["P01", "P02"]):
             study.add_participant(person, seed=index)
@@ -422,7 +436,7 @@ class TestFinalTest(unittest.TestCase):
 
 class TestCombinedScore(unittest.TestCase):
     def test_the_onset_tolerance_is_configurable_and_actually_used(self):
-        study = SyntheticStudy(rs.discover_melodies()[0])
+        study = SyntheticStudy(first_melody())
         study.install(self)
         study.add_participant("P01", seed=3)
 

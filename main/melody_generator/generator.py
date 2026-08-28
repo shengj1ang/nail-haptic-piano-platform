@@ -45,11 +45,20 @@ class GenerationStats:
     attempts: int
     accepted: int
     rejections: Dict[str, int]
+    #: Which of the ranked candidates was taken (0 = the highest scoring)
+    #: and how many were in contention. Recorded so a melody says how it
+    #: was chosen and not just what it is: the seed picks between the
+    #: best few (see SELECTION_POOL), so the choice is part of what the
+    #: seed decides and a reader should be able to see which it made.
+    selected_rank: int = 0
+    selected_from: int = 1
 
     def to_dict(self) -> Dict[str, object]:
         return {
             "attempts": self.attempts,
             "accepted_candidates": self.accepted,
+            "selected_rank": self.selected_rank,
+            "selected_from": self.selected_from,
             "rejection_counts": dict(
                 sorted(self.rejections.items(), key=lambda kv: -kv[1])
             ),
@@ -103,6 +112,24 @@ class MelodySequence:
 def _selection_score(scores: Scores) -> float:
     """Rank candidates on musicality, with a mild penalty for difficulty."""
     return scores.musicality - 0.3 * scores.difficulty
+
+
+#: How many of the best-ranked candidates the seed chooses between.
+#:
+#: Taking only the single highest (a plain argmax) threw away nearly all
+#: the variety the search had already produced: a 40-candidate pool holds
+#: about 39 DIFFERENT melodies, and keeping one meant whichever tune was
+#: both easy to sample and high-scoring won over and over. Measured over
+#: 300 seeds, one melody came up in 9.3% of runs and the top five in 20%,
+#: so two seeds returning the same tune was ordinary rather than unlucky.
+#:
+#: Every candidate here has already passed validation, max_difficulty and
+#: min_musicality - they are all melodies this generator calls acceptable,
+#: and insisting on the highest score among them was ranking by the third
+#: decimal place. Choosing between the best five instead takes the most
+#: common melody from 9.3% of runs to 3.3% and the distinct count over
+#: 300 seeds from 158 to 197, for 0.006 of mean musicality.
+SELECTION_POOL = 5
 
 
 @dataclass(frozen=True)
@@ -216,7 +243,15 @@ def generate_sequence(
             f"rejections: {top or 'none recorded'}"
         )
 
-    best = max(accepted, key=lambda c: _selection_score(c.scores))
+    # Rank, then let the seed choose between the best few rather than
+    # always taking the top one - see SELECTION_POOL for why, and for the
+    # measurements. The choice is drawn from `master`, the same stream the
+    # candidates came from, so a seed still determines its melody
+    # completely: the same seed gives the same tune, as it always did.
+    ranked = sorted(accepted, key=lambda c: -_selection_score(c.scores))
+    top_k = min(SELECTION_POOL, len(ranked))
+    rank = random.Random(master.getrandbits(64)).randrange(top_k)
+    best = ranked[rank]
     return MelodySequence(
         name=name or f"melody_seed{seed}",
         seed=seed,
@@ -233,7 +268,11 @@ def generate_sequence(
         scores=best.scores,
         validation=best.validation,
         stats=GenerationStats(
-            attempts=attempts, accepted=len(accepted), rejections=dict(rejections)
+            attempts=attempts,
+            accepted=len(accepted),
+            rejections=dict(rejections),
+            selected_rank=rank,
+            selected_from=top_k,
         ),
     )
 

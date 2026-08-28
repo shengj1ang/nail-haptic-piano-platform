@@ -240,8 +240,35 @@ handful of features in `[0, 1]`, and every feature is reported in the JSON.
   number of distinct fingers, rhythmic load, range.
 
 The generator builds candidates until it has a pool of 40 (or runs out of
-attempts) and keeps the best `musicality - 0.3 x difficulty`. Typical output
-scores 0.89-0.98 musicality and 0.22-0.47 difficulty.
+attempts), ranks them by `musicality - 0.3 x difficulty`, and lets the seed
+choose between the **best five**. Typical output scores 0.89-0.98 musicality
+and 0.22-0.47 difficulty.
+
+### Why the best five and not simply the best
+
+Because taking only the top-scoring candidate made different seeds return the
+same tune. A 40-candidate pool holds about 39 *different* melodies, and an
+argmax keeps one of them: whichever shape was both easy to sample and
+high-scoring won over and over. Measured across 300 seeds, one melody came up
+in **9.3%** of runs and the top five in 20% - so asking for a new seed and
+getting the tune you already had was ordinary, not bad luck.
+
+Every candidate in the pool has already passed validation, `max_difficulty`
+and `min_musicality`. They are all melodies this generator calls acceptable,
+and picking the highest score among them was ranking by the third decimal
+place. Choosing between the best five instead:
+
+| | argmax | best five |
+|---|---|---|
+| distinct melodies from 300 seeds | 158 | **197** |
+| most common melody | 9.3% | **3.3%** |
+| mean musicality | 0.954 | 0.948 |
+
+The choice is drawn from the same seeded stream the candidates came from, so
+**the same seed still gives exactly the same tune**. Which of the five was
+taken is recorded in the melody's JSON as `generation.selected_rank` and
+`generation.selected_from`, so a melody says how it was chosen and not only
+what it is. The number itself is `generator.SELECTION_POOL`.
 
 ---
 

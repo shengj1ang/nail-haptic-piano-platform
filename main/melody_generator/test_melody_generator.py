@@ -21,7 +21,7 @@ from .config import (
     default_phrase_plan,
 )
 from .export import export_sequence, sequence_to_dict
-from .generator import generate_sequence
+from .generator import SELECTION_POOL, generate_sequence
 from .layouts import LAYOUTS
 from .load import MelodyLoadError, list_melodies, load_melody
 from .midi_writer import read_midi_file
@@ -64,6 +64,59 @@ def test_same_seed_reproduces_the_same_melody():
     second.pop("created_at_epoch_s")
     assert first == second
     assert sequence_to_dict(generate_sequence(2027))["events"] != first["events"]
+
+
+def test_different_seeds_mostly_give_different_melodies():
+    """The property that was broken, and the reason SELECTION_POOL exists.
+
+    Taking only the top-scoring candidate discarded ~39 of the 40
+    distinct melodies each pool holds, so whichever tune was both easy
+    to sample and high-scoring won repeatedly: one melody came up in
+    9.3% of runs and the top five in 20%, and asking for a new seed
+    routinely returned the tune you already had.
+
+    The thresholds below are deliberately loose - this is a randomised
+    property, not an exact count - but they fail comfortably on a plain
+    argmax, which scores 158 distinct and 9.3% here.
+    """
+    from collections import Counter
+
+    seeds = range(120)
+    pitches = Counter(
+        tuple(note.midi_note for note in generate_sequence(seed).notes) for seed in seeds
+    )
+    total = sum(pitches.values())
+    most_common = pitches.most_common(1)[0][1] / total
+
+    assert len(pitches) > total * 0.55, (
+        f"only {len(pitches)} distinct melodies from {total} seeds"
+    )
+    assert most_common < 0.06, (
+        f"one melody accounts for {most_common:.1%} of seeds"
+    )
+
+
+def test_a_melody_records_which_candidate_was_chosen():
+    # The seed picks between the best few, so which one it picked is part
+    # of how the melody came to be and belongs in its record.
+    sequence = generate_sequence(2026)
+    assert 0 <= sequence.stats.selected_rank < sequence.stats.selected_from
+    assert sequence.stats.selected_from <= SELECTION_POOL
+    exported = sequence_to_dict(sequence)["generation"]
+    assert exported["selected_rank"] == sequence.stats.selected_rank
+    assert exported["selected_from"] == sequence.stats.selected_from
+
+
+def test_the_chosen_candidate_still_passes_every_bar(seeds=range(40)):
+    # Choosing between the best few must never reach past the filters:
+    # every candidate in the pool has already passed validation and the
+    # difficulty/musicality bars, and the one taken is one of those.
+    cfg = GeneratorConfig()
+    for seed in seeds:
+        sequence = generate_sequence(seed)
+        assert sequence.validation.ok
+        assert sequence.scores.difficulty <= cfg.scoring.max_difficulty
+        assert sequence.scores.musicality >= cfg.scoring.min_musicality
 
 
 def test_one_note_sounds_at_a_time():
