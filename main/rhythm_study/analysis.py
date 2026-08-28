@@ -181,13 +181,43 @@ def _event_rows(
     presses instead would silently rescale every accuracy.
     """
     offs = _pair_note_offs(raw_events)
-    is_performance = trial["phase"] != PHASE_TRAINING
+    # Only the final test is played straight through. A probe is
+    # note-by-note: the backlight names the key and waits, so the
+    # participant sets every onset and every release themselves.
+    is_performance = trial["phase"] == PHASE_FINAL
+    is_training = trial["phase"] == PHASE_TRAINING
     notes = melody.notes
+
+    # Inter-onset intervals: the gap from the previous note to this one.
+    # This is the timing measure that survives everywhere, and the only
+    # one a probe has. A probe cues the key and waits, so the participant
+    # has no absolute clock to be early or late against - but the SHAPE
+    # of what they play is theirs, and that is what a remembered rhythm
+    # is. Comparing intervals also forgives a performance that is simply
+    # slower or faster overall, which is a tempo choice rather than a
+    # failure to recall the rhythm.
+    played_onsets = [r.keypress_time for r in results]
 
     rows: List[dict] = []
     for i, result in enumerate(results):
         target = notes[i] if i < len(notes) else None
         side = sidecar.get(result.index, {})
+
+        target_ioi = (
+            notes[i].note_on_time_sec - notes[i - 1].note_on_time_sec
+            if (i > 0 and i < len(notes))
+            else None
+        )
+        played_ioi = (
+            played_onsets[i] - played_onsets[i - 1]
+            if (i > 0 and played_onsets[i] is not None and played_onsets[i - 1] is not None)
+            else None
+        )
+        ioi_error_ms = (
+            (played_ioi - target_ioi) * 1000.0
+            if (played_ioi is not None and target_ioi is not None)
+            else None
+        )
 
         # --- timing -----------------------------------------------------
         # cue_onset_time carries different things in the two trial types
@@ -231,6 +261,7 @@ def _event_rows(
                 "phase": trial["phase"],
                 "phase_number": trial["phase_number"],
                 "is_performance": is_performance,
+                "is_training": is_training,
                 "quiz_name": quiz_name,
                 "event_index": result.index,
                 "melody": trial["melody"],
@@ -258,6 +289,10 @@ def _event_rows(
                 "played": result.keypress_time is not None,
                 "signed_onset_error_ms": signed_onset_ms,
                 "absolute_onset_error_ms": abs(signed_onset_ms) if signed_onset_ms is not None else None,
+                "target_ioi_s": target_ioi,
+                "played_ioi_s": played_ioi,
+                "ioi_error_ms": ioi_error_ms,
+                "absolute_ioi_error_ms": abs(ioi_error_ms) if ioi_error_ms is not None else None,
                 "rt_ms": rt_ms,
                 "duration_error_ms": duration_error_ms,
                 "absolute_duration_error_ms": abs(duration_error_ms) if duration_error_ms is not None else None,
@@ -377,6 +412,9 @@ def trial_summary(rows: Sequence[dict]) -> dict:
         "mean_absolute_onset_error_ms": _mean([r["absolute_onset_error_ms"] for r in rows]),
         "median_absolute_onset_error_ms": _median([r["absolute_onset_error_ms"] for r in rows]),
         "mean_signed_onset_error_ms": _mean([r["signed_onset_error_ms"] for r in rows]),
+        "mean_absolute_ioi_error_ms": _mean([r["absolute_ioi_error_ms"] for r in rows]),
+        "median_absolute_ioi_error_ms": _median([r["absolute_ioi_error_ms"] for r in rows]),
+        "mean_ioi_error_ms": _mean([r["ioi_error_ms"] for r in rows]),
         # secondary
         "key_accuracy": _proportion([r["key_correct"] for r in rows]),
         "finger_accuracy_given_key": _proportion(
@@ -402,6 +440,9 @@ def trial_summaries(rows: Sequence[dict]) -> List[dict]:
 METRICS = {
     "finger_accuracy": ("Finger accuracy", False),
     "key_accuracy": ("Key accuracy", False),
+    "mean_absolute_ioi_error_ms": ("Absolute inter-onset-interval error (ms)", True),
+    "median_absolute_ioi_error_ms": ("Median absolute IOI error (ms)", True),
+    "mean_ioi_error_ms": ("Signed IOI error (ms)", True),
     "mean_absolute_onset_error_ms": ("Absolute onset error (ms)", True),
     "median_absolute_onset_error_ms": ("Median absolute onset error (ms)", True),
     "mean_signed_onset_error_ms": ("Signed onset error (ms)", True),
@@ -411,8 +452,10 @@ METRICS = {
     "mean_rt_ms": ("Response time (ms)", True),
 }
 
-#: Metrics that only exist for a performance (probe / final). Training
-#: has no grid, so asking for its onset error is a category error.
+#: Metrics that only exist for the final test, the one whole
+#: performance. A probe cues each note and waits, so it has no absolute
+#: clock to be early or late against - its rhythm lives in the intervals
+#: (mean_absolute_ioi_error_ms), which every phase has.
 PERFORMANCE_ONLY_METRICS = (
     "mean_absolute_onset_error_ms",
     "median_absolute_onset_error_ms",
@@ -771,12 +814,12 @@ class AnalysisResult:
 
 
 #: The two headline measures, in the order the report leads with them.
-PRIMARY_METRICS = ("finger_accuracy", "mean_absolute_onset_error_ms")
+PRIMARY_METRICS = ("finger_accuracy", "mean_absolute_ioi_error_ms")
 SECONDARY_METRICS = (
     "key_accuracy",
-    "mean_signed_onset_error_ms",
+    "mean_ioi_error_ms",
     "mean_absolute_duration_error_ms",
-    "complete_success_rate",
+    "mean_absolute_onset_error_ms",
 )
 
 

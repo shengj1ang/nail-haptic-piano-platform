@@ -1,0 +1,63 @@
+RHYTHM EXPERIMENT - ANALYSIS SUMMARY
+============================================================
+
+Participants: 1 (P01)
+Completed trials: 19  {'training': 15, 'probe': 3, 'final': 1}
+Onset tolerance for the combined score: +/-200 ms
+
+The question: does haptic-guided practice let participants keep the intended
+fingering and timing once the haptic cue is removed? The probes answer it;
+training is descriptive and the final test is a transfer condition.
+
+PRIMARY - PROBE 1 vs 2 vs 3
+------------------------------------------------------------
+Finger accuracy  (n=1)
+    Probe 1:  mean 0.200   median 0.200   sd 0.000
+    Probe 2:  mean 0.467   median 0.467   sd 0.000
+    Probe 3:  mean 0.267   median 0.267   sd 0.000
+    not tested: only 1 participant(s) have all three probes for this measure; no test run below n=5.
+
+Absolute onset error (ms)  (n=1)
+    Probe 1:  mean 1036.972   median 1036.972   sd 0.000
+    Probe 2:  mean 703.362   median 703.362   sd 0.000
+    Probe 3:  mean 1283.348   median 1283.348   sd 0.000
+    not tested: only 1 participant(s) have all three probes for this measure; no test run below n=5.
+
+SECONDARY - PROBE 1 vs 2 vs 3
+------------------------------------------------------------
+Key accuracy: Probe 1 0.600  Probe 2 0.600  Probe 3 0.333   only 1 participant(s) have all three probes for this measure; no test run below n=5.
+Signed onset error (ms): Probe 1 975.768  Probe 2 -293.615  Probe 3 -1145.538   only 1 participant(s) have all three probes for this measure; no test run below n=5.
+Absolute duration error (ms): Probe 1 681.363  Probe 2 588.337  Probe 3 622.436   only 1 participant(s) have all three probes for this measure; no test run below n=5.
+Complete-performance rate: Probe 1 0.000  Probe 2 0.000  Probe 3 0.067   only 1 participant(s) have all three probes for this measure; no test run below n=5.
+
+HAPTIC WITHDRAWAL COST (probe - preceding training)
+------------------------------------------------------------
+Finger accuracy  (n=1 with all three pairs)
+    Training 5 -> Probe 1:  mean -0.800   median -0.800
+    Training 10 -> Probe 2:  mean -0.467   median -0.467
+    Training 15 -> Probe 3:  mean -0.667   median -0.667
+
+Key accuracy  (n=1 with all three pairs)
+    Training 5 -> Probe 1:  mean -0.400   median -0.400
+    Training 10 -> Probe 2:  mean -0.400   median -0.400
+    Training 15 -> Probe 3:  mean -0.667   median -0.667
+
+    No timing withdrawal cost is reported. Training is a cue/response task and yields a reaction time; a probe is a performance against the melody's grid and yields an onset error. They measure different things, so their difference is not a cost.
+
+FINAL UNGUIDED TEST (transfer - haptic AND backlight removed)
+------------------------------------------------------------
+Finger accuracy: Probe 3 mean 0.267  ->  Final mean 0.533
+Absolute onset error (ms): Probe 3 mean 1283.348  ->  Final mean 1081.898
+Key accuracy: Probe 3 mean 0.333  ->  Final mean 0.533
+Signed onset error (ms): Probe 3 mean -1145.538  ->  Final mean -1076.780
+Absolute duration error (ms): Probe 3 mean 622.436  ->  Final mean 299.180
+Complete-performance rate: Probe 3 mean 0.067  ->  Final mean 0.267
+
+    This is a transfer comparison, not a fourth probe: the final test removes the
+    backlight as well as the haptic cue, so a drop here has two possible causes.
+
+READING NOTE
+------------------------------------------------------------
+    Improvement across training trials, on its own, is NOT evidence of retention:
+    the haptic cue is present throughout training. Retention is what the probes
+    and the withdrawal cost measure.

@@ -1,5 +1,12 @@
 # The Rhythm Experiment
 
+> **This is an exploratory pilot, and it is not part of the thesis.** No
+> result here is reported in `final_report_2026/`. It exists to find out
+> whether the cue-withdrawal question is worth asking properly and whether
+> the apparatus can ask it, so the protocol is expected to change between
+> testers and several things below record a change of mind rather than a
+> finding. Read it as a lab notebook for a design that is still moving.
+
 The most recent of this platform's studies, and the last to be built. Where
 the Main User Study asks which *cue modality* teaches a key-and-finger mapping
 best, this one asks what survives when a cue is **taken away**.
@@ -19,7 +26,9 @@ Launcher **section 11**. Code lives in two packages: `melody_generator/`
   - [Procedure](#procedure)
   - [Measures](#measures)
   - [Analysis plan](#analysis-plan)
+  - [Refreshing already-recorded data](#refreshing-already-recorded-data)
   - [Data, files and how to run it](#data-files-and-how-to-run-it)
+- [Testers](#testers)
 - [Results](#results)
 - [Discussion](#discussion)
 
@@ -275,26 +284,34 @@ arrives a fixed 0.4 s after the previous key press, so a participant *cannot*
 play ahead of the apparatus, and their note timing is its timing, not theirs.
 Training therefore yields a **reaction time** and no onset error at all.
 
-**Probes and the final test are performances.** The melody's own time grid
-runs, and the participant plays along with it, so every note has a moment it
-was **due** — which is what makes onset and duration error real measurements
-rather than reaction times. The two differ only in what the participant has to
-go on:
+**A probe gives the pitch and withholds the time.** It is note-by-note like
+training, and what separates it is what it does *not* supply. The backlight
+lights the target key and waits; it goes out when the key goes down. It never
+runs on a clock and it never shows how long a note lasts, so **when to press
+and when to release are entirely the participant's**. The haptic cue is off,
+and there is no held cue.
 
-- **Probe** — the backlight walks the grid: the lit key both names the note and
-  shows when it falls. The haptic cue is off. The trial ends itself when the
-  melody finishes.
-- **Final test** — nothing is shown. The grid still runs, invisibly, purely as
-  the reference the performance is scored against. The experimenter ends the
-  trial.
+The participant therefore has to remember the rhythm and the fingering, and is
+only spared having to remember which note comes next. Their timing is compared
+with the melody as **intervals** rather than against an absolute grid — see
+[Measures](#measures).
 
-**Anchoring differs between the two, deliberately.** A probe is scored against
-the grid's own zero: the backlight showed the participant when every note was
-due, so lagging the whole melody *is* a timing error. The final test is
-re-anchored on the participant's own first note: nothing told them when to
-start, so their overall start time is not a rhythm error and scoring it as one
-would penalise the final test for something it does not measure. Both
-anchorings are recoverable from the saved data.
+> **This replaced an earlier probe form, and the reason is worth recording.**
+> Probes were first run as performances with the backlight walking the
+> melody's grid, so that every note had a time it was *due* and onset error
+> was an absolute number. Tester 1's data showed what that actually measured:
+> their onset error in the first probe began 1.6 s behind the light and shrank
+> to a few hundred milliseconds by the end of the trial — the signature of
+> someone **tracking a light**, not of someone recalling a rhythm. The same
+> light had already told them which note came next, so the probe was left
+> measuring fingering alone. Giving the pitch and withholding the time is what
+> the design was trying to do all along.
+
+**The final test is the only whole performance**, and it is unguided: nothing
+is shown, and the melody's grid runs invisibly as the reference the
+performance is scored against. The experimenter ends the trial. It is
+re-anchored on the participant's own first note — nothing told them when to
+start, so their overall start time is not a rhythm error.
 
 ### Measures
 
@@ -314,10 +331,21 @@ Per note event, derived where the data allows:
 
 1. **Finger accuracy** — correct target finger **and** correct key, over all
    target notes. Also reported conditional on correct key presses.
-2. **Absolute onset error** — `|actual_note_on - target_note_on|`, in
-   milliseconds; the main timing measure. **Signed** onset error is retained
-   alongside it, to show whether participants run early or late rather than
-   just how far off they are.
+2. **Absolute inter-onset-interval (IOI) error** — the gap from one note to
+   the next, compared with the melody's own, in milliseconds; the main timing
+   measure. **Signed** IOI error is kept alongside it, to show whether
+   intervals are stretched or compressed rather than just how far off they are.
+
+   Intervals rather than absolute onsets, because a probe cues each note and
+   waits: there is no external clock for the participant to be early or late
+   against, so an absolute onset error would only measure how long the
+   apparatus took to ask. What a remembered rhythm *is* is the shape — this
+   note twice as far from the last as the one before it — and that is what an
+   interval captures. It also forgives a performance played uniformly faster
+   or slower, which is a tempo choice rather than a failure of recall.
+
+   **Absolute onset error against the grid is still computed, but only for
+   the final test**, the one trial played straight through.
 
 #### Secondary outcomes
 
@@ -407,6 +435,35 @@ at all. The pipeline **stops and names the trials** rather than averaging over
 a partly-analysed set, which would silently mean something different per
 participant.
 
+### Refreshing already-recorded data
+
+`raw/midi_raw.json` is the complete record of a trial and is never rewritten;
+`results.json` is derived from it, so a scoring bug found later can simply be
+redone:
+
+```bash
+cd main && python -m rhythm_study.rescore P01
+```
+
+It rewrites `results.json` (keeping the original beside it as
+`results_before_realign.json`) and re-syncs the cached counts in `meta.json`.
+
+**Only performances are re-paired.** A probe or the final test is one
+performance, so its pairing is redone by sequence alignment. Training is left
+exactly as recorded, and that is deliberate: training is cue/response, each
+note had its own response window, and the press the loop accepted really was
+that note's answer. A press swallowed in the gap cost that note's *reaction
+time* — the participant played it twice — but not its key or finger.
+
+Re-pairing training on a widened window was tried and made the data worse.
+Nothing distinguishes "the right note, played in the gap and ignored" from "a
+slip, immediately corrected" except the note itself, and taking the first
+press in the window credits the slip: in Tester 1's seventh training trial it
+took an A#3 played 0.4 s before the cue as the answer to a B3 the participant
+went on to play correctly, and every note after it shifted by one. Training
+trials are only annotated (`swallowed_presses`, `timing_reliable` in the
+sidecar), so the analysis can drop their timing while keeping their accuracy.
+
 ### Data, files and how to run it
 
 **In the launcher, section 11, in order:**
@@ -481,9 +538,35 @@ be trusted to find a real one.
 
 ---
 
+## Testers
+
+A pilot changes as it runs, so who ran which protocol is part of the record.
+
+### Tester 1 (`P01`) — 2026-08-28
+
+Full 19-trial schedule on `melody_seed415411`, but under **the earlier probe
+form**: probes were performances with the backlight walking the melody's grid.
+Their data is therefore **not comparable with later testers'** on any timing
+measure, and only partly comparable on accuracy.
+
+What it was nevertheless good for — and it changed the design three times:
+
+| What it showed | What changed |
+|---|---|
+| Onset error in probe 1 ran from +1.6 s to −0.4 s within the trial | The probe was measuring light-tracking, not recall. Probes became pitch-only, with the timing left to the participant. |
+| Probe key accuracy scored 9/15, 9/15, 5/15 | The participant had in fact played 14, 15 and 15 of the 15 notes. Positional pairing was scoring one dropped note as fourteen errors; scoring moved to sequence alignment. |
+| 26 key presses in the raw MIDI log had no matching response | The runner only accepted presses from the cue onwards, so a note played in the gap before the cue was discarded and had to be played again. The response window now opens when the previous note stops sounding. |
+
+Their trials were re-scored in place with the alignment fix
+(`python -m rhythm_study.rescore P01`); the original scoring is kept beside
+each one as `results_before_realign.json`, and the raw MIDI was never touched.
+Training trials were deliberately **not** re-paired — see
+[Refreshing already-recorded data](#refreshing-already-recorded-data).
+
 ## Results
 
-*Not yet collected.*
+*Not yet collected.* Tester 1's numbers are in the table above only as
+evidence about the apparatus, not as findings.
 
 ---
 

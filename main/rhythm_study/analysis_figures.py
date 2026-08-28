@@ -230,7 +230,7 @@ def final_test_figure(result: AnalysisResult, path: Path) -> Optional[Path]:
     plt = _plt()
     panels = [
         ("finger_accuracy", "Finger accuracy", False),
-        ("mean_absolute_onset_error_ms", "Absolute onset error (ms)", True),
+        ("mean_absolute_ioi_error_ms", "Absolute IOI error (ms)", True),
     ]
     probe3 = {m: probe_table(result.trials, m) for m, _, _ in panels}
     finals = {
@@ -282,7 +282,7 @@ def final_test_figure(result: AnalysisResult, path: Path) -> Optional[Path]:
 
 FIGURE_FILENAMES = {
     "probe_finger_accuracy": "probe_finger_accuracy.png",
-    "probe_onset_error": "probe_absolute_onset_error.png",
+    "probe_onset_error": "probe_absolute_ioi_error.png",
     "training_finger_accuracy": "training_finger_accuracy.png",
     "training_timing": "training_response_time.png",
     "withdrawal_cost": "withdrawal_cost_finger_accuracy.png",
@@ -303,8 +303,8 @@ def render_all(result: AnalysisResult, out_dir) -> List[Path]:
             ylabel="Finger accuracy (correct key AND finger)", zero_floor=False,
         ),
         probe_progression(
-            result, "mean_absolute_onset_error_ms", out / names["probe_onset_error"],
-            ylabel="Absolute onset error (ms)", zero_floor=True,
+            result, "mean_absolute_ioi_error_ms", out / names["probe_onset_error"],
+            ylabel="Absolute inter-onset-interval error (ms)", zero_floor=True,
         ),
         training_learning_curve(
             result, "finger_accuracy", out / names["training_finger_accuracy"],

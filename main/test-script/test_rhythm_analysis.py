@@ -142,11 +142,17 @@ class SyntheticStudy:
             p_finger = 0.35 + 0.55 * (number - 1) / 14
             onset_sd = None
         elif phase == rs.PHASE_PROBE:
-            p_finger, onset_sd = probe_finger[number - 1], probe_onset_sd[number - 1]
+            # A probe is cue/response like training - the backlight names
+            # the key and waits - so it has no absolute grid either. Its
+            # rhythm shows up in the intervals, so the planted effect is
+            # jitter added to each interval.
+            p_finger, onset_sd = probe_finger[number - 1], None
+            ioi_sd = probe_onset_sd[number - 1]
         else:
             p_finger, onset_sd = final_finger, final_onset_sd
 
         base = 1_800_000_000.0 + trial["index"] * 1000
+        last_press = base
         results, raw = [], []
         for i, note in enumerate(notes):
             played = i < limit
@@ -156,10 +162,17 @@ class SyntheticStudy:
 
             if onset_sd is None:
                 due = base + i * 2.0
-                press = due + abs(rng.gauss(0.6, 0.15))
+                if phase == rs.PHASE_PROBE and i > 0:
+                    # Walk the melody's own intervals, with jitter: that is
+                    # what the IOI measure has to recover.
+                    gap = note.note_on_time_sec - notes[i - 1].note_on_time_sec
+                    press = last_press + gap + rng.gauss(0.0, ioi_sd)
+                else:
+                    press = due + abs(rng.gauss(0.6, 0.15))
             else:
                 due = base + note.note_on_time_sec
                 press = due + rng.gauss(0.0, onset_sd)
+            last_press = press
 
             if played:
                 target_duration = note.note_off_time_sec - note.note_on_time_sec
@@ -333,21 +346,37 @@ class TestProbeStatistics(unittest.TestCase):
         self.assertTrue(test["ran"])
         self.assertLess(test["p"], 0.05)
 
-    def test_it_recovers_the_planted_fall_in_onset_error(self):
-        test = self.result.probe_tests["mean_absolute_onset_error_ms"]
+    def test_it_recovers_the_planted_fall_in_interval_error(self):
+        test = self.result.probe_tests["mean_absolute_ioi_error_ms"]
         means = [test["per_probe"][label]["mean"] for label in ra.PROBE_LABELS]
         self.assertGreater(means[0], means[1])
         self.assertGreater(means[1], means[2])
         self.assertTrue(test["ran"])
         self.assertLess(test["p"], 0.05)
 
-    def test_the_onset_error_is_in_milliseconds(self):
+    def test_the_interval_error_is_in_milliseconds(self):
         # Planted as a 260 ms SD at Probe 1; a half-normal's mean
         # magnitude is about 0.8 SD, so a value in seconds or a
         # signed-mean-instead-of-absolute bug is caught here.
-        test = self.result.probe_tests["mean_absolute_onset_error_ms"]
+        test = self.result.probe_tests["mean_absolute_ioi_error_ms"]
         self.assertGreater(test["per_probe"]["Probe 1"]["mean"], 100.0)
         self.assertLess(test["per_probe"]["Probe 1"]["mean"], 400.0)
+
+    def test_a_probe_has_no_absolute_onset_error_to_report(self):
+        # A probe cues each note and waits, so there is no external clock
+        # to be early or late against. Reporting an absolute onset error
+        # for one would be measuring how long the apparatus took to ask.
+        probes = [r for r in self.result.trials if r["phase"] == rs.PHASE_PROBE]
+        self.assertTrue(probes)
+        for row in probes:
+            self.assertIsNone(row["mean_absolute_onset_error_ms"])
+            self.assertIsNotNone(row["mean_absolute_ioi_error_ms"])
+
+    def test_only_the_final_test_is_a_performance(self):
+        by_phase = {r["phase"]: r["is_performance"] for r in self.result.trials}
+        self.assertFalse(by_phase[rs.PHASE_TRAINING])
+        self.assertFalse(by_phase[rs.PHASE_PROBE])
+        self.assertTrue(by_phase[rs.PHASE_FINAL])
 
     def test_the_unit_of_inference_is_the_participant(self):
         # n must be the number of people, never the number of events.
@@ -423,7 +452,7 @@ class TestFinalTest(unittest.TestCase):
         self.assertEqual(len(probe["per_probe"]), 3)
 
     def test_it_compares_the_final_against_probe_three_only(self):
-        test = self.result.final_tests["mean_absolute_onset_error_ms"]
+        test = self.result.final_tests["mean_absolute_ioi_error_ms"]
         self.assertEqual(test["n"], len(self.people))
         self.assertTrue(test["probe3"]["n"])
         self.assertTrue(test["final"]["n"])

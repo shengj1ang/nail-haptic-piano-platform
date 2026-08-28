@@ -38,13 +38,16 @@ and they are the whole reason this class exists.
    a note is. The hold is measured from the key press - see
    `_begin_sustain` for why, and for what stops it.
 
-4. ONLY TRAINING IS A CUE/RESPONSE TASK
-   A probe and the final test are played as whole performances against
-   the melody's own time grid, which is what makes their onset and
-   duration errors real measurements rather than reaction times. During
-   a probe the backlight walks that grid; in the final test the grid
-   runs invisibly, purely as the reference the performance is scored
-   against. See the "played as whole performances" section below.
+4. A PROBE GIVES THE PITCH AND WITHHOLDS THE TIME
+   Training and probes are both note-by-note; the final test is the only
+   whole performance. What separates a probe from training is what it
+   withholds. The backlight names the key, so the participant does not
+   have to remember which note comes next - but it does NOT run on a
+   clock and it does not show how long the note lasts. When to press and
+   when to release are entirely theirs, so their inter-onset intervals
+   and note durations are their own and can be compared with the
+   melody's. See the section below for why it is not the other way
+   round.
 
 Each trial is recorded as a completely ordinary quiz under ``data/quiz/``
 named "rhythm-<participant>-T<NN>" ("-r2"/"-r3" appended on a rerun so no
@@ -70,6 +73,7 @@ from app.quiz import QuizResult, QuizTarget, quiz_dir, sanitize_quiz_name
 
 from .cue import RhythmCue
 from .schedule import (
+    PHASE_FINAL,
     PHASE_TRAINING,
     RhythmStudyError,
     load_trial_melody,
@@ -97,12 +101,6 @@ PHASE_GUIDANCE_TYPE = {
 # opened one of these quizzes.
 RECUE_SIDECAR_FILENAME = "rhythm_recues.json"
 
-# How long a performance keeps recording after the melody's last note-off
-# before it ends itself. Only guided performances end on their own - the
-# grid tells them when the melody is over; an unguided one has no grid,
-# so the experimenter ends it.
-PERFORM_TAIL_S = 1.5
-
 
 class RhythmRunnerWindow(QuizWindow):
     trial_finished = Signal(int)  # trial index - recorded, saved, quiz on disk
@@ -129,14 +127,18 @@ class RhythmRunnerWindow(QuizWindow):
         self._sustaining = False
         self._sustain_until: Optional[float] = None
         self._sustain_lengths: List[float] = []
+        # Earliest moment a key press counts as an answer to the CURRENT
+        # note. The base only accepts presses from the cue onwards, which
+        # silently swallows one played in the gap before the cue - see
+        # _consume_early_press.
+        self._response_open_from: Optional[float] = None
+        self._early_presses = 0
 
         # Performance state. Probes and the final test are played as
         # whole performances rather than note by note; only training runs
         # the cue/response loop.
         self._perform_mode = False
-        self._perform_guided = False  # backlight walks the melody's grid
         self._perform_start: Optional[float] = None
-        self._perform_lit: Optional[int] = None  # melody index currently lit
         # Each target's scheduled on/off within the melody, in seconds
         # from the melody's start: the grid a performance is played
         # against, and what the backlight follows during a probe.
@@ -304,19 +306,19 @@ class RhythmRunnerWindow(QuizWindow):
         self.guidance_type = PHASE_GUIDANCE_TYPE[trial["phase"]]
         self._trial_index = trial["index"]
         self._trial = trial
-        # Training is the only note-by-note phase; a probe and the final
-        # test are both played straight through as performances, and
-        # differ only in whether the backlight shows the grid.
-        self._perform_mode = trial["phase"] != PHASE_TRAINING
-        self._perform_guided = self._perform_mode and trial["backlight"]
+        # Only the final test is played straight through. A probe is
+        # note-by-note like training - see the "what a probe gives away"
+        # section below.
+        self._perform_mode = trial["phase"] == PHASE_FINAL
         self._first_cue_onsets = []
         self._recue_counts = []
         self._note_first_cue = None
         self._note_recues = 0
         self._sustain_lengths = []
+        self._response_open_from = None
+        self._early_presses = 0
         self._end_sustain()
         self._perform_start = None
-        self._perform_lit = None
 
         guidance = (
             f"backlight {'on' if trial['backlight'] else 'OFF'}, "
@@ -439,6 +441,8 @@ class RhythmRunnerWindow(QuizWindow):
         if self._note_first_cue is None:
             self._note_first_cue = self.cue_onset_time
             self._note_recues = 0
+        if self._response_open_from is None:
+            self._response_open_from = self.cue_onset_time
 
     def _record_result(
         self,
@@ -486,6 +490,8 @@ class RhythmRunnerWindow(QuizWindow):
             # sounding, not on top of it.
             self.phase = "sustain"
             self.phase_start_wall = time.time()
+        else:
+            self._response_open_from = time.time()
 
     # ------------------------------------------------------------------
     # Holding a cue for the length of the note
@@ -535,10 +541,15 @@ class RhythmRunnerWindow(QuizWindow):
         """Stop a held cue. Safe to call at any time, so every path that
         ends a note or a trial can call it without first working out
         whether a note was in progress."""
+        was_sustaining = self._sustaining
         self._sustaining = False
         self._sustain_until = None
         self._shared_cue.end_hold()
         super()._clear_current_led()
+        if was_sustaining:
+            # The note has stopped sounding, so the participant is free to
+            # play the next one - even though its cue is still GAP_S away.
+            self._response_open_from = time.time()
 
     def _clear_current_led(self) -> None:
         # The base clears the lit key inside _record_result. During a
@@ -549,26 +560,29 @@ class RhythmRunnerWindow(QuizWindow):
         super()._clear_current_led()
 
     # ------------------------------------------------------------------
-    # Probes and the final test: played as whole performances
+    # The final test: one unguided performance
     # ------------------------------------------------------------------
     #
-    # Training is a cue/response task - one note at a time, the next cue
-    # withheld until the last one is answered. That is the right shape
-    # for teaching, but it makes rhythm unmeasurable: the participant
-    # physically cannot play ahead of a cue that is only issued 0.4 s
-    # after their previous key press, so their note timing is the
-    # apparatus's, not theirs.
+    # WHAT A PROBE MAY AND MAY NOT GIVE AWAY
     #
-    # So a probe and the final test are not cue/response at all. The
-    # melody's own time grid runs, and the participant plays along with
-    # it; every note therefore has a time it was DUE, which is what
-    # makes onset and duration error real numbers rather than reaction
-    # times. The two differ only in what the participant has to go on:
+    # A probe was briefly run as a performance with the backlight walking
+    # the melody's grid, so that every note had a time it was DUE and the
+    # onset error was a real number. P01's data showed what that actually
+    # measured: their onset error in the first probe started 1.6 s behind
+    # the light and shrank to a few hundred ms by the end of the trial.
+    # That is the signature of someone TRACKING a light, not of someone
+    # recalling a rhythm - and the same light had already told them which
+    # note came next, so the probe was left measuring fingering alone.
     #
-    #   probe        backlight walks the grid - the lit key both names
-    #                the note and shows when it falls
-    #   final test   nothing at all; the grid still runs, invisibly, as
-    #                the reference the performance is scored against
+    # A probe now names the key and nothing else: the backlight lights
+    # the target, waits, and goes out when the key goes down. It never
+    # runs on a clock and never shows a note's length. Onset and duration
+    # are therefore the participant's own, and are compared with the
+    # melody as intervals rather than against an absolute grid.
+    #
+    # That leaves the final test as the only whole performance, and it is
+    # unguided: the grid runs invisibly, purely as the reference the
+    # performance is scored against.
 
     def _begin_countdown(self) -> None:
         if not self._perform_mode:
@@ -584,23 +598,21 @@ class RhythmRunnerWindow(QuizWindow):
         self.phase = "perform"
         self.phase_start_wall = time.time()
         self._perform_start = time.time()
-        self._perform_lit = None
-        if self._perform_guided:
-            self.status_label.setText(
-                "Probe recording - the backlight is playing the melody; the participant plays along. "
-                "It ends on its own when the melody finishes."
-            )
-        else:
-            self.status_label.setText(
-                "Final test recording - no backlight, no haptic. "
-                'Press "Stop & save" when the participant has finished the melody.'
-            )
+        self.status_label.setText(
+            "Final test recording - no backlight, no haptic. "
+            'Press "Stop & save" when the participant has finished the melody.'
+        )
 
     def _tick(self) -> None:
         # The base handles camera + MIDI capture at the top of its own
         # _tick and then branches on phase; "perform_countdown" and
         # "perform" are not among its phases, so those branches fall
         # through and the performance is driven from here instead.
+        # Before the base looks for a response: it only accepts presses
+        # from the cue onwards, so one played in the gap before the cue is
+        # dropped and the participant is asked for a note they just gave.
+        if self.phase == "presenting":
+            self._consume_early_press()
         super()._tick()
         if self.phase == "sustain":
             if time.time() >= (self._sustain_until or 0.0):
@@ -616,42 +628,42 @@ class RhythmRunnerWindow(QuizWindow):
                 self._start_performance()
             else:
                 self.status_label.setText(f"Get ready: {remaining:.0f}")
-        elif self.phase == "perform":
-            self._performance_tick()
+        # A performance here is always unguided, so nothing tells it when
+        # the melody is over except the experimenter - there is no
+        # self-ending branch. Recording continues from the top of the
+        # base's own _tick.
 
-    def _performance_tick(self) -> None:
-        elapsed = time.time() - (self._perform_start or time.time())
-        if self._perform_guided:
-            self._drive_backlight(elapsed)
-        # Only a guided performance can end itself: the grid is what
-        # tells the participant the melody is over, so without it there
-        # is nothing to say they have finished except the experimenter.
-        if self._perform_guided and self._target_offsets:
-            if elapsed >= self._target_offsets[-1] + PERFORM_TAIL_S:
-                self._finish_performance()
+    def _consume_early_press(self) -> None:
+        """Accept a key press that arrived before this note's cue.
 
-    def _drive_backlight(self, elapsed: float) -> None:
-        """Light whichever melody note is sounding at `elapsed`.
+        The base class matches a response by ``abs_time >= cue_onset_time``,
+        so anything played during the GAP_S pause between one note and the
+        next cue is silently discarded: the participant presses, nothing
+        happens, the cue appears, and they have to press again. Holding a
+        training cue for the whole beat made that easy to hit - the natural
+        moment to play the next note is the instant the buzz stops, which
+        is exactly GAP_S before the next cue.
 
-        The melody is one voice, so at most one note is due at a time and
-        a plain scan over its 15 notes is cheaper than the bookkeeping
-        needed to avoid it.
+        The window opens when the previous note stopped sounding, which is
+        when the participant is genuinely free to play the next one; a
+        release-and-repress *during* a held note falls before it and is
+        correctly ignored.
         """
-        if not self.led_connected or self.led_mapper is None:
+        if self._response_open_from is None or self._perform_mode:
             return
-        due = None
-        for i, (on, off) in enumerate(zip(self._target_onsets, self._target_offsets)):
-            if on <= elapsed < off:
-                due = i
-                break
-        if due == self._perform_lit:
+        press = next(
+            (
+                e
+                for e in self.raw_events
+                if e.type == "note_on"
+                and self._response_open_from <= e.abs_time < self.cue_onset_time
+            ),
+            None,
+        )
+        if press is None:
             return
-        if self._perform_lit is not None:
-            self.led_mapper.clear_key(self.targets[self._perform_lit].note)
-        if due is not None:
-            self.led_mapper.light_key(self.targets[due].note)
-        self._perform_lit = due
-        self.lit_note = self.targets[due].note if due is not None else None
+        self._early_presses += 1
+        self._record_result(timed_out=False, actual_note=press.note, keypress_time=press.abs_time)
 
     def _finish_performance(self) -> None:
         """End a probe or the final test and score it against the grid.
@@ -680,17 +692,15 @@ class RhythmRunnerWindow(QuizWindow):
         if self.phase != "perform":
             return
         self._clear_current_led()
-        self._perform_lit = None
 
         grid_start = self._perform_start or self.video_start_time
         presses = [e for e in self.raw_events if e.type == "note_on" and e.abs_time >= grid_start]
 
         # See the docstring: a probe keeps the grid's own zero, the final
         # test is re-zeroed on the first thing the participant played.
-        if self._perform_guided or not presses:
-            anchor = grid_start
-        else:
-            anchor = presses[0].abs_time - self._target_onsets[0]
+        anchor = (
+            presses[0].abs_time - self._target_onsets[0] if presses else grid_start
+        )
 
         self.results = []
         for i, target in enumerate(self.targets):
@@ -777,6 +787,9 @@ class RhythmRunnerWindow(QuizWindow):
             # of mind about it is visible in the data rather than
             # inferred from the code that happened to be running.
             "sustain_anchor": "keypress",
+            # Presses that landed in the gap before their cue and were
+            # accepted anyway - their timing_error_s is negative.
+            "early_presses": self._early_presses,
             "notes": [
                 {
                     "index": result.index,

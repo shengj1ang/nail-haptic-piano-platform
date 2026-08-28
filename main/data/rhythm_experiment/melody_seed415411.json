@@ -1,0 +1,673 @@
+{
+  "format": "melody_generator/1",
+  "name": "melody_seed415411",
+  "seed": 415411,
+  "created_at_epoch_s": 1787929704.130174,
+  "music": {
+    "key": "c_major",
+    "key_display": "C major",
+    "layout": "middle_c",
+    "layout_description": "Both hands in the classic Middle C position: thumbs meet on C4, giving nine contiguous white keys F3-G4 with no gap and no thumb-under. Supports C major and A minor.",
+    "layout_mode": "pitch",
+    "bpm": 60.0,
+    "beat_seconds": 1.0,
+    "note_count": 15,
+    "rest_count": 3,
+    "total_beats": 24.0,
+    "total_seconds": 24.0,
+    "phrase_plan": [
+      4,
+      4,
+      4,
+      3
+    ],
+    "midi_range": [
+      55,
+      67
+    ]
+  },
+  "articulation": {
+    "gate_mode": "fixed_gap",
+    "release_gap_beats": 0.25,
+    "gate_ratio": 0.75,
+    "sounding_beats_by_duration": {
+      "1": 0.75,
+      "2": 1.75,
+      "3": 2.75
+    }
+  },
+  "fingering": {
+    "key_to_finger": {
+      "55": "L4",
+      "59": "L2",
+      "60": "L1",
+      "62": "R2",
+      "64": "R3",
+      "65": "R4",
+      "67": "R5"
+    },
+    "key_names": {
+      "55": "G3",
+      "59": "B3",
+      "60": "C4",
+      "62": "D4",
+      "64": "E4",
+      "65": "F4",
+      "67": "G4"
+    },
+    "fingers_used": [
+      "R5",
+      "R4",
+      "R2",
+      "R3",
+      "L2",
+      "L1",
+      "L4"
+    ],
+    "phrase_hands": null,
+    "shared_key_decisions": {
+      "60": "L"
+    }
+  },
+  "phrases": [
+    {
+      "phrase_index": 0,
+      "role": "statement",
+      "transformation": "new",
+      "hand": null,
+      "event_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "notes": [
+        "G4",
+        "F4",
+        "F4",
+        "D4"
+      ],
+      "fingers": [
+        "R5",
+        "R4",
+        "R4",
+        "R2"
+      ],
+      "scale_degrees": [
+        5,
+        4,
+        4,
+        2
+      ]
+    },
+    {
+      "phrase_index": 1,
+      "role": "answer",
+      "transformation": "transpose",
+      "hand": null,
+      "event_indices": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "notes": [
+        "E4",
+        "D4",
+        "D4",
+        "B3"
+      ],
+      "fingers": [
+        "R3",
+        "R2",
+        "R2",
+        "L2"
+      ],
+      "scale_degrees": [
+        3,
+        2,
+        2,
+        7
+      ]
+    },
+    {
+      "phrase_index": 2,
+      "role": "contrast",
+      "transformation": "new_contrast",
+      "hand": null,
+      "event_indices": [
+        8,
+        9,
+        10,
+        11
+      ],
+      "notes": [
+        "B3",
+        "C4",
+        "B3",
+        "G3"
+      ],
+      "fingers": [
+        "L2",
+        "L1",
+        "L2",
+        "L4"
+      ],
+      "scale_degrees": [
+        7,
+        1,
+        7,
+        5
+      ]
+    },
+    {
+      "phrase_index": 3,
+      "role": "cadence",
+      "transformation": "cadence",
+      "hand": null,
+      "event_indices": [
+        12,
+        13,
+        14
+      ],
+      "notes": [
+        "G3",
+        "B3",
+        "C4"
+      ],
+      "fingers": [
+        "L4",
+        "L2",
+        "L1"
+      ],
+      "scale_degrees": [
+        5,
+        7,
+        1
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event_index": 0,
+      "hand": "R",
+      "finger": "R5",
+      "midi_note": 67,
+      "note_name": "G4",
+      "onset_beat": 0.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 0.0,
+      "note_off_time_sec": 0.75,
+      "velocity": 80,
+      "phrase_index": 0,
+      "scale_degree": 5,
+      "is_phrase_start": true,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 1.0,
+      "slot_end_time_sec": 1.0
+    },
+    {
+      "event_index": 1,
+      "hand": "R",
+      "finger": "R4",
+      "midi_note": 65,
+      "note_name": "F4",
+      "onset_beat": 1.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 1.0,
+      "note_off_time_sec": 1.75,
+      "velocity": 80,
+      "phrase_index": 0,
+      "scale_degree": 4,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 2.0,
+      "slot_end_time_sec": 2.0
+    },
+    {
+      "event_index": 2,
+      "hand": "R",
+      "finger": "R4",
+      "midi_note": 65,
+      "note_name": "F4",
+      "onset_beat": 2.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 2.0,
+      "note_off_time_sec": 2.75,
+      "velocity": 80,
+      "phrase_index": 0,
+      "scale_degree": 4,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 3.0,
+      "slot_end_time_sec": 3.0
+    },
+    {
+      "event_index": 3,
+      "hand": "R",
+      "finger": "R2",
+      "midi_note": 62,
+      "note_name": "D4",
+      "onset_beat": 3.0,
+      "duration_beats": 3.0,
+      "note_on_time_sec": 3.0,
+      "note_off_time_sec": 5.75,
+      "velocity": 80,
+      "phrase_index": 0,
+      "scale_degree": 2,
+      "is_phrase_start": false,
+      "sounding_beats": 2.75,
+      "slot_end_beat": 6.0,
+      "slot_end_time_sec": 6.0
+    },
+    {
+      "event_index": 4,
+      "hand": "R",
+      "finger": "R3",
+      "midi_note": 64,
+      "note_name": "E4",
+      "onset_beat": 7.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 7.0,
+      "note_off_time_sec": 7.75,
+      "velocity": 80,
+      "phrase_index": 1,
+      "scale_degree": 3,
+      "is_phrase_start": true,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 8.0,
+      "slot_end_time_sec": 8.0
+    },
+    {
+      "event_index": 5,
+      "hand": "R",
+      "finger": "R2",
+      "midi_note": 62,
+      "note_name": "D4",
+      "onset_beat": 8.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 8.0,
+      "note_off_time_sec": 8.75,
+      "velocity": 80,
+      "phrase_index": 1,
+      "scale_degree": 2,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 9.0,
+      "slot_end_time_sec": 9.0
+    },
+    {
+      "event_index": 6,
+      "hand": "R",
+      "finger": "R2",
+      "midi_note": 62,
+      "note_name": "D4",
+      "onset_beat": 9.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 9.0,
+      "note_off_time_sec": 9.75,
+      "velocity": 80,
+      "phrase_index": 1,
+      "scale_degree": 2,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 10.0,
+      "slot_end_time_sec": 10.0
+    },
+    {
+      "event_index": 7,
+      "hand": "L",
+      "finger": "L2",
+      "midi_note": 59,
+      "note_name": "B3",
+      "onset_beat": 10.0,
+      "duration_beats": 2.0,
+      "note_on_time_sec": 10.0,
+      "note_off_time_sec": 11.75,
+      "velocity": 80,
+      "phrase_index": 1,
+      "scale_degree": 7,
+      "is_phrase_start": false,
+      "sounding_beats": 1.75,
+      "slot_end_beat": 12.0,
+      "slot_end_time_sec": 12.0
+    },
+    {
+      "event_index": 8,
+      "hand": "L",
+      "finger": "L2",
+      "midi_note": 59,
+      "note_name": "B3",
+      "onset_beat": 13.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 13.0,
+      "note_off_time_sec": 13.75,
+      "velocity": 80,
+      "phrase_index": 2,
+      "scale_degree": 7,
+      "is_phrase_start": true,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 14.0,
+      "slot_end_time_sec": 14.0
+    },
+    {
+      "event_index": 9,
+      "hand": "L",
+      "finger": "L1",
+      "midi_note": 60,
+      "note_name": "C4",
+      "onset_beat": 14.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 14.0,
+      "note_off_time_sec": 14.75,
+      "velocity": 80,
+      "phrase_index": 2,
+      "scale_degree": 1,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 15.0,
+      "slot_end_time_sec": 15.0
+    },
+    {
+      "event_index": 10,
+      "hand": "L",
+      "finger": "L2",
+      "midi_note": 59,
+      "note_name": "B3",
+      "onset_beat": 15.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 15.0,
+      "note_off_time_sec": 15.75,
+      "velocity": 80,
+      "phrase_index": 2,
+      "scale_degree": 7,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 16.0,
+      "slot_end_time_sec": 16.0
+    },
+    {
+      "event_index": 11,
+      "hand": "L",
+      "finger": "L4",
+      "midi_note": 55,
+      "note_name": "G3",
+      "onset_beat": 16.0,
+      "duration_beats": 2.0,
+      "note_on_time_sec": 16.0,
+      "note_off_time_sec": 17.75,
+      "velocity": 80,
+      "phrase_index": 2,
+      "scale_degree": 5,
+      "is_phrase_start": false,
+      "sounding_beats": 1.75,
+      "slot_end_beat": 18.0,
+      "slot_end_time_sec": 18.0
+    },
+    {
+      "event_index": 12,
+      "hand": "L",
+      "finger": "L4",
+      "midi_note": 55,
+      "note_name": "G3",
+      "onset_beat": 19.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 19.0,
+      "note_off_time_sec": 19.75,
+      "velocity": 80,
+      "phrase_index": 3,
+      "scale_degree": 5,
+      "is_phrase_start": true,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 20.0,
+      "slot_end_time_sec": 20.0
+    },
+    {
+      "event_index": 13,
+      "hand": "L",
+      "finger": "L2",
+      "midi_note": 59,
+      "note_name": "B3",
+      "onset_beat": 20.0,
+      "duration_beats": 1.0,
+      "note_on_time_sec": 20.0,
+      "note_off_time_sec": 20.75,
+      "velocity": 80,
+      "phrase_index": 3,
+      "scale_degree": 7,
+      "is_phrase_start": false,
+      "sounding_beats": 0.75,
+      "slot_end_beat": 21.0,
+      "slot_end_time_sec": 21.0
+    },
+    {
+      "event_index": 14,
+      "hand": "L",
+      "finger": "L1",
+      "midi_note": 60,
+      "note_name": "C4",
+      "onset_beat": 21.0,
+      "duration_beats": 3.0,
+      "note_on_time_sec": 21.0,
+      "note_off_time_sec": 23.75,
+      "velocity": 80,
+      "phrase_index": 3,
+      "scale_degree": 1,
+      "is_phrase_start": false,
+      "sounding_beats": 2.75,
+      "slot_end_beat": 24.0,
+      "slot_end_time_sec": 24.0
+    }
+  ],
+  "rests": [
+    {
+      "rest_index": 0,
+      "onset_beat": 6.0,
+      "duration_beats": 1.0,
+      "start_time_sec": 6.0,
+      "end_time_sec": 7.0,
+      "after_event_index": 3
+    },
+    {
+      "rest_index": 1,
+      "onset_beat": 12.0,
+      "duration_beats": 1.0,
+      "start_time_sec": 12.0,
+      "end_time_sec": 13.0,
+      "after_event_index": 7
+    },
+    {
+      "rest_index": 2,
+      "onset_beat": 18.0,
+      "duration_beats": 1.0,
+      "start_time_sec": 18.0,
+      "end_time_sec": 19.0,
+      "after_event_index": 11
+    }
+  ],
+  "scores": {
+    "musicality": 0.9533,
+    "difficulty": 0.3751,
+    "musicality_parts": {
+      "singable_motion": 0.9107,
+      "repetition": 1.0,
+      "cadence": 1.0,
+      "contour_shape": 0.8547,
+      "tonal_focus": 0.8478,
+      "note_variety": 1.0,
+      "phrasing": 1.0
+    },
+    "difficulty_parts": {
+      "mean_interval": 0.0,
+      "widest_interval": 0.5,
+      "hand_changes": 0.0714,
+      "finger_load": 0.8,
+      "rhythm_load": 0.2667,
+      "range_span": 0.875
+    }
+  },
+  "validation": {
+    "ok": true,
+    "issues": []
+  },
+  "generation": {
+    "attempts": 70,
+    "accepted_candidates": 40,
+    "selected_rank": 3,
+    "selected_from": 5,
+    "rejection_counts": {
+      "build:could not build a cadence phrase": 11,
+      "unused_hand": 9,
+      "difficulty_too_high": 6,
+      "too_few_distinct_keys": 3,
+      "leap_ratio_high": 2,
+      "pitch_entropy_high": 2,
+      "build:could not build phrase 1": 1
+    }
+  },
+  "config": {
+    "melody": {
+      "key": "c_major",
+      "layout": "middle_c",
+      "note_count": 15,
+      "phrase_plan": [],
+      "interval_weights": [
+        [
+          0,
+          0.08
+        ],
+        [
+          1,
+          0.24
+        ],
+        [
+          -1,
+          0.24
+        ],
+        [
+          2,
+          0.15
+        ],
+        [
+          -2,
+          0.15
+        ],
+        [
+          3,
+          0.07
+        ],
+        [
+          -3,
+          0.07
+        ]
+      ],
+      "max_leap_steps": 3,
+      "leap_threshold_steps": 2,
+      "recover_after_leap_prob": 0.85,
+      "max_phrase_span_steps": 4,
+      "min_phrase_span_steps": 2,
+      "min_phrase_distinct": 3,
+      "max_total_span_steps": 8,
+      "max_repeated_notes": 2,
+      "max_phrase_join_steps": 3,
+      "answer_ops": [
+        [
+          "repeat",
+          0.22
+        ],
+        [
+          "transpose",
+          0.3
+        ],
+        [
+          "vary_tail",
+          0.36
+        ],
+        [
+          "mirror",
+          0.12
+        ]
+      ],
+      "contrast_ops": [
+        [
+          "new_contrast",
+          0.45
+        ],
+        [
+          "transpose",
+          0.35
+        ],
+        [
+          "mirror",
+          0.2
+        ]
+      ],
+      "transpose_steps": [
+        1,
+        -1,
+        2,
+        -2
+      ]
+    },
+    "rhythm": {
+      "note_beats": [
+        1,
+        2,
+        3
+      ],
+      "long_note_beats": [
+        2,
+        3
+      ],
+      "phrase_end_beats": [
+        2,
+        3
+      ],
+      "phrase_end_long_weights": [
+        0.7,
+        0.3
+      ],
+      "final_note_beats": 3,
+      "rest_beats": 1,
+      "min_rests": 1,
+      "max_rests": 3,
+      "min_long_notes": 2,
+      "max_long_note_ratio": 0.4,
+      "internal_long_prob": 0.25
+    },
+    "timing": {
+      "bpm": 60.0,
+      "gate_mode": "fixed_gap",
+      "release_gap_beats": 0.25,
+      "gate_ratio": 0.75,
+      "min_sounding_beats": 0.35,
+      "base_velocity": 80,
+      "phrase_accent": 0
+    },
+    "validation": {
+      "midi_min": 48,
+      "midi_max": 72,
+      "white_keys_only": true,
+      "unique_finger_per_key": true,
+      "max_consecutive_same_finger": 3,
+      "min_distinct_keys": 5,
+      "min_notes_per_hand": 1,
+      "max_hand_switches": 9,
+      "max_consecutive_alternations": 5,
+      "max_leap_steps": 3,
+      "max_consecutive_leaps": 1,
+      "min_stepwise_ratio": 0.55,
+      "min_distinct_durations": 2,
+      "max_pitch_class_entropy": 0.95,
+      "min_motif_repeats": 1,
+      "require_tonic_ending": true,
+      "max_cadence_approach_steps": 2
+    },
+    "scoring": {
+      "candidate_attempts": 400,
+      "candidate_pool": 40,
+      "max_difficulty": 0.5,
+      "min_musicality": 0.55
+    }
+  }
+}

@@ -1,0 +1,477 @@
+{
+  "config": {
+    "onset_tolerance_ms": 200.0,
+    "exclude_invalid_carryover": true
+  },
+  "coverage": {
+    "participants": [
+      "P01"
+    ],
+    "trials_by_phase": {
+      "training": 15,
+      "probe": 3,
+      "final": 1
+    },
+    "total_trials": 19
+  },
+  "probe_tests": {
+    "finger_accuracy": {
+      "metric": "finger_accuracy",
+      "label": "Finger accuracy",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 0.2,
+          "median": 0.2,
+          "sd": 0.0,
+          "min": 0.2,
+          "max": 0.2
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": 0.4666666666666667,
+          "median": 0.4666666666666667,
+          "sd": 0.0,
+          "min": 0.4666666666666667,
+          "max": 0.4666666666666667
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": 0.26666666666666666,
+          "median": 0.26666666666666666,
+          "sd": 0.0,
+          "min": 0.26666666666666666,
+          "max": 0.26666666666666666
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    },
+    "mean_absolute_onset_error_ms": {
+      "metric": "mean_absolute_onset_error_ms",
+      "label": "Absolute onset error (ms)",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 1036.971648534139,
+          "median": 1036.971648534139,
+          "sd": 0.0,
+          "min": 1036.971648534139,
+          "max": 1036.971648534139
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": 703.3619085947672,
+          "median": 703.3619085947672,
+          "sd": 0.0,
+          "min": 703.3619085947672,
+          "max": 703.3619085947672
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": 1283.3478132883708,
+          "median": 1283.3478132883708,
+          "sd": 0.0,
+          "min": 1283.3478132883708,
+          "max": 1283.3478132883708
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    },
+    "key_accuracy": {
+      "metric": "key_accuracy",
+      "label": "Key accuracy",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 0.6,
+          "median": 0.6,
+          "sd": 0.0,
+          "min": 0.6,
+          "max": 0.6
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": 0.6,
+          "median": 0.6,
+          "sd": 0.0,
+          "min": 0.6,
+          "max": 0.6
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": 0.3333333333333333,
+          "median": 0.3333333333333333,
+          "sd": 0.0,
+          "min": 0.3333333333333333,
+          "max": 0.3333333333333333
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    },
+    "mean_signed_onset_error_ms": {
+      "metric": "mean_signed_onset_error_ms",
+      "label": "Signed onset error (ms)",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 975.7680416107178,
+          "median": 975.7680416107178,
+          "sd": 0.0,
+          "min": 975.7680416107178,
+          "max": 975.7680416107178
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": -293.61459414164227,
+          "median": -293.61459414164227,
+          "sd": 0.0,
+          "min": -293.61459414164227,
+          "max": -293.61459414164227
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": -1145.538345972697,
+          "median": -1145.538345972697,
+          "sd": 0.0,
+          "min": -1145.538345972697,
+          "max": -1145.538345972697
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    },
+    "mean_absolute_duration_error_ms": {
+      "metric": "mean_absolute_duration_error_ms",
+      "label": "Absolute duration error (ms)",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 681.3629309336344,
+          "median": 681.3629309336344,
+          "sd": 0.0,
+          "min": 681.3629309336344,
+          "max": 681.3629309336344
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": 588.3373578389486,
+          "median": 588.3373578389486,
+          "sd": 0.0,
+          "min": 588.3373578389486,
+          "max": 588.3373578389486
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": 622.4363009134928,
+          "median": 622.4363009134928,
+          "sd": 0.0,
+          "min": 622.4363009134928,
+          "max": 622.4363009134928
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    },
+    "complete_success_rate": {
+      "metric": "complete_success_rate",
+      "label": "Complete-performance rate",
+      "participants": [
+        "P01"
+      ],
+      "n": 1,
+      "per_probe": {
+        "Probe 1": {
+          "n": 1,
+          "mean": 0.0,
+          "median": 0.0,
+          "sd": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "Probe 2": {
+          "n": 1,
+          "mean": 0.0,
+          "median": 0.0,
+          "sd": 0.0,
+          "min": 0.0,
+          "max": 0.0
+        },
+        "Probe 3": {
+          "n": 1,
+          "mean": 0.06666666666666667,
+          "median": 0.06666666666666667,
+          "sd": 0.0,
+          "min": 0.06666666666666667,
+          "max": 0.06666666666666667
+        }
+      },
+      "test": "Friedman",
+      "ran": false,
+      "note": "only 1 participant(s) have all three probes for this measure; no test run below n=5."
+    }
+  },
+  "final_vs_probe3": {
+    "finger_accuracy": {
+      "metric": "finger_accuracy",
+      "label": "Finger accuracy",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": 0.26666666666666666,
+        "median": 0.26666666666666666,
+        "sd": 0.0,
+        "min": 0.26666666666666666,
+        "max": 0.26666666666666666
+      },
+      "final": {
+        "n": 1,
+        "mean": 0.5333333333333333,
+        "median": 0.5333333333333333,
+        "sd": 0.0,
+        "min": 0.5333333333333333,
+        "max": 0.5333333333333333
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    },
+    "mean_absolute_onset_error_ms": {
+      "metric": "mean_absolute_onset_error_ms",
+      "label": "Absolute onset error (ms)",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": 1283.3478132883708,
+        "median": 1283.3478132883708,
+        "sd": 0.0,
+        "min": 1283.3478132883708,
+        "max": 1283.3478132883708
+      },
+      "final": {
+        "n": 1,
+        "mean": 1081.8975965181987,
+        "median": 1081.8975965181987,
+        "sd": 0.0,
+        "min": 1081.8975965181987,
+        "max": 1081.8975965181987
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    },
+    "key_accuracy": {
+      "metric": "key_accuracy",
+      "label": "Key accuracy",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": 0.3333333333333333,
+        "median": 0.3333333333333333,
+        "sd": 0.0,
+        "min": 0.3333333333333333,
+        "max": 0.3333333333333333
+      },
+      "final": {
+        "n": 1,
+        "mean": 0.5333333333333333,
+        "median": 0.5333333333333333,
+        "sd": 0.0,
+        "min": 0.5333333333333333,
+        "max": 0.5333333333333333
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    },
+    "mean_signed_onset_error_ms": {
+      "metric": "mean_signed_onset_error_ms",
+      "label": "Signed onset error (ms)",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": -1145.538345972697,
+        "median": -1145.538345972697,
+        "sd": 0.0,
+        "min": -1145.538345972697,
+        "max": -1145.538345972697
+      },
+      "final": {
+        "n": 1,
+        "mean": -1076.7797430356343,
+        "median": -1076.7797430356343,
+        "sd": 0.0,
+        "min": -1076.7797430356343,
+        "max": -1076.7797430356343
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    },
+    "mean_absolute_duration_error_ms": {
+      "metric": "mean_absolute_duration_error_ms",
+      "label": "Absolute duration error (ms)",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": 622.4363009134928,
+        "median": 622.4363009134928,
+        "sd": 0.0,
+        "min": 622.4363009134928,
+        "max": 622.4363009134928
+      },
+      "final": {
+        "n": 1,
+        "mean": 299.1798718770345,
+        "median": 299.1798718770345,
+        "sd": 0.0,
+        "min": 299.1798718770345,
+        "max": 299.1798718770345
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    },
+    "complete_success_rate": {
+      "metric": "complete_success_rate",
+      "label": "Complete-performance rate",
+      "comparison": "Probe 3 vs Final (transfer: backlight also removed)",
+      "n": 1,
+      "probe3": {
+        "n": 1,
+        "mean": 0.06666666666666667,
+        "median": 0.06666666666666667,
+        "sd": 0.0,
+        "min": 0.06666666666666667,
+        "max": 0.06666666666666667
+      },
+      "final": {
+        "n": 1,
+        "mean": 0.26666666666666666,
+        "median": 0.26666666666666666,
+        "sd": 0.0,
+        "min": 0.26666666666666666,
+        "max": 0.26666666666666666
+      },
+      "ran": false,
+      "note": "n=1; no test run below n=5."
+    }
+  },
+  "withdrawal_cost": {
+    "finger_accuracy": {
+      "metric": "finger_accuracy",
+      "label": "Finger accuracy",
+      "pairs": [
+        "Training 5 -> Probe 1",
+        "Training 10 -> Probe 2",
+        "Training 15 -> Probe 3"
+      ],
+      "per_participant": {
+        "P01": [
+          -0.8,
+          -0.4666666666666667,
+          -0.6666666666666667
+        ]
+      },
+      "n_complete": 1,
+      "per_pair": [
+        {
+          "n": 1,
+          "mean": -0.8,
+          "median": -0.8,
+          "sd": 0.0,
+          "min": -0.8,
+          "max": -0.8
+        },
+        {
+          "n": 1,
+          "mean": -0.4666666666666667,
+          "median": -0.4666666666666667,
+          "sd": 0.0,
+          "min": -0.4666666666666667,
+          "max": -0.4666666666666667
+        },
+        {
+          "n": 1,
+          "mean": -0.6666666666666667,
+          "median": -0.6666666666666667,
+          "sd": 0.0,
+          "min": -0.6666666666666667,
+          "max": -0.6666666666666667
+        }
+      ],
+      "timing_note": "No timing withdrawal cost is reported. Training is a cue/response task and yields a reaction time; a probe is a performance against the melody's grid and yields an onset error. They measure different things, so their difference is not a cost."
+    },
+    "key_accuracy": {
+      "metric": "key_accuracy",
+      "label": "Key accuracy",
+      "pairs": [
+        "Training 5 -> Probe 1",
+        "Training 10 -> Probe 2",
+        "Training 15 -> Probe 3"
+      ],
+      "per_participant": {
+        "P01": [
+          -0.4,
+          -0.4,
+          -0.6666666666666667
+        ]
+      },
+      "n_complete": 1,
+      "per_pair": [
+        {
+          "n": 1,
+          "mean": -0.4,
+          "median": -0.4,
+          "sd": 0.0,
+          "min": -0.4,
+          "max": -0.4
+        },
+        {
+          "n": 1,
+          "mean": -0.4,
+          "median": -0.4,
+          "sd": 0.0,
+          "min": -0.4,
+          "max": -0.4
+        },
+        {
+          "n": 1,
+          "mean": -0.6666666666666667,
+          "median": -0.6666666666666667,
+          "sd": 0.0,
+          "min": -0.6666666666666667,
+          "max": -0.6666666666666667
+        }
+      ],
+      "timing_note": "No timing withdrawal cost is reported. Training is a cue/response task and yields a reaction time; a probe is a performance against the melody's grid and yields an onset error. They measure different things, so their difference is not a cost."
+    }
+  }
+}

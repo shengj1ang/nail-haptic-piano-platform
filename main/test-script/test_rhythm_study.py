@@ -777,77 +777,75 @@ class PerformanceTestBase(unittest.TestCase):
         self.runner.raw_events = events
 
 
-class TestProbePerformance(PerformanceTestBase):
-    """A probe: backlight walks the grid, so the grid's own zero is the
-    reference and an overall lag counts as timing error."""
+class TestProbeIsNotAPerformance(unittest.TestCase):
+    """A probe names the key and withholds the time.
 
-    GUIDED = True
-    PHASE = "probe"
+    It was briefly run as a performance with the backlight walking the
+    melody's grid. Tester 1's data showed that measured light-tracking
+    rather than recall - their onset error started 1.6 s behind the light
+    and shrank through the trial - so a probe is now note-by-note: the
+    backlight lights the target, waits, and goes out at the key press.
+    When to press and when to release are the participant's.
+    """
 
-    def test_a_full_clean_performance_scores_every_note_correct(self):
-        self.play(len(self.runner.targets))
-        self.runner._finish_performance()
-        self.assertEqual(len(self.runner.results), len(self.runner.targets))
-        self.assertTrue(all(r.note_correct for r in self.runner.results))
-        self.assertTrue(all(abs(r.timing_error_s) < 1e-9 for r in self.runner.results))
+    @classmethod
+    def setUpClass(cls):
+        import os
 
-    def test_timing_error_is_measured_against_the_melody_s_own_grid(self):
-        self.play(len(self.runner.targets), late_by={4: 0.3})
-        self.runner._finish_performance()
-        self.assertAlmostEqual(self.runner.results[4].timing_error_s, 0.3, places=6)
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
 
-    def test_a_late_start_is_timing_error_because_the_backlight_set_the_clock(self):
-        # The participant could see when every note was due, so lagging
-        # the whole melody is a real error here.
-        self.play(len(self.runner.targets), shift=0.25)
-        self.runner._finish_performance()
-        self.assertTrue(all(abs(r.timing_error_s - 0.25) < 1e-6 for r in self.runner.results))
+        cls.app = QApplication.instance() or QApplication([])
+        names = rs.discover_melodies()
+        if not names:
+            raise unittest.SkipTest("no melodies under data/rhythm_experiment/")
+        cls.melody = names[0]
 
-    def test_a_wrong_note_is_scored_wrong_but_still_consumes_its_slot(self):
-        # Positional matching: the n-th press is judged against the n-th
-        # note, so one wrong key must not shift every later note.
-        self.play(len(self.runner.targets), wrong_at=(2,))
-        self.runner._finish_performance()
-        self.assertFalse(self.runner.results[2].note_correct)
-        self.assertIsNotNone(self.runner.results[2].actual_note)
-        self.assertTrue(all(r.note_correct for r in self.runner.results[3:]))
+    def setUp(self):
+        self.runner, self.cue = make_runner("probe", True, False, self.melody)
+        self.addCleanup(self.cue.close)
+        self.addCleanup(self._close_runner)
+        self.runner.led_connected = True
+        self.runner.led_mapper = FakeLedMapper()
 
-    def test_stopping_early_leaves_the_unplayed_notes_marked(self):
-        self.play(len(self.runner.targets) - 2)
-        self.runner._finish_performance()
-        for result in self.runner.results[-2:]:
-            self.assertTrue(result.timed_out)
-            self.assertIsNone(result.actual_note)
-            self.assertIsNone(result.timing_error_s)
+    def _close_runner(self):
+        self.runner._allow_close = True
+        self.runner.close()
 
-    def test_it_saves_and_the_sidecar_arrays_match_the_results(self):
-        self.play(len(self.runner.targets))
-        self.runner._finish_performance()
-        self.assertEqual(self.saved, [True])
-        self.assertEqual(len(self.runner._first_cue_onsets), len(self.runner.results))
-        self.assertEqual(len(self.runner._recue_counts), len(self.runner.results))
-        self.assertTrue(all(c == 0 for c in self.runner._recue_counts))
+    def test_a_probe_is_note_by_note_not_a_performance(self):
+        self.assertFalse(self.runner._perform_mode)
 
-    def test_extra_presses_beyond_the_melody_do_not_add_results(self):
-        # They stay in the raw MIDI log, which is the complete record.
-        self.play(len(self.runner.targets))
-        self.runner.raw_events.append(FakeNoteOn(60, self.START + 99.0))
-        self.runner._finish_performance()
-        self.assertEqual(len(self.runner.results), len(self.runner.targets))
+    def test_a_probe_never_holds_the_cue_for_the_beat(self):
+        # Holding it would show how long the note lasts, which is exactly
+        # the thing the participant is being asked to remember.
+        self.assertIsNone(self.runner._sustain_length())
 
-    def test_a_guided_performance_ends_itself_after_the_last_note(self):
-        from rhythm_study.runner_window import PERFORM_TAIL_S
+    def test_the_backlight_goes_out_at_the_key_press(self):
+        self.runner._show_current_target()
+        note = self.runner.targets[0].note
+        self.assertIn(note, self.runner.led_mapper.lit)
+        self.runner._record_result(
+            timed_out=False, actual_note=note, keypress_time=time.time()
+        )
+        self.assertNotIn(note, self.runner.led_mapper.lit)
+        self.assertEqual(self.runner.phase, "gap")
 
-        self.play(len(self.runner.targets))
-        last_off = self.runner._target_offsets[-1]
-        # Still inside the melody: nothing should have been saved yet.
-        self.runner._perform_start = time.time() - last_off
-        self.runner._performance_tick()
-        self.assertEqual(self.saved, [])
-        # Past the tail: it finishes on its own, no Stop button needed.
-        self.runner._perform_start = time.time() - (last_off + PERFORM_TAIL_S + 0.1)
-        self.runner._performance_tick()
-        self.assertEqual(self.saved, [True])
+    def test_the_next_note_waits_for_the_participant(self):
+        # No clock: the cue for note 2 must not appear on its own while
+        # note 1 is still unanswered.
+        self.runner._show_current_target()
+        first = self.runner.cue_onset_time
+        for _ in range(5):
+            self.runner._tick()
+            time.sleep(0.01)
+        self.assertEqual(self.runner.current_index, 0)
+        self.assertEqual(self.runner.cue_onset_time, first)
+
+    def test_a_probe_delivers_no_haptic(self):
+        fake = FakeHaptic()
+        self.cue._haptic = fake
+        self.runner._show_current_target()
+        self.assertFalse(fake.on, "the haptic cue fired during a probe")
 
 
 class TestFinalPerformance(PerformanceTestBase):
@@ -870,12 +868,14 @@ class TestFinalPerformance(PerformanceTestBase):
         self.assertAlmostEqual(self.runner.results[4].timing_error_s, 0.3, places=6)
         self.assertTrue(abs(self.runner.results[0].timing_error_s) < 1e-6)
 
-    def test_an_unguided_performance_never_ends_itself(self):
-        # Nothing tells the participant the melody is over, so only the
-        # experimenter can end it.
+    def test_only_the_experimenter_ends_it(self):
+        # Nothing tells the participant the melody is over, and there is
+        # no self-ending branch: the final test is the one trial that
+        # runs until someone stops it.
         self.play(len(self.runner.targets))
         self.runner._perform_start = time.time() - 10_000.0
-        self.runner._performance_tick()
+        for _ in range(3):
+            self.runner._tick()
         self.assertEqual(self.saved, [])
         self.runner._finish_performance()
         self.assertEqual(self.saved, [True])

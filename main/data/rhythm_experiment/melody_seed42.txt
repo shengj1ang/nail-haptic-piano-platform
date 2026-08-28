@@ -1,0 +1,59 @@
+melody_seed42
+=============
+
+seed            42
+key             C major
+hand position   middle_c (pitch mode)
+                Both hands in the classic Middle C position: thumbs meet on C4, giving nine contiguous white keys F3-G4 with no gap and no thumb-under. Supports C major and A minor.
+tempo           60 BPM (1 beat = 1.000 s)
+length          15 notes, 1 rests, 22 beats = 22.000 s
+articulation    fixed_gap, 1-beat note sounds 0.75, 2-beat note sounds 1.75, 3-beat note sounds 2.75
+fingers used    L4 L2 L3 R2 R1 R3
+fingering map   G3=L4  A3=L3  B3=L2  C4=R1  D4=R2  E4=R3
+scores          musicality 0.957, difficulty 0.415
+validation      PASS (0 issues)
+candidates      40 accepted of 90 attempts
+
+phrases
+  0  statement  new         
+       notes   G3 B3 A3 B3
+       fingers L4 L2 L3 L2
+  1  answer     transpose   
+       notes   B3 D4 C4 D4
+       fingers L2 R2 R1 R2
+  2  contrast   new_contrast
+       notes   E4 D4 C4 B3
+       fingers R3 R2 R1 L2
+  3  cadence    cadence     
+       notes   E4 D4 C4
+       fingers R3 R2 R1
+
+timeline
+  beat       0       1       2       3       4       5       6       7       8       9      10      11
+         G3/L4   B3/L2   A3/L3   B3/L2       ~       .   B3/L2   D4/R2   C4/R1   D4/R2       ~       ~
+
+  beat      12      13      14      15      16      17      18      19      20      21
+         E4/R3   D4/R2   C4/R1   B3/L2       ~   E4/R3   D4/R2   C4/R1       ~       ~
+
+events
+   # hand  fin  note  midi  onset_b  dur_b     on_s    off_s  vel
+  ---------------------------------------------------------------
+   0    L   L4    G3    55     0.00   1.00    0.000    0.750   80
+   1    L   L2    B3    59     1.00   1.00    1.000    1.750   80
+   2    L   L3    A3    57     2.00   1.00    2.000    2.750   80
+   3    L   L2    B3    59     3.00   2.00    3.000    4.750   80
+   4    L   L2    B3    59     6.00   1.00    6.000    6.750   80
+   5    R   R2    D4    62     7.00   1.00    7.000    7.750   80
+   6    R   R1    C4    60     8.00   1.00    8.000    8.750   80
+   7    R   R2    D4    62     9.00   3.00    9.000   11.750   80
+   8    R   R3    E4    64    12.00   1.00   12.000   12.750   80
+   9    R   R2    D4    62    13.00   1.00   13.000   13.750   80
+  10    R   R1    C4    60    14.00   1.00   14.000   14.750   80
+  11    L   L2    B3    59    15.00   2.00   15.000   16.750   80
+  12    R   R3    E4    64    17.00   1.00   17.000   17.750   80
+  13    R   R2    D4    62    18.00   1.00   18.000   18.750   80
+  14    R   R1    C4    60    19.00   3.00   19.000   21.750   80
+
+rests
+   #  onset_b  dur_b  start_s    end_s  after event
+   0     5.00   1.00    5.000    6.000  3
