@@ -25,3 +25,10 @@ main/normalisation/
 # subset, is deliberately NOT ignored: a few megabytes, opens in a
 # spreadsheet, and is what an event-level question is answered from.
 main/data/MainUserStudy/model_figures/prediction_events.csv
+
+# Rhythm-experiment analysis output. Regenerated in full by the Rhythm
+# Group Analysis window from data/quiz/rhythm-* and each participant's
+# TrialStructure.json, both of which ARE tracked - so this is derived,
+# and a stale copy in the history is worse than none: it goes out of date
+# the moment a measure changes, and the figure filenames change with it.
+main/data/RhythmStudy/group_figures/
