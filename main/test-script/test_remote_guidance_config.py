@@ -4536,7 +4536,7 @@ class LauncherActionTests(unittest.TestCase):
         import launcher as launcher_module
 
         weights = [launcher_module.section_weight(tools) for _, tools in launcher_module.SECTIONS]
-        groups = launcher_module.balance_columns(weights, launcher_module.SECTION_COLUMNS)
+        groups = launcher_module.balance_columns(weights, launcher_module.MAX_SECTION_COLUMNS)
 
         self.assertEqual(sum(len(g) for g in groups), len(launcher_module.SECTIONS), "a section went missing")
         self.assertEqual(

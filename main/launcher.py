@@ -37,30 +37,51 @@ from PySide6.QtCore import Qt, QProcess, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-# Sections keep their numbered order and are split into this many
-# columns, top-to-bottom then on to the next column. How many sections
-# land in each column is COMPUTED from their sizes (see balance_columns)
-# rather than fixed: dealing them out round-robin used to put the two
-# six-button sections and Tele-training in the same column, making it
-# far taller than its neighbours and setting the window height on its
-# own.
-SECTION_COLUMNS = 4
+# Sections keep their numbered order and are split into columns,
+# top-to-bottom then on to the next column. How many sections land in
+# each column is COMPUTED from their sizes (see balance_columns) rather
+# than fixed: dealing them out round-robin used to put the two six-button
+# sections and Tele-training in the same column, making it far taller than
+# its neighbours and setting the window height on its own.
+#
+# How MANY columns is chosen at start-up to fit the actual screen width
+# (see columns_that_fit), never more than this. Four columns is the widest
+# the content ever wants; on a laptop screen too narrow to show four side
+# by side without running off the edge, fewer are used and the sections
+# that no longer fit across scroll vertically instead. Hard-coding four
+# was the bug: the window came up 2092 px wide on a 1280 px screen, so the
+# right-hand two columns sat off-screen with no way to reach them.
+MAX_SECTION_COLUMNS = 4
 
 # Roughly how much vertical space a section's group box costs beyond its
 # buttons - title, margins and the gap below it - expressed in button
 # heights, so balance_columns can compare a two-button box against a
 # six-button one meaningfully.
 BOX_CHROME_WEIGHT = 1.5
+
+# Horizontal chrome, in pixels, that a section's group box adds around its
+# widest button (border, box padding, the button's own layout margins) and
+# the gap between two columns. Used by columns_that_fit to predict how wide
+# a given number of columns would be without building the whole window;
+# calibrated against the real four-column width (2092 px) and only needs to
+# be in the right ballpark, since a QScrollArea catches any residual
+# overflow either way.
+BOX_H_CHROME = 40
+COLUMN_SPACING = 12
+# Left + right margin of the outer layout (setContentsMargins below).
+OUTER_H_MARGIN = 48
 
 APP_ICON = Path(__file__).resolve().parent / "app" / "assets" / "image" / "icon.png"
 
@@ -150,6 +171,54 @@ def balance_columns(weights, columns: int):
         if best_cost is None or cost < best_cost:
             best, best_cost = runs, cost
     return best
+
+
+def _section_button_widths():
+    """The widest button, in pixels, in each section - measured with the
+    real font and the launcher's own button padding, so columns_that_fit
+    predicts widths that match what actually gets drawn.
+
+    Measured off throwaway buttons rather than the live ones because this
+    runs before the window is built, to decide how many columns it should
+    have in the first place."""
+    section_max = []
+    for _, tools in SECTIONS:
+        widths = [0]
+        for label, _entry in tools:
+            probe = QPushButton(label)
+            probe.setStyleSheet(STYLE_SHEET)
+            widths.append(probe.sizeHint().width())
+            probe.deleteLater()
+        section_max.append(max(widths))
+    return section_max
+
+
+def columns_that_fit(available_width: int, max_columns: int = MAX_SECTION_COLUMNS) -> int:
+    """The most columns whose group boxes fit side by side in
+    `available_width`, down to one.
+
+    More columns means a shorter but wider grid; the widest a column can be
+    is set by its longest button label, which never elides, so past a point
+    another column just pushes the right edge off the screen. This picks the
+    largest count that still fits, and the vertical scroll area soaks up the
+    height that the narrower grid trades for the width it saves.
+
+    `available_width` is the usable screen width; a little of it is reserved
+    here for the vertical scrollbar and the window border so the answer
+    leaves no horizontal overflow."""
+    section_max = _section_button_widths()
+    weights = [section_weight(tools) for _, tools in SECTIONS]
+    budget = available_width - (COLUMN_SPACING + BOX_H_CHROME)  # scrollbar + border slack
+    for columns in range(min(max_columns, len(SECTIONS)), 0, -1):
+        groups = balance_columns(weights, columns)
+        width = OUTER_H_MARGIN
+        for position, group in enumerate(groups):
+            width += max(section_max[i] for i in group) + BOX_H_CHROME
+            if position > 0:
+                width += COLUMN_SPACING
+        if width <= budget:
+            return columns
+    return 1
 
 
 class ProcessEntry:
@@ -513,6 +582,56 @@ QPushButton:hover {
 QPushButton:pressed {
     background: #24252c;
 }
+/* The sections live in a scroll area so they stay reachable on a screen
+   too small to show them all at once. Keep it and its viewport
+   transparent so the launcher's own background shows through rather than
+   a default grey panel, and drop the frame so there is no box drawn
+   around the grid. */
+QScrollArea#sectionScroll,
+QScrollArea#sectionScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #3a3b44;
+    border-radius: 6px;
+    min-height: 32px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #4a4c58;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    height: 0;
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #3a3b44;
+    border-radius: 6px;
+    min-width: 32px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4a4c58;
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    width: 0;
+    background: transparent;
+}
 """
 
 
@@ -550,6 +669,12 @@ class LauncherWindow(QWidget):
             "alone, stays open alongside others, or keeps running after the launcher closes."
         )
         subtitle.setObjectName("subtitle")
+        # Wrap rather than run off the edge: without this the subtitle is one
+        # unbroken line that, on its own, demands a ~2000 px-wide window - the
+        # second half of why the launcher opened wider than the screen.
+        subtitle.setWordWrap(True)
+        self._title = title
+        self._subtitle = subtitle
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -565,13 +690,19 @@ class LauncherWindow(QWidget):
         # Columns let each box hug its own content, and the freed vertical
         # space flows to the sections that need it (e.g. "10. Validation").
         #
-        # Which sections go in which column is balanced by size rather
-        # than dealt out round-robin - see balance_columns.
-        self.column_groups = balance_columns([section_weight(tools) for _, tools in SECTIONS], SECTION_COLUMNS)
+        # How many columns is chosen to fit the screen (columns_that_fit),
+        # never more than MAX_SECTION_COLUMNS; which sections go in which of
+        # them is balanced by size rather than dealt out round-robin - see
+        # balance_columns.
+        available_width = self._available_screen_width()
+        columns = columns_that_fit(available_width, MAX_SECTION_COLUMNS)
+        self.column_groups = balance_columns(
+            [section_weight(tools) for _, tools in SECTIONS], columns
+        )
         column_of = {index: column for column, group in enumerate(self.column_groups) for index in group}
 
         columns_row = QHBoxLayout()
-        columns_row.setSpacing(12)
+        columns_row.setSpacing(COLUMN_SPACING)
         column_layouts = []
         for _ in self.column_groups:
             col_widget = QWidget()
@@ -603,8 +734,75 @@ class LauncherWindow(QWidget):
         for col_layout in column_layouts:
             col_layout.addStretch(1)   # push boxes to the top of each column
 
-        layout.addLayout(columns_row)
-        layout.addStretch(1)
+        # The columns live inside a scroll area so that on a screen too
+        # short to show every section at once, the ones that overflow can be
+        # scrolled to instead of being clipped off the bottom. The width was
+        # already made to fit (columns_that_fit), so only the vertical bar is
+        # expected; the horizontal one is left AsNeeded purely as a safety
+        # net in case the real font measures a shade wider than predicted.
+        # The header (title + subtitle) stays put above it.
+        columns_container = QWidget()
+        columns_container.setLayout(columns_row)
+        self._sections_scroll = QScrollArea()
+        self._sections_scroll.setObjectName("sectionScroll")
+        self._sections_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._sections_scroll.setWidgetResizable(True)
+        self._sections_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._sections_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._sections_scroll.setWidget(columns_container)
+        self._columns_container = columns_container
+
+        layout.addWidget(self._sections_scroll, 1)
+
+    @staticmethod
+    def _available_screen_width() -> int:
+        """Usable width of the screen the launcher will open on, for deciding
+        how many columns fit. Falls back to the old four-column width if no
+        screen is reported yet, so a headless start still lays out sensibly."""
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            return screen.availableGeometry().width()
+        return 1180
+
+    def preferred_size(self):
+        """The size the window wants: wide enough for the chosen columns and
+        tall enough for the header plus the sections, each capped to the
+        screen so the window never opens larger than the space it has. Past
+        that cap the scroll area takes over and the rest is scrolled to.
+
+        The scroll area deliberately hides its child's true height from the
+        outer layout (that is how it lets the window shrink below the
+        content), so the natural height is added up by hand from the header
+        and the tallest column rather than read off self.sizeHint()."""
+        screen = QApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        self.ensurePolished()
+
+        content = self._columns_container.sizeHint()
+        # Width: the columns, the outer left/right margin and a lane for the
+        # vertical scrollbar.
+        width = content.width() + OUTER_H_MARGIN + 16
+        if avail is not None:
+            width = min(width, avail.width() - 40)
+
+        # Height: outer top+bottom margin, the title, the subtitle wrapped to
+        # the inner width, the fixed 6 px spacer, three 10 px layout gaps, and
+        # the tallest column.
+        inner_width = max(width - OUTER_H_MARGIN, 1)
+        subtitle_h = self._subtitle.heightForWidth(inner_width)
+        if subtitle_h < 0:
+            subtitle_h = self._subtitle.sizeHint().height()
+        height = (
+            40                                   # top + bottom contents margin (20 + 20)
+            + self._title.sizeHint().height()
+            + subtitle_h
+            + 6                                  # the addSpacing(6) below the subtitle
+            + 3 * 10                             # layout spacing between the four items
+            + content.height()
+        )
+        if avail is not None:
+            height = min(height, avail.height() - 40)
+        return width, height
 
     def _activate(self, entry) -> None:
         if isinstance(entry, (ProcessEntry, ActionEntry)):
@@ -818,10 +1016,20 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(str(APP_ICON)))  # on macOS this also sets the Dock icon
     window = LauncherWindow(cfg)
-    # Four size-balanced columns (see balance_columns): wider than the
-    # old three-column grid, but shorter, because no single column has to
-    # carry the two six-button sections at once.
-    window.resize(1180, 700)
+    # Size to the columns actually laid out (their count adapts to the
+    # screen), capped so the window never opens larger than the space it
+    # has - the sections scroll when they do not all fit. Centre it in the
+    # available area so a full-height window is not left with its title bar
+    # pushed above the top edge.
+    width, height = window.preferred_size()
+    window.resize(width, height)
+    screen = app.primaryScreen()
+    if screen is not None:
+        area = screen.availableGeometry()
+        window.move(
+            area.x() + max(0, (area.width() - width) // 2),
+            area.y() + max(0, (area.height() - height) // 2),
+        )
     window.show()
     sys.exit(app.exec())
 
