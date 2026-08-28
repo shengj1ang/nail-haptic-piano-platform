@@ -240,6 +240,29 @@ miss and never advances. Any key press advances, including a wrong one, which
 is scored wrong exactly as in the standalone quizzes. The number of re-cues per
 note is recorded.
 
+**The cue lasts the note, not the key press.** Both channels continue after
+the key goes down and stop when the beat ends: the participant holds the key
+while they can feel the buzz, and lets go when it stops. Every other quiz on
+this platform clears the cue the instant a response is recorded, which teaches
+the onset and nothing else — under that rule a 3-beat note and a 1-beat note
+are the same experience, and the durations built into the melody could not be
+learned at all. Since the melody's notes are 1, 2 and 3 beats long and
+duration is one of the measured outcomes, the cue has to carry it.
+
+The hold is measured **from the key press**, not from the cue. A training
+trial is paced entirely by the participant — the next note is not cued until
+the last is answered — so the note's slot effectively begins when they play
+it. Anchoring on the cue instead would mean the slower a participant was, the
+less of the note they would feel, and a participant slower than the note is
+long would feel none of it. The anchor and the per-note hold are both written
+into the trial's sidecar (`sustain_anchor`, `sustain_s`), so a later change of
+mind about it is visible in the data rather than inferred from whichever code
+was running at the time.
+
+Probes and the final test need none of this: they are performances against
+the melody's real grid, where the backlight already runs on the melody's own
+note-on and note-off times.
+
 This shape is right for teaching, and wrong for measuring rhythm. The next cue
 arrives a fixed 0.4 s after the previous key press, so a participant *cannot*
 play ahead of the apparatus, and their note timing is its timing, not theirs.
@@ -397,7 +420,7 @@ data/RhythmStudy/<participant>/TrialStructure.json   schedule + live progress
 data/quiz/rhythm-<participant>-T<NN>/                one trial, an ordinary quiz
     results.json          per-event record (no note-off - see Measures)
     meta.json             includes guidance_type: haptic | backlight | unguided
-    rhythm_recues.json    sidecar: first/last cue times and re-cue count
+    rhythm_recues.json    sidecar: first/last cue times, re-cue count, cue hold
     raw/midi_raw.json     the complete MIDI log
 data/RhythmStudy/group_figures/                      analysis output
 ```

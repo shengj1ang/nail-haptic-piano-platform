@@ -8,7 +8,7 @@ instead of picked here. What stays in this window is the hardware setup
 the quizzes always needed - connect the LED strip, pick the MIDI
 port/timbre, watch the camera view.
 
-Three things behave differently from every other quiz in this project,
+Four things behave differently from every other quiz in this project,
 and they are the whole reason this class exists.
 
 1. STIMULI COME FROM A MELODY, NOT FROM THE SONG LIBRARY
@@ -30,7 +30,15 @@ and they are the whole reason this class exists.
    The re-cue count and the first cue's timestamp go into a **sidecar**
    file, not into results.json - see `_save_recue_sidecar`.
 
-3. ONLY TRAINING IS A CUE/RESPONSE TASK
+3. A TRAINING CUE LASTS THE NOTE, NOT THE KEY PRESS
+   Every other quiz clears the cue the instant a response is recorded.
+   That teaches the onset and nothing else: a 3-beat note and a 1-beat
+   note feel identical. Here the buzz and the lit key continue past the
+   press and stop when the beat ends, so the participant feels how long
+   a note is. The hold is measured from the key press - see
+   `_begin_sustain` for why, and for what stops it.
+
+4. ONLY TRAINING IS A CUE/RESPONSE TASK
    A probe and the final test are played as whole performances against
    the melody's own time grid, which is what makes their onset and
    duration errors real measurements rather than reaction times. During
@@ -115,6 +123,12 @@ class RhythmRunnerWindow(QuizWindow):
         self._recue_counts: List[int] = []
         self._note_first_cue: Optional[float] = None
         self._note_recues = 0
+        # A note is not over when the key goes down - it is over when the
+        # beat is. These hold the cue open across the response; see
+        # _record_result.
+        self._sustaining = False
+        self._sustain_until: Optional[float] = None
+        self._sustain_lengths: List[float] = []
 
         # Performance state. Probes and the final test are played as
         # whole performances rather than note by note; only training runs
@@ -128,6 +142,7 @@ class RhythmRunnerWindow(QuizWindow):
         # against, and what the backlight follows during a probe.
         self._target_onsets: List[float] = []
         self._target_offsets: List[float] = []
+        self._target_durations: List[float] = []
 
         # The song picker and the quiz-name box are dead controls here -
         # both are decided by the participant's schedule - so they come
@@ -298,6 +313,8 @@ class RhythmRunnerWindow(QuizWindow):
         self._recue_counts = []
         self._note_first_cue = None
         self._note_recues = 0
+        self._sustain_lengths = []
+        self._end_sustain()
         self._perform_start = None
         self._perform_lit = None
 
@@ -354,6 +371,13 @@ class RhythmRunnerWindow(QuizWindow):
         # and during a probe the backlight walks it.
         self._target_onsets = [note.note_on_time_sec for note in melody.notes]
         self._target_offsets = [note.note_off_time_sec for note in melody.notes]
+        # How long each note SOUNDS - the melody's gate time, one beat
+        # minus the release gap for a 1-beat note. This is what a
+        # training cue has to last for the participant to feel the
+        # difference between a 1-, 2- and 3-beat note.
+        self._target_durations = [
+            note.note_off_time_sec - note.note_on_time_sec for note in melody.notes
+        ]
         self.current_song_name = melody_name
 
         try:
@@ -445,7 +469,84 @@ class RhythmRunnerWindow(QuizWindow):
         self._recue_counts.append(self._note_recues)
         self._note_first_cue = None
         self._note_recues = 0
+
+        # The cue outlasts the key press by the note's own length, so the
+        # participant feels how long the note is rather than only when it
+        # starts - see _begin_sustain().
+        sustain = self._sustain_length()
+        self._sustain_lengths.append(sustain or 0.0)
+        if sustain:
+            self._begin_sustain(sustain)
+
         super()._record_result(timed_out=False, actual_note=actual_note, keypress_time=keypress_time)
+
+        if sustain:
+            # The base put us in "gap", which would cue the next note
+            # 0.4 s from now. The gap belongs *after* this note finishes
+            # sounding, not on top of it.
+            self.phase = "sustain"
+            self.phase_start_wall = time.time()
+
+    # ------------------------------------------------------------------
+    # Holding a cue for the length of the note
+    # ------------------------------------------------------------------
+    #
+    # The melody's notes are 1, 2 or 3 beats long, and that is a property
+    # the participant has to learn, not just which key to press. Every
+    # other quiz in this project clears the cue the moment a response is
+    # recorded, which teaches only the onset: a 3-beat note and a 1-beat
+    # note feel identical.
+    #
+    # So in training the LED stays lit and the motor stays buzzing after
+    # the key goes down, and both stop when the note's beat ends. The
+    # instruction to the participant is "hold the key while you can feel
+    # it, and let go when the buzzing stops".
+    #
+    # The length is measured from the KEY PRESS, not from the cue. A
+    # training trial is paced entirely by the participant - the next note
+    # is not cued until the last is answered - so the note's slot
+    # effectively begins when they play it. Anchoring on the cue instead
+    # would mean that the slower a participant was, the less of the note
+    # they would feel, and a participant slower than the note is long
+    # would feel none of it, which is the opposite of what training is
+    # for.
+    #
+    # Probes and the final test need none of this: they are performances
+    # against the melody's real grid, where the backlight already runs on
+    # the melody's own on/off times (see _drive_backlight).
+
+    def _sustain_length(self) -> Optional[float]:
+        """How long the current note's cue should outlast the key press,
+        or None when this phase does not sustain."""
+        if self._trial is None or self._trial["phase"] != PHASE_TRAINING:
+            return None
+        if not 0 <= self.current_index < len(self._target_durations):
+            return None
+        return self._target_durations[self.current_index] or None
+
+    def _begin_sustain(self, seconds: float) -> None:
+        self._sustaining = True
+        self._sustain_until = time.time() + seconds
+        # Holds the buzz through the base's clear(), which runs inside
+        # _record_result a moment from now.
+        self._shared_cue.begin_hold()
+
+    def _end_sustain(self) -> None:
+        """Stop a held cue. Safe to call at any time, so every path that
+        ends a note or a trial can call it without first working out
+        whether a note was in progress."""
+        self._sustaining = False
+        self._sustain_until = None
+        self._shared_cue.end_hold()
+        super()._clear_current_led()
+
+    def _clear_current_led(self) -> None:
+        # The base clears the lit key inside _record_result. During a
+        # sustain the key is still sounding, so the LED stays on and is
+        # cleared by _end_sustain instead.
+        if self._sustaining:
+            return
+        super()._clear_current_led()
 
     # ------------------------------------------------------------------
     # Probes and the final test: played as whole performances
@@ -501,7 +602,15 @@ class RhythmRunnerWindow(QuizWindow):
         # "perform" are not among its phases, so those branches fall
         # through and the performance is driven from here instead.
         super()._tick()
-        if self.phase == "perform_countdown":
+        if self.phase == "sustain":
+            if time.time() >= (self._sustain_until or 0.0):
+                self._end_sustain()
+                # Hand back to the base's own between-notes gap, timed
+                # from now so it is a gap after the note rather than
+                # inside it.
+                self.phase = "gap"
+                self.phase_start_wall = time.time()
+        elif self.phase == "perform_countdown":
             remaining = COUNTDOWN_S - (time.time() - self.phase_start_wall)
             if remaining <= 0:
                 self._start_performance()
@@ -648,6 +757,14 @@ class RhythmRunnerWindow(QuizWindow):
         """
         if not self.results:
             return
+        # quiz_dir("") is data/quiz ITSELF, not a folder inside it, so a
+        # trial that never got as far as being named would drop this file
+        # straight into the folder the main study's quizzes live in - and
+        # lose its own re-cue record in the process. QuizWindow starts
+        # quiz_name empty, so this is reachable whenever a trial ends
+        # before _start_quiz has named it.
+        if not self.quiz_name:
+            return
         payload = {
             "quiz_name": self.quiz_name,
             "trial_index": self._trial_index,
@@ -656,14 +773,26 @@ class RhythmRunnerWindow(QuizWindow):
             "backlight": self._trial["backlight"] if self._trial else None,
             "haptic": self._trial["haptic"] if self._trial else None,
             "timeout_s": self.timeout_s,
+            # Anchor the cue sustain was measured from, so a later change
+            # of mind about it is visible in the data rather than
+            # inferred from the code that happened to be running.
+            "sustain_anchor": "keypress",
             "notes": [
                 {
                     "index": result.index,
                     "first_cue_onset_time": first,
                     "last_cue_onset_time": result.cue_onset_time,
                     "recue_count": recues,
+                    # How long the cue was held past the key press, so the
+                    # note's beat could be felt rather than only its onset.
+                    "sustain_s": sustain,
                 }
-                for result, first, recues in zip(self.results, self._first_cue_onsets, self._recue_counts)
+                for result, first, recues, sustain in zip(
+                    self.results,
+                    self._first_cue_onsets,
+                    self._recue_counts,
+                    self._sustain_lengths or [0.0] * len(self.results),
+                )
             ],
         }
         path = quiz_dir(self.quiz_name) / RECUE_SIDECAR_FILENAME
@@ -675,6 +804,9 @@ class RhythmRunnerWindow(QuizWindow):
         # The sidecar is written here, before the session controller is
         # told the trial is done, so the trial's folder is complete the
         # moment it is marked completed.
+        # A trial that finished on its last note leaves that note's cue
+        # held; nothing else would stop the motor.
+        self._end_sustain()
         try:
             self._save_recue_sidecar()
         except Exception as exc:  # never lose a recorded trial over a sidecar
@@ -689,6 +821,8 @@ class RhythmRunnerWindow(QuizWindow):
             self.trial_finished.emit(index)
 
     def _cancel_quiz(self) -> None:
+        # Cancelling mid-note must not leave the motor running.
+        self._end_sustain()
         super()._cancel_quiz()
         index, self._trial_index = self._trial_index, None
         self._trial = None

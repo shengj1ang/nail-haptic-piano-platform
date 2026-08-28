@@ -6,7 +6,7 @@ analyse every study built on them. The repository front door and its
 documentation map are one level up, in [`../README.md`](../README.md).
 
 Everything is reachable from one hub window, which groups the tools into the
-twelve numbered sections used throughout this file:
+numbered sections used throughout this file:
 
 ```bash
 python launcher.py

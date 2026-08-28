@@ -389,6 +389,28 @@ class TestDocumentationLinks(unittest.TestCase):
         ):
             self.assertIn(doc, text, f"the root README does not link {doc}")
 
+    def test_no_doc_hard_codes_a_launcher_section_count(self):
+        """Section counts go stale the moment a section is added.
+
+        "nine sections" outlived three additions in the old root README,
+        and "11 launcher sections" was wrong within a day of being
+        written. Prose that names the sections is fine; prose that counts
+        them is a promise the docs cannot keep.
+        """
+        import re
+
+        offenders = []
+        pattern = re.compile(
+            r"\b(?:nine|ten|eleven|twelve|thirteen|\d{1,2})\s+(?:launcher\s+|numbered\s+)?sections?\b",
+            re.IGNORECASE,
+        )
+        for path in self.docs():
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                match = pattern.search(line)
+                if match and "section" in match.group(0).lower():
+                    offenders.append(f"{path.relative_to(self.REPO)}: {line.strip()[:90]}")
+        self.assertEqual(offenders, [], "documentation counts launcher sections")
+
     def test_the_platform_readme_delegates_rather_than_repeats(self):
         # The two sections that have their own document must stay
         # orientation-sized. They were 575 and 100 lines before the
@@ -863,6 +885,289 @@ class TestFinalPerformance(PerformanceTestBase):
         self.runner._finish_performance()
         self.assertEqual(len(self.runner.results), len(self.runner.targets))
         self.assertTrue(all(r.timed_out for r in self.runner.results))
+
+
+class FakeHaptic:
+    """Stands in for the vibration rig, and remembers whether it is on."""
+
+    def __init__(self):
+        self.on = False
+        self.log = []
+        self.closed = False
+
+    def show_target(self, note, finger):
+        self.on = True
+        self.log.append(("buzz", finger))
+
+    def clear(self):
+        if self.on:
+            self.log.append(("stop",))
+        self.on = False
+
+    def close(self):
+        self.on = False
+        self.closed = True
+
+
+class FakeLedMapper:
+    def __init__(self):
+        self.lit = set()
+        self.log = []
+
+    def light_key(self, note):
+        self.lit.add(note)
+        self.log.append(("on", note))
+
+    def clear_key(self, note):
+        self.lit.discard(note)
+        self.log.append(("off", note))
+
+    def clear_all(self):
+        self.lit.clear()
+
+
+class TestCueSustain(unittest.TestCase):
+    """A cue outlasts the key press by the note's own length.
+
+    The melody has 1-, 2- and 3-beat notes, and how long a note lasts is
+    part of what the participant has to learn. Every other quiz in this
+    project clears the cue the instant a response is recorded, which
+    teaches the onset only: a 3-beat note and a 1-beat note would feel
+    identical. In training the buzz and the lit key therefore continue
+    past the press and stop when the beat ends.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import os
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+        names = rs.discover_melodies()
+        if not names:
+            raise unittest.SkipTest("no melodies under data/rhythm_experiment/")
+        cls.melody = names[0]
+
+    def runner(self, phase="training", haptic=True, leds=False):
+        from app.config import Config
+
+        from rhythm_study.cue import RhythmCue
+        from rhythm_study.runner_window import RhythmRunnerWindow
+
+        self.fake = FakeHaptic()
+        cue = RhythmCue(haptic=self.fake)
+        runner = RhythmRunnerWindow(Config.load(), cue)
+        runner._load_melody_targets(self.melody)
+        runner._trial = {
+            "index": 1, "phase": phase, "melody": self.melody,
+            "backlight": True, "haptic": haptic,
+        }
+        runner.results = []
+        runner.current_index = 0
+        runner._first_cue_onsets = []
+        runner._recue_counts = []
+        runner._sustain_lengths = []
+        runner._note_first_cue = None
+        runner._note_recues = 0
+        runner.timeout_s = 5.0
+        if leds:
+            runner.led_connected = True
+            runner.led_mapper = FakeLedMapper()
+        cue.set_phase(haptic=haptic)
+
+        def close():
+            runner._allow_close = True
+            runner.close()
+            cue.close()
+
+        self.addCleanup(close)
+        return runner, cue
+
+    def press(self, runner, index=None):
+        index = runner.current_index if index is None else index
+        runner._record_result(
+            timed_out=False,
+            actual_note=runner.targets[index].note,
+            keypress_time=time.time(),
+        )
+
+    # -- the buzz ------------------------------------------------------
+
+    def test_the_buzz_survives_the_key_press(self):
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.assertTrue(self.fake.on)
+        self.press(runner)
+        self.assertTrue(self.fake.on, "the motor stopped the moment the key went down")
+        self.assertEqual(runner.phase, "sustain")
+
+    def test_the_buzz_stops_when_the_beat_ends(self):
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        runner._sustain_until = time.time() - 0.01
+        runner._tick()
+        self.assertFalse(self.fake.on)
+        self.assertEqual(runner.phase, "gap")
+
+    def test_the_motor_is_not_stopped_and_restarted_around_the_press(self):
+        # A clear() followed by a fresh show_target() would be audible as
+        # a gap, and would teach a rest that is not in the melody.
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        runner._sustain_until = time.time() - 0.01
+        runner._tick()
+        self.assertEqual(self.fake.log, [("buzz", runner.targets[0].finger), ("stop",)])
+
+    def test_a_longer_note_is_held_longer(self):
+        # The whole point: a 2-beat note has to feel like a 2-beat note.
+        runner, _ = self.runner()
+        durations = runner._target_durations
+        short = min(range(len(durations)), key=lambda i: durations[i])
+        long = max(range(len(durations)), key=lambda i: durations[i])
+        self.assertGreater(durations[long], durations[short])
+
+        held = {}
+        for index in (short, long):
+            runner.current_index = index
+            runner._show_current_target()
+            before = time.time()
+            self.press(runner, index)
+            held[index] = runner._sustain_until - before
+            runner._sustain_until = time.time() - 0.01
+            runner._tick()
+        self.assertAlmostEqual(held[short], durations[short], places=1)
+        self.assertAlmostEqual(held[long], durations[long], places=1)
+        self.assertGreater(held[long], held[short])
+
+    def test_the_hold_is_measured_from_the_press_not_the_cue(self):
+        # A training trial is paced by the participant, so the note's
+        # slot begins when they play it. Anchoring on the cue would mean
+        # a slow participant felt less of the note - or none of it.
+        runner, _ = self.runner()
+        runner._show_current_target()
+        cue_time = runner.cue_onset_time
+        time.sleep(0.15)
+        press_time = time.time()
+        self.press(runner)
+        from_press = runner._sustain_until - press_time
+        from_cue = runner._sustain_until - cue_time
+        self.assertAlmostEqual(from_press, runner._target_durations[0], places=1)
+        self.assertGreater(from_cue, from_press)
+
+    # -- the LED -------------------------------------------------------
+
+    def test_the_lit_key_stays_lit_for_the_whole_beat(self):
+        runner, _ = self.runner(leds=True)
+        runner._show_current_target()
+        note = runner.targets[0].note
+        self.assertIn(note, runner.led_mapper.lit)
+        self.press(runner)
+        self.assertIn(note, runner.led_mapper.lit, "the key went dark at the key press")
+        runner._sustain_until = time.time() - 0.01
+        runner._tick()
+        self.assertNotIn(note, runner.led_mapper.lit)
+        self.assertEqual(runner.led_mapper.log, [("on", note), ("off", note)])
+
+    # -- the phases that must NOT sustain ------------------------------
+
+    def test_a_probe_does_not_sustain(self):
+        # A probe is a performance: the backlight already runs on the
+        # melody's real on/off times, so there is nothing to hold.
+        runner, _ = self.runner(phase="probe", haptic=False)
+        self.assertIsNone(runner._sustain_length())
+
+    def test_the_final_test_does_not_sustain(self):
+        runner, _ = self.runner(phase="final", haptic=False)
+        self.assertIsNone(runner._sustain_length())
+
+    # -- nothing may leave the motor running ---------------------------
+
+    def test_cancelling_mid_beat_stops_the_motor(self):
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        self.assertTrue(self.fake.on)
+        runner._cancel_quiz()
+        self.assertFalse(self.fake.on, "cancelling left the motor running")
+        self.assertFalse(runner._sustaining)
+
+    def test_finishing_a_trial_stops_the_motor(self):
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        self.assertTrue(self.fake.on)
+        runner._open_analysis_window()  # what _finish_quiz calls at the end
+        self.assertFalse(self.fake.on, "the last note's cue outlived its trial")
+        self.assertFalse(runner._sustaining)
+
+    def test_starting_the_next_trial_cannot_inherit_a_held_cue(self):
+        from rhythm_study.cue import RhythmCue
+
+        fake = FakeHaptic()
+        cue = RhythmCue(haptic=fake)
+        self.addCleanup(cue.close)
+        cue.set_phase(haptic=True)
+        cue.show_target(60, "L1")
+        cue.begin_hold()
+        cue.clear()
+        self.assertTrue(fake.on)  # held
+        cue.set_phase(haptic=True)  # the next trial starts
+        self.assertFalse(fake.on, "a held cue survived into the next trial")
+
+    def test_closing_the_cue_always_stops_the_motor(self):
+        from rhythm_study.cue import RhythmCue
+
+        fake = FakeHaptic()
+        cue = RhythmCue(haptic=fake)
+        cue.set_phase(haptic=True)
+        cue.show_target(60, "L1")
+        cue.begin_hold()
+        cue.close()
+        self.assertTrue(fake.closed)
+        self.assertFalse(fake.on)
+
+    # -- the sidecar must never escape its own quiz folder -------------
+
+    def test_an_unnamed_trial_writes_no_sidecar_at_all(self):
+        """quiz_dir("") is data/quiz itself, not a folder inside it.
+
+        QuizWindow starts quiz_name empty, so a trial that ends before
+        _start_quiz has named it would drop rhythm_recues.json straight
+        into the folder every main-study quiz lives in - and lose its own
+        record while doing it. This happened once for real.
+        """
+        from app.quiz import quiz_dir
+
+        from rhythm_study.runner_window import RECUE_SIDECAR_FILENAME
+
+        stray = quiz_dir("") / RECUE_SIDECAR_FILENAME
+        self.assertEqual(
+            quiz_dir(""), quiz_dir("x").parent,
+            "the empty name no longer resolves to the shared folder; "
+            "this test's premise needs rechecking",
+        )
+        existed = stray.exists()
+
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        runner.quiz_name = ""  # never named
+        runner._save_recue_sidecar()
+
+        self.assertEqual(stray.exists(), existed, f"wrote a stray sidecar to {stray}")
+
+    # -- provenance ----------------------------------------------------
+
+    def test_the_hold_is_recorded_per_note(self):
+        runner, _ = self.runner()
+        runner._show_current_target()
+        self.press(runner)
+        self.assertEqual(len(runner._sustain_lengths), 1)
+        self.assertAlmostEqual(runner._sustain_lengths[0], runner._target_durations[0])
 
 
 class TestCueSwitching(unittest.TestCase):

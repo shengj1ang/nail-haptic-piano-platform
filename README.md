@@ -28,7 +28,7 @@ here repeats them.
 
 | Document | What it covers |
 |---|---|
-| **[main/README.md](main/README.md)** | The platform: directory layout, all 11 launcher sections, the calibration→detection pipeline, and how to run each tool. **The main entry point for the software.** |
+| **[main/README.md](main/README.md)** | The platform: directory layout, every launcher section, the calibration→detection pipeline, and how to run each tool. **The main entry point for the software.** |
 | [teensy_driver/README.md](teensy_driver/README.md) | The firmware: motors, LEDs, accelerometers, and the complete serial protocol. |
 
 ### The experiments

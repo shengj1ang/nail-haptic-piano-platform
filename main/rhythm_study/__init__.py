@@ -63,6 +63,11 @@ study's design can move without touching a locked one:
 * **A timeout re-cues instead of advancing.** The standalone quizzes
   score a note as timed out and move on; here the cue is re-issued and
   the note waits (see :mod:`rhythm_study.runner_window`).
+* **A training cue lasts the note, not the key press.** Every other quiz
+  clears the cue the moment a response is recorded, which teaches the
+  onset only. Here the buzz and the lit key run on past the press and
+  stop when the beat ends, because how long a note lasts is part of what
+  this study asks the participant to learn.
 * **The final test is a free performance**, ended by the experimenter,
   not a note-by-note cue/response loop.
 * **No randomisation and no seed.** The 19-trial order is fixed by the

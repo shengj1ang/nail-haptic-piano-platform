@@ -52,11 +52,32 @@ class RhythmCue(CueOutput):
         # connected on demand by set_phase().
         self._haptic: Optional[HapticCueOutput] = haptic
         self._haptic_enabled = False
+        self._holding = False
         self._closed = False
 
     # ------------------------------------------------------------------
     # Session-controller side
     # ------------------------------------------------------------------
+
+    def begin_hold(self) -> None:
+        """Keep the current buzz running through the next clear().
+
+        A note is not over when the participant presses the key - it is
+        over when the beat is. The buzz has to outlast the key press for
+        the participant to feel *how long* a note lasts, and the trial
+        runner's base class clears the cue the instant a response is
+        recorded. Rather than fight that, the runner holds the cue open
+        across it and releases it when the note's duration has elapsed
+        (see ``RhythmRunnerWindow._record_result``).
+        """
+        self._holding = True
+
+    def end_hold(self) -> None:
+        """Release the hold and stop the buzz. Safe to call when no hold
+        is open, so every trial-ending path can call it unconditionally
+        rather than reasoning about whether a note was in progress."""
+        self._holding = False
+        self.clear()
 
     def set_phase(self, haptic: bool) -> None:
         """Called before each trial starts. Raises (like
@@ -64,7 +85,9 @@ class RhythmCue(CueOutput):
         rig and it can't be reached - the caller surfaces that and the
         trial doesn't start, rather than a training trial silently
         running with no haptic guidance."""
-        self.clear()
+        # A trial that ended mid-note must not leave a hold open for the
+        # next one, or its first buzz would never stop.
+        self.end_hold()
         if haptic and self._haptic is None:
             self._haptic = HapticCueOutput()
         self._haptic_enabled = haptic
@@ -87,6 +110,8 @@ class RhythmCue(CueOutput):
         pass
 
     def clear(self) -> None:
+        if self._holding:
+            return  # the note is still sounding - see begin_hold()
         if self._haptic is not None:
             self._haptic.clear()
 
@@ -94,6 +119,7 @@ class RhythmCue(CueOutput):
         if self._closed:
             return
         self._closed = True
+        self._holding = False  # a close must always be able to stop the motor
         if self._haptic is not None:
             self._haptic.close()
             self._haptic = None
