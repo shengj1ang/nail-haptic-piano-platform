@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "study": "rhythm",
+  "created_at": 1787947050.904303,
+  "participant": {
+    "name": "P02",
+    "sex": "male",
+    "age": 20,
+    "handedness": "right",
+    "piano_experience_years": 0,
+    "notes": ""
+  },
+  "keyboard_profile": "white-city-lab-20260717",
+  "melody": "melody_seed42",
+  "melody_summary": {
+    "name": "melody_seed42",
+    "note_count": 15,
+    "fingers_used": [
+      "L4",
+      "L2",
+      "L3",
+      "R2",
+      "R1",
+      "R3"
+    ],
+    "key_display": "C major",
+    "layout": "middle_c",
+    "bpm": 60.0,
+    "duration_s": 22.0,
+    "seed": 42
+  },
+  "phases": {
+    "training": "Training (backlight + haptic)",
+    "probe": "Probe (backlight only)",
+    "final": "Final test (no guidance)"
+  },
+  "phase_guidance": {
+    "training": {
+      "backlight": true,
+      "haptic": true
+    },
+    "probe": {
+      "backlight": true,
+      "haptic": false
+    },
+    "final": {
+      "backlight": false,
+      "haptic": false
+    }
+  },
+  "quiz_name_prefix": "rhythm",
+  "trials": [
+    {
+      "index": 1,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947079.326515,
+      "completed_at": 1787947119.139132,
+      "quiz_name": "rhythm-P02-T01",
+      "quiz_attempts": [
+        "rhythm-P02-T01"
+      ]
+    },
+    {
+      "index": 2,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 2,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947123.714036,
+      "completed_at": 1787947162.0108008,
+      "quiz_name": "rhythm-P02-T02",
+      "quiz_attempts": [
+        "rhythm-P02-T02"
+      ]
+    },
+    {
+      "index": 3,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 3,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947168.547138,
+      "completed_at": 1787947205.338655,
+      "quiz_name": "rhythm-P02-T03",
+      "quiz_attempts": [
+        "rhythm-P02-T03"
+      ]
+    },
+    {
+      "index": 4,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 4,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947208.1433768,
+      "completed_at": 1787947242.7350268,
+      "quiz_name": "rhythm-P02-T04",
+      "quiz_attempts": [
+        "rhythm-P02-T04"
+      ]
+    },
+    {
+      "index": 5,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 5,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947252.9772549,
+      "completed_at": 1787947288.5296881,
+      "quiz_name": "rhythm-P02-T05",
+      "quiz_attempts": [
+        "rhythm-P02-T05"
+      ]
+    },
+    {
+      "index": 6,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "completed",
+      "started_at": 1787947293.007508,
+      "completed_at": 1787947316.085793,
+      "quiz_name": "rhythm-P02-T06",
+      "quiz_attempts": [
+        "rhythm-P02-T06"
+      ]
+    },
+    {
+      "index": 7,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 6,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947318.660366,
+      "completed_at": 1787947352.8491468,
+      "quiz_name": "rhythm-P02-T07",
+      "quiz_attempts": [
+        "rhythm-P02-T07"
+      ]
+    },
+    {
+      "index": 8,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 7,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947355.254059,
+      "completed_at": 1787947389.7435951,
+      "quiz_name": "rhythm-P02-T08",
+      "quiz_attempts": [
+        "rhythm-P02-T08"
+      ]
+    },
+    {
+      "index": 9,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 8,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947391.4175282,
+      "completed_at": 1787947434.473717,
+      "quiz_name": "rhythm-P02-T09",
+      "quiz_attempts": [
+        "rhythm-P02-T09"
+      ]
+    },
+    {
+      "index": 10,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 9,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947436.415783,
+      "completed_at": 1787947470.83794,
+      "quiz_name": "rhythm-P02-T10",
+      "quiz_attempts": [
+        "rhythm-P02-T10"
+      ]
+    },
+    {
+      "index": 11,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 10,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947475.845376,
+      "completed_at": 1787947512.128405,
+      "quiz_name": "rhythm-P02-T11",
+      "quiz_attempts": [
+        "rhythm-P02-T11"
+      ]
+    },
+    {
+      "index": 12,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 2,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "completed",
+      "started_at": 1787947514.309515,
+      "completed_at": 1787947540.3335319,
+      "quiz_name": "rhythm-P02-T12",
+      "quiz_attempts": [
+        "rhythm-P02-T12"
+      ]
+    },
+    {
+      "index": 13,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 11,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947545.33273,
+      "completed_at": 1787947579.421994,
+      "quiz_name": "rhythm-P02-T13",
+      "quiz_attempts": [
+        "rhythm-P02-T13"
+      ]
+    },
+    {
+      "index": 14,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 12,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947581.39101,
+      "completed_at": 1787947617.117642,
+      "quiz_name": "rhythm-P02-T14",
+      "quiz_attempts": [
+        "rhythm-P02-T14"
+      ]
+    },
+    {
+      "index": 15,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 13,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947619.253236,
+      "completed_at": 1787947653.210976,
+      "quiz_name": "rhythm-P02-T15",
+      "quiz_attempts": [
+        "rhythm-P02-T15"
+      ]
+    },
+    {
+      "index": 16,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 14,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947658.1151721,
+      "completed_at": 1787947692.811244,
+      "quiz_name": "rhythm-P02-T16",
+      "quiz_attempts": [
+        "rhythm-P02-T16"
+      ]
+    },
+    {
+      "index": 17,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 15,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947697.544815,
+      "completed_at": 1787947731.529858,
+      "quiz_name": "rhythm-P02-T17",
+      "quiz_attempts": [
+        "rhythm-P02-T17"
+      ]
+    },
+    {
+      "index": 18,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 3,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "completed",
+      "started_at": 1787947738.074833,
+      "completed_at": 1787947759.949291,
+      "quiz_name": "rhythm-P02-T18",
+      "quiz_attempts": [
+        "rhythm-P02-T18"
+      ]
+    },
+    {
+      "index": 19,
+      "phase": "final",
+      "phase_label": "Final test (no guidance)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": false,
+      "haptic": false,
+      "rest_after": false,
+      "status": "completed",
+      "started_at": 1787947763.461466,
+      "completed_at": 1787947803.2582421,
+      "quiz_name": "rhythm-P02-T19",
+      "quiz_attempts": [
+        "rhythm-P02-T19"
+      ]
+    }
+  ],
+  "progress": {
+    "completed": 19,
+    "total": 19,
+    "next_trial_index": null,
+    "finished": true
+  }
+}

@@ -1,11 +1,14 @@
 # The Rhythm Experiment
 
-> **This is an exploratory pilot, and it is not part of the thesis.** No
-> result here is reported in `final_report_2026/`. It exists to find out
-> whether the cue-withdrawal question is worth asking properly and whether
-> the apparatus can ask it, so the protocol is expected to change between
-> testers and several things below record a change of mind rather than a
-> finding. Read it as a lab notebook for a design that is still moving.
+> **This is an exploratory pilot, it is not part of the thesis, and it
+> stopped after two testers.** No result here is reported in
+> `final_report_2026/`. It was built to find out whether the
+> cue-withdrawal question is worth asking properly and whether this
+> apparatus can ask it. The answer to the second half is "not yet, and
+> here is the list" — see [Results](#results) and
+> [What would have to change](#what-would-have-to-change). Time ran out
+> before that list could be worked through, so the study is left where it
+> is rather than half-fixed. Read it as a lab notebook, not a report.
 
 The most recent of this platform's studies, and the last to be built. Where
 the Main User Study asks which *cue modality* teaches a key-and-finger mapping
@@ -31,6 +34,7 @@ Launcher **section 11**. Code lives in two packages: `melody_generator/`
 - [Testers](#testers)
 - [Results](#results)
 - [Discussion](#discussion)
+  - [What would have to change](#what-would-have-to-change)
 
 ---
 
@@ -542,6 +546,10 @@ be trusted to find a real one.
 
 A pilot changes as it runs, so who ran which protocol is part of the record.
 
+Two testers ran, under **different probe forms** — the form changed because
+Tester 1's data showed the first one was measuring the wrong thing — and on
+different melodies. Neither is a participant in any reported study.
+
 ### Tester 1 (`P01`) — 2026-08-28
 
 Full 19-trial schedule on `melody_seed415411`, but under **the earlier probe
@@ -563,13 +571,197 @@ each one as `results_before_realign.json`, and the raw MIDI was never touched.
 Training trials were deliberately **not** re-paired — see
 [Refreshing already-recorded data](#refreshing-already-recorded-data).
 
+### Tester 2 (`P02`) — 2026-08-28
+
+Full 19-trial schedule on `melody_seed42`, under **the current probe form**
+(the backlight names the key and waits) and with all three apparatus fixes in
+place. The first clean run.
+
+The fixes are visible in the data: their probes recorded **no extra presses at
+all**, where Tester 1's had one to two per probe from presses swallowed in the
+gap, and positional pairing and alignment agree on every probe (15/15 either
+way) because there was nothing left to resynchronise.
+
 ## Results
 
-*Not yet collected.* Tester 1's numbers are in the table above only as
-evidence about the apparatus, not as findings.
+**Two testers, fifteen notes per probe, and different probe forms between
+them.** Nothing below is a finding about learning. It is a description of what
+two people did and, mostly, of what the apparatus turned out to be able and
+unable to measure. No statistical test was run: the analysis refuses to test
+below five complete participants, which is the right call here.
 
----
+### What the numbers were
+
+| | Probe 1 | Probe 2 | Probe 3 | Final |
+|---|---|---|---|---|
+| **Finger accuracy** — Tester 1 | 27% | 60% | 33% | 47% |
+| **Finger accuracy** — Tester 2 | 87% | 93% | 60% | 33% |
+| **Key accuracy** — Tester 1 | 93% | 100% | 100% | 67% |
+| **Key accuracy** — Tester 2 | 100% | 100% | 100% | 93% |
+| **\|IOI error\|** — Tester 2 | 405 ms | 267 ms | 408 ms | 304 ms |
+
+Withdrawal cost (probe minus the training trial before it), in percentage
+points of finger accuracy: **−73, −33, −60** for Tester 1 and **−13, +53, −27**
+for Tester 2.
+
+Tester 1's timing is omitted from the table above: their probes ran under the
+old form, where the backlight paced the melody, so their onset numbers measure
+how well they tracked a light.
+
+### 1. The bottleneck is the fingering, not the notes
+
+Key accuracy sits at or near 100% in every probe for both testers, and averages
+95–99% in training. Whatever they were failing to retain, it was not *which
+notes to play* — the melody's fifteen notes over seven or fewer keys are simply
+easy to remember.
+
+Finger accuracy is where everything happens, and where the haptic cue is the
+only thing carrying the information. That is the design working as intended:
+the manipulation lands on exactly the channel the cue owns.
+
+### 2. Removing the cue costs a lot, immediately
+
+Five of the six probe points are below the training trial that preceded them,
+several by a wide margin. Tester 1's first probe drops 73 percentage points.
+The substitutions are systematic rather than random — Tester 1 repeatedly
+answered a left-hand target with the right thumb or index:
+
+```
+target L2 -> played R1   x5
+target L4 -> played L2   x3
+target L2 -> played R2   x3
+```
+
+which is what falling back on a comfortable default looks like, not what
+forgetting looks like.
+
+### 3. There is no sign of that cost shrinking
+
+The retention question is whether the withdrawal cost gets smaller with more
+practice. It does not. **Both testers peak at probe 2 and fall back at probe
+3** — the probe that follows the most practice is the worst of the three for
+both of them:
+
+```
+Tester 1   27% -> 60% -> 33%
+Tester 2   87% -> 93% -> 60%
+```
+
+Two people at fifteen notes a probe cannot establish that shape, but it is the
+opposite of what improvement would look like, and it is the same shape twice.
+
+### 4. Training cannot show learning at all
+
+Tester 1's finger accuracy across the fifteen training repetitions:
+
+```
+100 100  93 100 100  87 100  93  87  93  93 100  87  93  93
+```
+
+At ceiling from the first repetition and very slightly *down* by the last. That
+is not a participant who failed to learn; it is a measurement that cannot
+move. **The haptic cue tells them which finger to use, so a training trial
+scores near 100% whether they have learned anything or not.** Repetition 1 and
+repetition 15 are indistinguishable by construction.
+
+So the design has only three informative measurement points per person, of
+fifteen notes each, and no way to see the learning it is supposedly measuring
+in between them.
+
+### 5. The finger measurement is not solid enough to lean on
+
+`target_finger_probability` is the camera's confidence in the finger the
+melody asked for; the decision threshold is 0.40.
+
+| | mean p(target) | events below 0.40 | manually reviewed |
+|---|---|---|---|
+| Tester 1 | 0.67 | 41 / 282 | **0** |
+| Tester 2 | 0.53 | 49 / 284 | **0** |
+
+Tester 2 spent the session **hovering at the threshold**, so a large share of
+their finger verdicts were decided by a margin that noise could flip. Not one
+event was put through the manual review queue that `app.finger_matching` exists
+to feed.
+
+That is enough to explain the one number above that makes no sense. Tester 2's
+withdrawal cost at probe 2 is **+53 pp** — the probe scored better than the
+training trial before it, which a "cost" cannot do. The training trial in
+question is repetition 10, scored 40%, and its mean p(target) is 0.38: the
+camera lost the hand, not the participant. The same is true of their
+repetitions 12–15 (0.42, 0.37, 0.49, 0.59).
+
+**Until those events are reviewed, no finger number here should be quoted.**
 
 ## Discussion
 
-*To be written once results are in.*
+### What this was worth
+
+The apparatus, not the answer. Three faults were found, all of which silently
+corrupted data and none of which would have been visible without running real
+people through it:
+
+- a **press played in the gap** before the cue was discarded, so the
+  participant pressed, nothing happened, and they pressed again — 26 times in
+  Tester 1's session alone;
+- **positional pairing** scored one dropped note as fourteen errors, turning a
+  15/15 performance into 5/15;
+- the **probe was measuring light-tracking**: Tester 1's onset error began 1.6 s
+  behind the backlight and shrank through the trial, which is what following a
+  metronome looks like, and the same light had already given away which note
+  came next.
+
+All three are fixed, and Tester 2's session shows the fixes holding. That is a
+real result for a pilot, and it is the reason to run one.
+
+### The obvious reading of probe 3, and why the design cannot test it
+
+Both testers were worse at the third probe than the second. The experimenter's
+reading is disengagement: **fifteen repetitions of the same fifteen-note melody
+is boring**, and a bored participant stops trying to use the fingering they
+were taught and reaches for whatever is comfortable — which is exactly the
+substitution pattern the errors show.
+
+That is plausible and it fits. It is also **untestable in this design**,
+because practice, time-on-task and boredom all increase together and the
+probes are the only measurement points. Probe 3 is simultaneously the
+best-practised, the most fatigued and the most bored point in the session, and
+nothing separates the three. A design that wanted to tell them apart would have
+to break the confound — vary the practice amount between participants, or
+interleave the probes differently, or measure engagement directly.
+
+Note also that the same reading fits the *other* interpretation: a participant
+who has genuinely learned the fingering has less reason to attend to it, and
+looks identical to one who has stopped caring. The data cannot separate
+"learned it and relaxed" from "gave up".
+
+### What would have to change
+
+Roughly in order of how much they cost:
+
+1. **Review the finger verdicts.** The queue exists and was never used. Nothing
+   about fingering can be concluded before this, and it is the cheapest item on
+   the list.
+2. **Make training measurable.** It is at ceiling because the cue gives the
+   answer. Withholding the haptic on a few scattered training notes, or scoring
+   training on reaction time and duration rather than accuracy, would restore a
+   learning curve.
+3. **More notes per probe.** Fifteen gives a binomial standard error of about
+   13 pp, which is wider than most of the differences discussed above. Playing
+   each probe twice would cost two minutes and cut that to about 9 pp.
+4. **Break the practice/boredom confound.** See above; this is a design change,
+   not a parameter.
+5. **A control condition.** There is nothing to compare retention *against*.
+   A group that trains without the haptic cue would say whether any of this is
+   about the cue at all.
+6. **More than two people.** The analysis will not run a test below five, and
+   it is right not to.
+
+### Why it stopped here
+
+Time. The list above is a redesign rather than a fix, and the thesis it would
+have supported is finished without it. What exists is a working apparatus, a
+protocol that has already been corrected three times against real data, an
+analysis pipeline whose measures were chosen *after* seeing what the apparatus
+could actually measure, and two sessions' worth of recordings kept in full —
+raw MIDI, video and all — so that anything here can be re-derived by whoever
+picks it up.

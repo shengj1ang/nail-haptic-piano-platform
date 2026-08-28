@@ -1,0 +1,120 @@
+{
+  "quiz_name": "rhythm-P02-T18",
+  "trial_index": 18,
+  "phase": "probe",
+  "melody": "melody_seed42",
+  "backlight": true,
+  "haptic": false,
+  "timeout_s": 5.0,
+  "sustain_anchor": "keypress",
+  "early_presses": 0,
+  "notes": [
+    {
+      "index": 0,
+      "first_cue_onset_time": 1787947744.255032,
+      "last_cue_onset_time": 1787947744.255032,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 1,
+      "first_cue_onset_time": 1787947745.12387,
+      "last_cue_onset_time": 1787947745.12387,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 2,
+      "first_cue_onset_time": 1787947745.8558762,
+      "last_cue_onset_time": 1787947745.8558762,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 3,
+      "first_cue_onset_time": 1787947746.624245,
+      "last_cue_onset_time": 1787947746.624245,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 4,
+      "first_cue_onset_time": 1787947747.356971,
+      "last_cue_onset_time": 1787947747.356971,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 5,
+      "first_cue_onset_time": 1787947749.128392,
+      "last_cue_onset_time": 1787947749.128392,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 6,
+      "first_cue_onset_time": 1787947749.99162,
+      "last_cue_onset_time": 1787947749.99162,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 7,
+      "first_cue_onset_time": 1787947750.8937001,
+      "last_cue_onset_time": 1787947750.8937001,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 8,
+      "first_cue_onset_time": 1787947752.0273228,
+      "last_cue_onset_time": 1787947752.0273228,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 9,
+      "first_cue_onset_time": 1787947753.094811,
+      "last_cue_onset_time": 1787947753.094811,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 10,
+      "first_cue_onset_time": 1787947754.262073,
+      "last_cue_onset_time": 1787947754.262073,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 11,
+      "first_cue_onset_time": 1787947755.263492,
+      "last_cue_onset_time": 1787947755.263492,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 12,
+      "first_cue_onset_time": 1787947756.430015,
+      "last_cue_onset_time": 1787947756.430015,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 13,
+      "first_cue_onset_time": 1787947757.4975948,
+      "last_cue_onset_time": 1787947757.4975948,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    },
+    {
+      "index": 14,
+      "first_cue_onset_time": 1787947758.6656141,
+      "last_cue_onset_time": 1787947758.6656141,
+      "recue_count": 0,
+      "sustain_s": 0.0
+    }
+  ],
+  "pairing": "sequence_alignment",
+  "extra_press_count": 0
+}
