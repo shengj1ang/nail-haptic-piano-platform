@@ -107,6 +107,9 @@ from remote_guidance.launcher_actions import (
 )
 from remote_guidance.config import RemoteGuidanceConfig
 from remote_guidance.setup_wizard import RemoteSetupWizard
+from rhythm_study.group_analysis_window import RhythmGroupAnalysisWindow
+from rhythm_study.schedule_window import RhythmScheduleWindow
+from rhythm_study.session_window import RhythmSessionWindow
 from music_playback import PlaybackWindow
 from student_quiz import QuizWindow
 from student_quiz_haptic import HapticQuizWindow
@@ -305,9 +308,19 @@ SECTIONS = [
         #   - it generates through the standalone melody_generator package,
         #     which shares no code with app.sequence_generator (section 4)
         #     and has no third-party dependencies;
-        #   - it writes only into data/rhythm_experiment/ - never
-        #     config.json, never a keyboard profile, never data/sequence/,
-        #     data/music/, data/quiz/ or data/MainUserStudy/;
+        #   - its stimulus tools write only into data/rhythm_experiment/,
+        #     and nothing here ever writes config.json, a keyboard
+        #     profile, data/sequence/, data/music/ or data/MainUserStudy/;
+        #   - the session tools add two write targets, both namespaced:
+        #     schedules go to data/RhythmStudy/<participant>/, and each
+        #     trial is recorded as an ordinary quiz under data/quiz/ with
+        #     a "rhythm-" prefix. That shared folder is the one place the
+        #     two studies meet, and only by filename - the main study's
+        #     data collection is complete and nothing here rewrites it.
+        #     Trial records stay byte-compatible with an ordinary quiz
+        #     (app.quiz.load_quiz_results does QuizResult(**item), so an
+        #     extra key would break every analysis window that opened
+        #     one); this study's extra per-note fields go in a sidecar;
         #   - its melodies are not registered with app.song_library, so one
         #     cannot turn up in the song pickers used by music_playback,
         #     student_quiz or student_quiz_haptic;
@@ -326,6 +339,24 @@ SECTIONS = [
             # times) plus its .mid as a cross-check, and plays it on the same
             # piano the generator previews on.
             ("Playback Rhythm Melody", RhythmMelodyPlayerWindow),
+            # The run-time half (rhythm_study/), mirroring section 6's
+            # pair. The schedule is fixed by the design - Training x5,
+            # Probe, x3, then the final test - so there is nothing to
+            # randomise and no seed to store; the one choice made here is
+            # which melody the participant is locked to for all 19
+            # trials.
+            ("Rhythm Trial Schedule", RhythmScheduleWindow),
+            # Opens two windows: the session controller and the trial
+            # runner. No participant-facing cue screen - this study has
+            # no visual guidance, so the only cues are the keyboard's
+            # backlight and the haptic motors.
+            ("Rhythm Experiment Session", RhythmSessionWindow),
+            # This study's whole analysis stage, in one window - it asks
+            # one question (does the fingering and timing survive the
+            # haptic cue being removed?) and answers it from the three
+            # probes, so it does not need the main study's split into
+            # participant / group / model windows.
+            ("Rhythm Group Analysis", RhythmGroupAnalysisWindow),
         ],
     ),
 ]

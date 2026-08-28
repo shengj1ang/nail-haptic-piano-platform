@@ -1,223 +1,129 @@
-# Nail-Mounted Haptic Cues for Piano Training and Tele-training — Code Repository 
+# Nail-Mounted Haptic Cues for Piano Training and Tele-training
 
-Implementation side of the MSc project "Nail-Mounted Haptic Cues for Piano
-Training and Tele-training": a multimodal piano-guidance platform combining a
-MIDI keyboard, per-key LED backlighting, nail-mounted vibrotactile actuators
-(Teensy-driven), camera-based finger-use detection, and the experiment
-software for the controlled pilot study defined in
-`../final_report_2026/method/method.tex`.
+Code repository for the MSc project of the same name. The thesis is a separate
+repository; its methodology chapter (`../final_report_2026/method/method.tex`)
+defines the protocols this software implements, and the two are meant to be
+read together.
 
-It includes:
-- asynchronous multi-motor control firmware (Teensy) + WS2812 LED control
-- Python calibration/detection pipeline (camera + MIDI + MediaPipe) — see
-  [main/README.md](main/README.md)
-- constrained bimanual stimulus-sequence generator with difficulty
-  validation and seeded reproducibility — see
-  [main/SEQUENCE_GENERATOR_ALGORITHM.md](main/SEQUENCE_GENERATOR_ALGORITHM.md)
-- cue-response quiz tools (visual / haptic finger cues) with full-session
-  recording and offline finger-matching analysis, plus the main-user-study
-  runner and analysis windows (launcher sections 6-7)
-- repeatable hardware validation/calibration experiments (LRA resonance +
-  intensity sweeps, motor→ACC delay) with GUI wrappers in launcher section 9
-  — see [main/validation_experiments/](main/validation_experiments/)
-- audio-based latency measurement and analysis utilities
-- the pilot-study protocol is defined in `../final_report_2026/method/method.tex`
+The platform is a multimodal piano-guidance rig: a MIDI keyboard with per-key
+LED backlighting, ten nail-mounted vibrotactile actuators driven by a Teensy
+4.1, an overhead camera for finger-use detection, and the experiment software
+that runs and analyses the studies built on top of it.
 
----
+Everything is reachable from one hub window:
 
-## Project Structure
-```
-root/
-├── teensy_driver/   # Teensy 4.1 firmware: motors (PWM, async), WS2812 LEDs,
-│                    #   LIS3DH accelerometers — full serial protocol in its README
-├── main/            # Python platform (renamed from python-code): launcher hub,
-│   │                #   calibration wizards, quiz + main-study tools, analysis
-│   ├── app/                     # UI package: camera+MIDI finger-detection pipeline, GUIs
-│   ├── launcher.py, setup_*.py, student_quiz*.py, quiz_analysis.py  # entry points
-│   ├── common/                  # shared low-level serial/motor/LED modules
-│   ├── validation_experiments/  # repeatable calibration experiments + shared rig helpers
-│   ├── data/                    # calibration profiles, sequences, quiz/study/validation data
-│   ├── test-script/             # older non-UI control/testing/latency scripts
-│   └── read_data_from_accelerometer/  # legacy LIS3DH reader (reference, see its README)
-├── archived/        # superseded prototypes + completed one-off studies (see its README):
-│                    #   early firmware sketches, FingerAccuracy prototypes,
-│                    #   human_reaction / attachment_verification study records
-├── 3d_model/        # SolidWorks models for the hardware case
-└── README.md
+```bash
+cd main && python launcher.py
 ```
 
 ---
 
-## Arduino Firmware (teensy_driver)
+## Where to read what
 
-The firmware (identity `haptic-piano`, check with `E`) runs on a Teensy 4.1
-and handles three subsystems over one USB serial connection:
+This README is the front door and stays short. Every subject below has its own
+document, and each is the single place that subject is written up — nothing
+here repeats them.
 
-- PWM output for 12 motor pins (10 finger motors + LRA/ERM test channels),
-  non-blocking async scheduling, per-pin PWM frequency (boot default 224 Hz,
-  the LRA's measured resonance)
-- two WS2812 LED strips (framebuffer + DMA output)
-- up to three LIS3DH accelerometers on a shared SPI bus (1.344 kHz ODR,
-  streamed as `ACC,<id>,x,y,z`)
+### Start here
 
-### Command summary (full protocol: [teensy_driver/README.md](teensy_driver/README.md))
+| Document | What it covers |
+|---|---|
+| **[main/README.md](main/README.md)** | The platform: directory layout, all 11 launcher sections, the calibration→detection pipeline, and how to run each tool. **The main entry point for the software.** |
+| [teensy_driver/README.md](teensy_driver/README.md) | The firmware: motors, LEDs, accelerometers, and the complete serial protocol. |
+
+### The experiments
+
+Four strands of experimental work, in the order they were built. Each has its
+own protocol and write-up.
+
+| Study | Launcher | Document |
+|---|---|---|
+| **Actuator validation** — resonance, intensity, motor→ACC delay, spectra, adhesives | section 9 | [main/validation_experiments/README.md](main/validation_experiments/README.md) and one README per experiment |
+| **Main User Study** — which cue modality teaches a key-and-finger mapping best | sections 6–7 | method chapter; stimulus algorithm in [main/SEQUENCE_GENERATOR_ALGORITHM.md](main/SEQUENCE_GENERATOR_ALGORITHM.md) |
+| **Tele-training** — guidance delivered over a network | section 8 | [main/REMOTE_GUIDANCE.md](main/REMOTE_GUIDANCE.md) |
+| **Rhythm experiment** — what survives when the cue is withdrawn | section 11 | [main/RHYTHM_EXPERIMENT.md](main/RHYTHM_EXPERIMENT.md) |
+
+The validation experiments are experiments in the same sense as the others,
+and they come first in the dependency order: they are why the cue amplitude
+and frequency are the values they are rather than a guess.
+
+### Algorithms
+
+| Document | What it covers |
+|---|---|
+| [main/SEQUENCE_GENERATOR_ALGORITHM.md](main/SEQUENCE_GENERATOR_ALGORITHM.md) | The Main User Study's stimulus generator: matched bimanual sequence families per difficulty level (α/β/γ), constraint-driven, seeded, with automatic difficulty validation. |
+| [main/melody_generator/README.md](main/melody_generator/README.md) | The rhythm experiment's melody generator: motif-and-phrase construction, melodic rules in scale steps, static fingering, whole-beat rhythm, and the scoring that selects a candidate. |
+
+### Deployment and reference
+
+| Document | What it covers |
+|---|---|
+| [main/server/README.md](main/server/README.md) | The tele-training relay server as an operator guide: accounts and rooms, HTTP↔HTTPS, JWT keys vs TLS certificates, deploying `server/` on its own, and the full REST + WebSocket reference. |
+| [archived/README.md](archived/README.md) | Superseded prototypes and two completed one-off studies, kept for provenance. |
+| [main/read_data_from_accelerometer/README.md](main/read_data_from_accelerometer/README.md) | Legacy standalone LIS3DH reader, pre-dating the unified firmware. Reference only. |
+
+---
+
+## Repository structure
+
 ```
-X                          stop all motors
-E                          firmware identity/version
-P idx count amp on off     async pulse pattern on one motor
-S mask amp                 set motors by bitmask (full-state, persists)
-F idx freq                 set PWM frequency of a motor pin
-L / B / C / U              LED set-pixel / brightness / clear / show
-A START|STOP|RATE|WHOAMI   accelerometer streaming and probing
+individual_project_2026/
+├── main/                 the Python platform - launcher hub, calibration wizards,
+│   │                     quiz and study tools, analysis, all four studies
+│   ├── app/                     UI package: camera + MIDI finger-detection pipeline, GUIs
+│   ├── common/                  shared low-level serial / motor / LED modules
+│   ├── remote_guidance/         tele-training clients (section 8)
+│   ├── server/                  the relay server - imports nothing from the platform
+│   ├── melody_generator/        rhythm-experiment stimulus generator (stdlib only)
+│   ├── rhythm_study/            rhythm-experiment sessions and analysis
+│   ├── validation_experiments/  hardware validation experiments (section 9)
+│   ├── data/                    calibration profiles, stimuli, and every study's data
+│   └── test-script/             the test suite, plus older non-UI hardware scripts
+├── teensy_driver/        Teensy 4.1 firmware: motors (async PWM), WS2812 LEDs, LIS3DH
+├── 3d_model/             SolidWorks models and STLs for the actuator mounts and case
+└── archived/             superseded prototypes and completed one-off studies
 ```
----
-
-## Python Code (main)
-
-Everything is reachable from the hub window (`python launcher.py`, nine
-sections from initial setup through data analysis and validation
-experiments); every tool also works standalone. See
-[main/README.md](main/README.md) for the complete layout and per-tool
-documentation.
-
-- [app/](main/app) — the UI package: camera + MIDI finger-detection
-  pipeline, quiz/pilot-study/analysis windows
-- `validation_experiments/` — repeatable calibration experiments (LRA
-  sweeps, motor→ACC delay) with per-run CSV/PNG/meta outputs under
-  `data/validation_experiments/`
-- `test-script/` — older, non-UI control, testing, and analysis scripts
-- `common/` — shared low-level modules used across the platform
 
 ---
 
-## File Overview
+## Getting started
 
-### common/controller.py
+**Requirements.** Python 3.11+ and the pinned dependency set:
 
-High-level interface for communicating with the device.
-
-Provides:
-- connection handling
-- command sending
-- pulse control
-- async motor triggering
-
----
-
-### common/serial_utils.py
-
-Handles serial port detection and initialization.
-
-Features:
-- automatic port selection (macOS / Linux / Windows)
-- fallback to manual selection when needed
-
----
-
-### test-script/demo_send_motor_command_async.py
-
-Demonstrates asynchronous motor control.
-
-- starts one motor
-- injects additional motors while it is still running
-- shows non-blocking behavior
-
----
-
-### test-script/demo_keyboard_control.py
-
-Real-time keyboard control.
-
-- maps keys (A–;) to motors (0–9)
-- supports multiple simultaneous key presses
-- uses `S mask` for real-time control
-
----
-
-### test-script/detect_live_motor.py
-
-Real-time microphone-based detection tool.
-
-- continuously monitors audio input
-- detects vibration presence
-- helps tune detection parameters (threshold, frequency band)
-
----
-
-### test-script/measure_latency.py
-
-Single-motor latency measurement.
-
-- triggers motor once
-- detects acoustic onset
-- estimates end-to-end latency
-
----
-
-### test-script/measure_latency_multi_motor.py
-
-Advanced latency measurement (multi-motor version).
-
-Features:
-- random motor selection (configurable)
-- multiple runs (statistical analysis)
-- per-motor latency comparison
-- automatic plotting and saving
-
----
-
-## Latency Measurement
-
-Latency is estimated using:
-
-1. Send command via serial  
-2. Motor starts vibrating  
-3. Microphone detects vibration sound  
-4. Compute time difference  
-
-This includes:
-- serial transmission delay  
-- MCU execution time  
-- motor response time  
-- acoustic propagation  
-- audio capture latency  
-
----
-
-## Output (latency_results)
-
-Running the measurement script generates (under `test-script/`):
+```bash
+pip install -r main/requirements.txt
 ```
-latency_results/
-├── latency_by_run.png
-├── latency_grouped_by_motor.png
-├── latency_histogram.png
-├── summary.txt
-```
+
+That file also carries the tele-training dependencies; `main/server/requirements.txt`
+lists the relay's alone, for deploying that folder by itself.
+
+**Hardware.** A Teensy 4.1 running the `haptic-piano` firmware (verify with the
+`E` command — see [teensy_driver/README.md](teensy_driver/README.md)), a MIDI
+keyboard, two WS2812 LED strips, ten vibrotactile actuators, and a camera
+positioned above the keyboard.
+
+**First run.** Work through launcher section 1 (Initial Setup) in order —
+camera selection, keyboard calibration, MIDI mapping — before anything else.
+Every later tool reads the calibration profile those wizards produce.
+[main/README.md](main/README.md) walks through each section.
+
 ---
 
-## Configuration
+## Notes for reviewers
 
-In `test-script/measure_latency_multi_motor.py`:
+- **The protocols live in the thesis**, not here. This repository documents
+  what the software does and how it is built; `method.tex` defines what the
+  studies are and why. Where a design decision is forced by the methodology,
+  the code comments say so and name the section.
+- **Each study's data stays in its own folder** under `main/data/`, and the
+  studies are isolated from one another structurally rather than by
+  convention — the constraints are stated in each study's document and are
+  enforced by tests.
+- **The test suite** is `main/test-script/`:
 
-```python
-TEST_MOTORS = [0, 2, 6]
-NUM_RUNS = 20
+  ```bash
+  cd main && QT_QPA_PLATFORM=offscreen python -m pytest test-script/ -q --ignore=test-script/test_led_array.py
+  ```
 
-You can modify:
-	•	which motors to test
-	•	number of runs
-	•	detection parameters
-
-⸻
-
-Notes
-	•	Using pins 0 and 1 may conflict with serial on some boards
-	•	Ensure power supply is sufficient for multiple motors
-	•	Microphone positioning significantly affects measurement accuracy
-Version
-
-Current version includes:
-	•	async firmware
-	•	Python control layer
-	•	measurement + visualization pipeline
+  `test_led_array.py` is excluded because it prompts for a serial port on
+  stdin; it is a hardware tool, not an automated test.

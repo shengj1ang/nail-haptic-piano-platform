@@ -18,7 +18,7 @@ anything here.
 | Document | Path | What it covers |
 |---|---|---|
 | **Relay server operator guide** | [`server/README.md`](server/README.md) | Running the server, accounts/rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, the full REST + WebSocket reference, and the latency-metric definitions |
-| Platform README, Tele-training section | [`README.md`](README.md) § "Tele-training (launcher section 8)" | User-facing quick start, config block, guidance modes, what is reused, timing summary |
+| Platform README, Tele-training section | [`README.md`](README.md) § "Tele-training (launcher section 8)" | Orientation only: what the module is, the six launcher buttons, and where to read on. The user-facing detail it used to hold - setup wizard, guidance modes, what is reused, timing, the benchmark - is now § 12 of this file |
 | Platform README, everything else | [`README.md`](README.md) | The non-remote platform: calibration profiles, quiz, sequence generator, analysis, haptic config |
 | Report methodology | `../../final_report_2026/method/method.tex` | § "Network-Based Guidance Latency", § "Tele-training Guidance Modes", § "System Transmission Performance Benchmarking" - the requirements this module implements |
 | Sequence generator | [`SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) | Only relevant because generated sequences can be uploaded as recordings |
@@ -1445,3 +1445,274 @@ If you have room to read only a few files, read them in this order:
 
 Then §4 of this file, which is the list of things that look like details
 and are actually load-bearing.
+
+---
+
+## 12. Operating it - the user-facing reference
+
+Moved here from the platform README, which had grown a 575-line
+tele-training chapter of its own. Everything below is about *using* the
+module rather than its architecture; the README now carries only an
+orientation and a pointer to this file.
+
+### Setting up a new remote student or teacher
+
+**Tele-training Setup Wizard** (section 8) builds a **keyboard profile**
+for this machine: the camera, the calibration of that camera's view of the
+keyboard, and that keyboard's key→note mapping. Use it - not section 1's
+Initial Setup - whenever someone new joins a tele-training session.
+
+Three steps, and the last two can be re-entered from the step bar so one
+part can be redone (remapping MIDI without recalibrating, most of all):
+
+1. **Camera** - opening the Tele-training wizard does not scan or open a
+   camera. Click **Scan for cameras**; the scan runs in the background;
+   then explicitly choose one of the detected indices to start its live
+   preview and set its resolution/flips.
+2. **Calibration** - the same five-page flow as Initial Setup: name the
+   new profile, capture a photo, click the keyboard's two corners, tune
+   edge detection on that cropped keyboard, then mark white/black keys
+   with the same paint-bucket controls. **Finish** creates the profile.
+3. **MIDI mapping** - the same two-page visual flow as Initial Setup.
+   First connect the port and use the displayed Middle C reference image
+   plus live note readout to verify note 60/C4. Then pick the profile and
+   use the live camera image: the next key is highlighted yellow, mapped
+   keys are green and unreached keys grey. Press each highlighted
+   physical key in turn, then save the mapping.
+
+The camera comes first because the calibration is a pixel mask of *that
+camera's* frame: step 2 captures through step 1's settings rather than
+asking again, so the two cannot disagree.
+
+**Its only output is the profile folder.** It writes no `config.json` key
+at all - not the top-level `camera`, `midi.port_name` or
+`active_keyboard_profile`, and not the `remote_guidance` block either - so
+running it cannot change what any tool on this machine does. To use the
+new profile, select it in the Student or Teacher Client's own **Settings**,
+which is where choosing devices already lives.
+
+There is also **no student/teacher choice** in it. A calibration describes
+a camera looking at a keyboard, not a person; student and teacher normally
+need one each only because they normally sit at different setups, and if
+they share a setup they can share the profile.
+
+Two more things it will not do:
+
+- it saves only into profile folders **it created**, each marked with a
+  `remote_setup.json` file, and refuses to write into any folder without
+  that marker - so section 1's profiles, and any profile a recorded
+  session was scored against, are unreachable from it;
+- it never overwrites an existing folder at all, not even one of its own:
+  a new calibration always means a new name.
+
+The wizard is a normal launcher window, so the usual one-tool-at-a-time
+rule applies - it will not run beside a client and fight it for the
+camera. The Initial Setup calibration and MIDI mapping flows were copied
+into `remote_guidance/calibration_wizard.py` and
+`remote_guidance/midi_mapping_wizard.py` rather than changing section 1:
+their images and interactions stay the same, while their save actions go
+through the Tele-training-only store. Those write rules live in
+`remote_guidance/setup_store.py`, kept separate from the UI so they can
+be (and are) tested without hardware.
+
+### Guidance modes
+
+The student picks one before the session starts:
+
+| Mode | Key LED | Finger cue |
+|---|---|---|
+| `visual` | yes | on-screen cue window (`app/gui/cue_window.py`) |
+| `haptic` | yes | nail actuator (`app/haptic_cue.py`) |
+| `both` | yes | both together |
+
+**Chords are cued in full.** With **Chord detection** on, the teacher's
+matcher returns every finger of a simultaneous press and the student cues
+all of them: every key lit, every motor buzzing (the rig's command is a
+bitmask, so it is one write), and every dot on the cue window. The
+hand-photo style is the one channel that cannot show a set - there is one
+photo per finger and no combined assets - so it cycles through the
+chord's photos instead, ~5 per second, with the full chord named in the
+text line. It stays **one cue event with one cue-ready moment**, so a
+reaction time still has a single origin.
+
+Scoring deliberately does not follow: a chord is judged on its primary
+note, so pressing a different note of the same chord counts as wrong.
+Widening the cue is free; widening the verdict would mean a second
+definition of "correct" in a pipeline shared with the local quiz and an
+already-run study. See [REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md) §4.11.
+
+**None of this reaches the local quiz or the main user study.** They call
+the single-finger cue API, which is unchanged - in particular a one-finger
+cue never starts the photo-cycling timer, so condition B's stimulus is
+exactly what it always was. There are tests for that.
+
+The **key LED is present in all three** - the modes name only how the
+*finger* is conveyed. All three are driven through one
+`CompositeCueOutput` (`remote_guidance/cue_outputs.py`), which is an
+ordinary `app.quiz.CueOutput`: the existing screen and haptic cue classes
+are composed, not reimplemented, and `QuizWindow` is untouched.
+
+### What is reused
+
+Nothing about detection, scoring or storage is written twice:
+
+| Concern | Module |
+|---|---|
+| Teacher's key→finger detection | `app.camera`, `app.hand_tracking`, `app.midi`, `app.finger_matching` (incl. `match_notes_to_fingers` for chords) |
+| Student's cue channels | `app.gui.cue_window.ScreenCueOutput`, `app.haptic_cue.HapticCueOutput`, `profile_led_mapper` + `note_led_map` |
+| Recording + sync mark | `app.music_recording` (`RawMidiRecorder`, `SyncInfo`) |
+| Correctness and summary | `app.finger_matching.is_finger_correct`, `app.quiz.summarize` |
+| Storage format | `app.quiz.QuizResult` / `save_quiz_results` / `QuizMeta` |
+| Offline finger pass | `app.offline.analyze_recording` via `app.gui.analyze_worker.AnalyzeWorker` |
+| Post-session review | `app.gui.quiz_analysis_window.QuizAnalysisWindow` |
+
+A remote session therefore lands in `data/quiz/<session name>/` in the
+standard layout (`raw/performance.mp4`, `midi_raw.json`, `notes.json`,
+`sync.json`, plus `results.json` and `meta.json`), and every existing
+analysis tool reads it unchanged. `QuizMeta.guidance_type` records it as
+`remote-visual` / `remote-haptic` / `remote-both`.
+
+The teacher's pre-recorded uploads come from the same libraries the local
+tools use - `data/music/<song>/` and `data/sequence/<name>/`, read through
+`app.music_recording.load_playback_events`. Only the note/finger event
+list is uploaded; the video stays on the teacher's machine.
+
+Running teacher and student on the same computer does not overwrite that
+source folder. Every Upload creates a new relay database recording with
+a new id, and the student downloads its event JSON into memory rather
+than writing it back under `data/music/` or `data/sequence/`. Student
+performance output is separate under `data/quiz/<session name>/`; choose
+a new session name if an existing quiz result with that name must be
+preserved.
+
+### Provisional vs final results
+
+The student scores every response twice:
+
+1. **Provisional**, live, from the current hand landmarks, sent to the
+   teacher as each event completes.
+2. **Final**, after the session, when `analyze_recording` re-runs finger
+   matching over the recorded video with the LED sync anchor - the same
+   pass a local quiz does.
+
+Both stages are labelled `stage: "provisional" | "final"` on the wire and
+in the relay's database, and the teacher's table shows which it is
+looking at. The server stores them and never recomputes either: the
+session summary endpoint returns the student's own numbers under
+`student_reported_summary` with `summary_source: "student"`.
+
+### Timing: what is measured on which clock
+
+Each event records:
+
+```
+teacher_send_wall_ns              server_receive_wall_ns
+student_receive_wall_ns           queue_enter_monotonic_ns
+cue_dispatch_start_monotonic_ns   led_command_complete_monotonic_ns
+visual_painted_monotonic_ns       haptic_command_complete_monotonic_ns
+cue_ready_monotonic_ns            cue_ready_wall_ns
+student_response_monotonic_ns     student_response_wall_ns
+```
+
+`cue_ready` is the **last** enabled channel to become ready. In `both`
+mode that is
+`max(LED command complete, visual paint complete, haptic serial flush complete)`;
+with one finger channel it still includes the LED, because the LED is in
+every mode.
+
+Student reaction time is always, and only:
+
+```
+reaction_time_ns = student_response_monotonic_ns - cue_ready_monotonic_ns
+```
+
+Both terms from the student's own monotonic clock. **Never** from
+`teacher_send`, `server_receive` or `student_receive`: those would fold
+network delay and queueing into a number describing a person, so a slow
+link would read as a slow learner. They are all still recorded, in their
+own fields, and the time an event spent waiting behind another is
+recorded separately again as `queue_wait_ns`.
+
+For `QuizResult` compatibility, wall-clock `cue_onset_time` /
+`keypress_time` are saved as well - but the accurate figure is the
+monotonic one, and that is what `timing_error_s` carries.
+
+These are **software dispatch and render timings**: the moment a serial
+write flushed or a frame finished painting. They are not the moment an
+LED emitted light or a motor began to move. Measuring that needs a
+photodiode and an accelerometer on one acquisition clock (the report's
+"System Transmission Performance Benchmarking"); the CSV keeps columns
+free for it and nothing here claims it.
+
+A cue that arrives while another is still live goes into a bounded queue.
+It is never silently dropped and never overwrites the live one; if the
+queue is full the event is refused explicitly and the teacher is told the
+student is behind.
+
+### Latency benchmark
+
+```bash
+python remote_latency_benchmark.py --server http://127.0.0.1:18765 \
+  --username teacher1 --student-username student1
+```
+
+or **8. Tele-training → Network Latency Benchmark** for the GUI wrapper.
+The default is self-contained: it logs in as both roles, creates a
+temporary benchmark room, connects a Teacher WebSocket and a built-in
+simulated Student WebSocket, runs the probes, then closes the room without
+deleting its database record. You therefore start only **Relay Server +
+Network Latency Benchmark**; neither full client is needed. Both accounts
+must already exist on the relay, and the GUI pre-fills the demo pair.
+
+Built-in mode measures the real network/relay route and client WebSocket
+code, but deliberately owns no Student Qt UI, LED or haptic device. Enable
+**Use an external Student Client** and provide its room id only when the
+real Student software/hardware dispatch path is the object of the test.
+Defaults follow the report's benchmark: 1000 probes at 500 ms intervals
+over one persistent WebSocket per endpoint, warm-up samples recorded
+separately and excluded from the statistics, unique sequence number and
+message id per probe. Output goes to
+`data/remote_guidance/latency/<run id>/` as `samples.csv`, `summary.json`
+and `latency.png`, with n, lost, loss rate, min, mean, sd, median, p95,
+p99 and max for each metric.
+
+- **Transport RTT is the primary metric** - both stamps come from one
+  monotonic clock on the teacher's machine, so no clock synchronisation
+  is needed.
+- In built-in mode the two simulated endpoints share one host clock, so
+  teacher-send → built-in-student-receive is a directly measured one-way
+  duration through the relay.
+- With an external Student, **one-way latency** is reported as a measurement only when
+  `--clocks-synced` asserts both hosts are NTP-synchronised *and* the
+  estimated offset uncertainty is recorded with it. Otherwise the output
+  shows `RTT/2`, labelled a symmetry-based estimate. Two independent
+  computers' wall clocks differ by an unknown offset that is often larger
+  than the delay being measured, so subtracting one machine's timestamp
+  from another's is not a latency - it can even come out negative. Check
+  both hosts (`time.is`, `chronyc tracking`) before a run; the built-in
+  four-timestamp offset estimator quantifies the assumption but is not
+  NTP and is not offered as a substitute.
+- Monotonic timestamps are never subtracted across machines. They travel
+  as opaque values and are only used where they were produced.
+
+The relay also answers each probe itself (`latency.ack`), so a slow run
+can be attributed to the teacher→server hop or the server→student one.
+
+### Tests
+
+```bash
+python -m pytest test-script/test_remote_guidance_config.py test-script/test_remote_guidance_server.py test-script/test_remote_guidance_e2e.py test-script/test_midi_ports.py
+```
+
+Covers old-config compatibility, remote saves not touching shared
+settings, student/teacher config isolation, the LED/haptic port clash,
+two identically named keyboards staying separately addressable,
+the composite cue in all three modes, JWT issue/expiry/refresh/revoke,
+room ownership and membership authorization, cross-room isolation,
+duplicate-message idempotency, sequence ordering, survival of a relay
+restart, reaction time originating at the local cue-ready moment, RTT and
+one-way never being conflated, percentile/loss statistics, a full
+server + fake teacher + fake student integration run, and the launcher's
+process actions. No hardware or real network is involved.
+
+---
