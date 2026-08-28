@@ -4587,7 +4587,7 @@ class LauncherActionTests(unittest.TestCase):
             "5. Practice && Assessment",
             "6. Main User Study",
             "7. Data Analysis",
-            "9. Validation Experiments",
+            "10. Validation Experiments",
         ):
             self.assertIn(expected, titles)
 

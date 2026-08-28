@@ -29,6 +29,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -131,28 +132,55 @@ def _build_visual_sequence(keyboard_profile_name: str):
     return sequence
 
 
+class LatchMode:
+    """The 'keep keys lit on click' toggle, shared by reference.
+
+    One instance lives on the window and is handed to every PianoKey, so
+    flipping it takes effect immediately on all keys and, because the same
+    object is passed in again each time, survives the piano being rebuilt on
+    a profile change (which discards and recreates every key)."""
+
+    def __init__(self):
+        self.enabled = False
+
+
 class PianoKey(QWidget):
     """
     One clickable piano key. Triggers LED + audio feedback on press/release.
 
     Tracks mouse-press and real-MIDI-press independently, so either input
     (or both at once) is reflected without one clobbering the other's state.
+
+    With the shared LatchMode enabled, a mouse click instead *toggles* the
+    key: the first click lights it and leaves it lit (latched), the next
+    click turns it off. A real MIDI press is always momentary - latching is
+    a mouse-only convenience for inspecting the LED strip hands-free.
     """
 
-    def __init__(self, parent: QWidget, note: int | None, is_black: bool, feedback: KeyFeedback):
+    def __init__(self, parent: QWidget, note: int | None, is_black: bool,
+                 feedback: KeyFeedback, latch: "LatchMode | None" = None):
         super().__init__(parent)
         self.note = note
         self.is_black = is_black
         self.feedback = feedback
+        # Optional so the other consumers of this key (music_playback,
+        # rhythm_playback) need no change: with no shared latch they get a
+        # private, always-off one, i.e. the original momentary behaviour.
+        self.latch = latch if latch is not None else LatchMode()
         self.mouse_pressed = False
         self.midi_active = False
+        # Stays lit after a click while LatchMode is enabled, until clicked
+        # again or the latch is turned off.
+        self.latched = False
         self.setFixedSize(BLACK_W if is_black else WHITE_W, BLACK_H if is_black else WHITE_H)
 
     def _current_color(self):
         idle = BLACK_IDLE if self.is_black else WHITE_IDLE
         if self.midi_active:
             return MIDI_PRESSED
-        if self.mouse_pressed:
+        # A latched key is a mouse-driven state, so it wears the same blue as
+        # a held click.
+        if self.mouse_pressed or self.latched:
             return MOUSE_PRESSED
         return idle
 
@@ -172,6 +200,18 @@ class PianoKey(QWidget):
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton or self.note is None:
             return
+        if self.latch.enabled:
+            # Toggle: click on -> stays lit, click again -> off. The
+            # feedback is only turned off if a real MIDI press is not also
+            # holding this key.
+            self.latched = not self.latched
+            self.update()
+            if self.latched:
+                if not self.feedback.on(self.note):
+                    print(f"note {self.note} has no LED mapping")
+            elif not self.midi_active:
+                self.feedback.off(self.note)
+            return
         self.mouse_pressed = True
         self.update()
         if not self.feedback.on(self.note):
@@ -180,7 +220,22 @@ class PianoKey(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or self.note is None:
             return
+        # In latch mode the state was decided on press and the key holds it;
+        # releasing the mouse must not turn it back off.
+        if self.latch.enabled:
+            return
         self.mouse_pressed = False
+        self.update()
+        if not self.midi_active:
+            self.feedback.off(self.note)
+
+    def clear_latch(self):
+        """Drop a latched key back to idle - called when the latch toggle is
+        switched off, so no key is left stuck lit with no way to release it in
+        momentary mode."""
+        if not self.latched:
+            return
+        self.latched = False
         self.update()
         if not self.midi_active:
             self.feedback.off(self.note)
@@ -194,16 +249,18 @@ class PianoKey(QWidget):
         if active:
             if not self.feedback.on(self.note):
                 print(f"note {self.note} has no LED mapping")
-        elif not self.mouse_pressed:
+        elif not self.mouse_pressed and not self.latched:
+            # A latched key stays lit after the real key is released.
             self.feedback.off(self.note)
 
 
 class PianoWidget(QWidget):
     """Lays out the 15 white + 10 black keys following a (is_black, note) sequence."""
 
-    def __init__(self, feedback: KeyFeedback, visual_sequence):
+    def __init__(self, feedback: KeyFeedback, visual_sequence, latch: "LatchMode | None" = None):
         super().__init__()
 
+        self.latch = latch
         self.keys_by_note = {}  # MIDI note -> PianoKey, so external (MIDI) events can find a key
 
         num_white = sum(1 for is_black, _ in visual_sequence if not is_black)
@@ -226,17 +283,23 @@ class PianoWidget(QWidget):
         # key after a black key (as an interleaved loop would) covered half of
         # that black key.
         for note, x in white_positions:
-            key = PianoKey(self, note, is_black=False, feedback=feedback)
+            key = PianoKey(self, note, is_black=False, feedback=feedback, latch=latch)
             key.move(x, 0)
             if note is not None:
                 self.keys_by_note[note] = key
 
         for note, x in black_positions:
-            key = PianoKey(self, note, is_black=True, feedback=feedback)
+            key = PianoKey(self, note, is_black=True, feedback=feedback, latch=latch)
             key.move(x, 0)
             key.raise_()
             if note is not None:
                 self.keys_by_note[note] = key
+
+    def clear_latched(self):
+        """Release every latched key - used when the latch toggle is turned
+        off so nothing is left stuck lit."""
+        for key in self.keys_by_note.values():
+            key.clear_latch()
 
 
 class MidiBridge(QObject):
@@ -277,6 +340,9 @@ class PianoWindow(QMainWindow):
         self._midi_running = False
         self.piano: PianoWidget | None = None
         self.mapper: NoteLEDMapper | None = None
+        # Shared with every key: off by default (momentary click, as before);
+        # on means a click latches the key lit until clicked again.
+        self.latch = LatchMode()
 
         self.profile_combo = QComboBox()
         self.profile_combo.currentTextChanged.connect(self._load_profile)
@@ -302,9 +368,17 @@ class PianoWindow(QMainWindow):
         self.instructions = QLabel(
             "Click and hold a key to light its LED and play its tone (label = MIDI note); release to "
             "turn both off. Blue = clicked here, orange = pressed on the real keyboard.\n"
+            "Tick \"Latch keys lit\" to make a click keep a key lit until you click it again.\n"
             "LED and MIDI are both optional - connect them with the buttons below; the on-screen "
             "piano and audio work fine with neither connected."
         )
+
+        self.latch_check = QCheckBox("Latch keys lit (click toggles on/off)")
+        self.latch_check.setToolTip(
+            "On: clicking a key toggles it and it stays lit until you click it again.\n"
+            "Off: a key lights only while you press and hold it (the default)."
+        )
+        self.latch_check.toggled.connect(self._on_latch_toggled)
 
         self.midi_bridge = MidiBridge()
         self.midi_bridge.note_event.connect(self._on_midi_note)
@@ -338,6 +412,7 @@ class PianoWindow(QMainWindow):
         layout.addLayout(midi_row)
         layout.addWidget(self.midi_status)
         layout.addWidget(self.instructions)
+        layout.addWidget(self.latch_check)
         layout.addLayout(self.piano_slot)
         self.setCentralWidget(central)
 
@@ -347,6 +422,14 @@ class PianoWindow(QMainWindow):
     def _on_timbre_changed(self, index: int) -> None:
         if self.audio_player is not None:
             self.audio_player.set_timbre(self.timbre_combo.itemData(index))
+
+    def _on_latch_toggled(self, checked: bool) -> None:
+        """Turn the latch on/off. Turning it off releases every key that was
+        latched lit, so switching back to momentary mode never leaves a key
+        stuck on."""
+        self.latch.enabled = checked
+        if not checked and self.piano is not None:
+            self.piano.clear_latched()
 
     # ------------------------------------------------------------------
     # LED connection (manual)
@@ -461,7 +544,7 @@ class PianoWindow(QMainWindow):
 
         self.mapper = mapper
         feedback = KeyFeedback(self.mapper, self.audio_player)
-        self.piano = PianoWidget(feedback, visual_sequence)
+        self.piano = PianoWidget(feedback, visual_sequence, self.latch)
         self.piano_slot.addWidget(self.piano)
 
         # Just preselect this profile's usual MIDI port in the combo, if it's

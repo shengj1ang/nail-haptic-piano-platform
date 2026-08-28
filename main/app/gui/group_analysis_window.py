@@ -74,7 +74,12 @@ from .. import session_progression as sp
 from .. import session_progression_figures as sp_figures
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
 from ..participant_analysis import (
+    CAT_CK_CF,
     CAT_CK_WF,
+    CAT_NO_RESPONSE,
+    CAT_UNRESOLVED,
+    CAT_WK_CF,
+    CAT_WK_WF,
     CATEGORIES,
     compute_error_breakdown,
     compute_wrong_key_distance,
@@ -516,14 +521,16 @@ class GroupAnalysisWindow(QMainWindow):
                 datasets)
 
     @staticmethod
-    def _rt_definition_note(df, group_cols: List[str]) -> str:
+    def _rt_definition_note(df, group_cols: List[str],
+                            plotted_metric: str = "rt_correct_key_s") -> str:
         """How far the two RT definitions actually diverge, in this data.
 
         rt_correct_key_s averages every event whose KEY was right;
         rt_complete_s averages the subset whose key AND finger were both
         right. Only one of them is plotted, so the figure caption has to
-        say what the discarded panel would have shown - computed here
-        rather than asserted, so it cannot go stale.
+        identify that panel and say what the omitted definition would
+        have shown - computed here rather than asserted, so it cannot go
+        stale.
         """
         strict = ga.group_center(df, "rt_complete_s", group_cols)
         loose = ga.group_center(df, "rt_correct_key_s", group_cols)
@@ -535,13 +542,23 @@ class GroupAnalysisWindow(QMainWindow):
         base = merged["mean_loose"].abs().max() * 1000
         relative = (f" ({gaps.max() / base * 100:.2f}% of the largest cell mean)"
                     if base else "")
+        if plotted_metric == "rt_complete_s":
+            plotted = (
+                "RT is plotted for key-and-finger-correct events "
+                "(<i>rt_complete_s</i>), the primary repeated-measures definition. The broader "
+                "correct-key definition"
+            )
+        else:
+            plotted = (
+                "RT is plotted for correct-key events. The stricter key-and-finger-correct "
+                "definition (<i>rt_complete_s</i>), used by the repeated-measures ANOVA,"
+            )
         return (
-            "<b>Why only one RT panel:</b> RT is plotted on correct-key events. The stricter "
-            "key-and-finger-correct definition (<i>rt_complete_s</i>, the one the repeated-measures "
-            f"ANOVA is fitted on) differs from it by at most <b>{gaps.max():.1f} ms</b>{relative} in "
-            "any cell shown here, so a second panel would be visually indistinguishable. Both "
-            "definitions are in the tables and the tidy export; dropping the correct-key/wrong-finger "
-            "events changes no conclusion, which is itself the sensitivity check.")
+            f"<b>Why only one RT panel:</b> {plotted} differs by at most "
+            f"<b>{gaps.max():.1f} ms</b>{relative} in any cell shown here, so a second panel "
+            "would be visually indistinguishable. Both definitions are in the tables and the "
+            "tidy export; excluding correct-key/different-finger events changes no conclusion, "
+            "which is itself the sensitivity check.")
 
     @staticmethod
     def _metric_centers(df, metrics: List[str], group_cols: List[str]):
@@ -677,15 +694,22 @@ class GroupAnalysisWindow(QMainWindow):
     # Paired contrasts
 
     def _build_contrasts(self):
-        # Plotted panels; rt_complete_s is tested and exported below but
-        # not drawn - its paired C-B mean sits within a quarter of a
-        # millisecond of the correct-key one, so the panel was a copy.
+        # The strict key-and-finger-correct RT is the primary endpoint and
+        # therefore owns the plotted panel. The broader correct-key RT is
+        # retained as a sensitivity analysis in the tidy exports, but a
+        # second panel would be visually redundant.
         specs = [
             ("fa_main", 100, "pp", "Main Finger Accuracy (percentage points)"),
             ("key_accuracy", 100, "pp", "Key Accuracy (percentage points)"),
-            ("rt_correct_key_s", 1000, "ms", "RT — correct-key (ms)"),
+            ("rt_complete_s", 1000, "ms", "RT — key-and-finger-correct (ms)"),
         ]
-        tested_metrics = [m[0] for m in specs] + ["rt_complete_s"]
+        # Keep the historical tidy-export order while making the strict
+        # RT the plotted primary. dict.fromkeys prevents a metric from
+        # being tested/exported twice if these lists later overlap.
+        plotted_metrics = [m[0] for m in specs]
+        tested_metrics = list(dict.fromkeys(
+            plotted_metrics[:-1] + ["rt_correct_key_s"] + plotted_metrics[-1:]
+        ))
         contrast_labels = [f"{a}−{b}" for a, b in ga.CONTRASTS]
         all_diffs, inference_rows = [], []
         fig = Figure(figsize=(10.5, 3.9))
@@ -733,10 +757,11 @@ class GroupAnalysisWindow(QMainWindow):
         # same unit, so they share one range instead of each autoscaling.
         shared_ylim(axes[0], axes[1])
         fig.tight_layout()
-        rt_note = self._rt_definition_note(self._pc, ["condition"])
+        rt_note = self._rt_definition_note(
+            self._pc, ["condition"], plotted_metric="rt_complete_s")
         if rt_note:
             cap_blocks.append(
-                rt_note + " The paired C−B test on the stricter definition is still run and is in "
+                rt_note + " The paired C−B test on the broader definition is also run and is in "
                 "<i>contrasts_tests.csv</i>.")
         datasets = {
             "contrasts_participant_differences": (pd.concat(all_diffs, ignore_index=True)
@@ -1138,6 +1163,18 @@ class GroupAnalysisWindow(QMainWindow):
         fig1 = Figure(figsize=(10.5, 4.2))
         ax = fig1.subplots(1, 1)
         present = [c for c in CONDITIONS if (props["condition"] == c).any()]
+        # Figure-only wording: the underlying categories and exported CSV
+        # labels remain unchanged. "Correct/wrong finger" is meaningful
+        # for cued B/C, but in A the hidden target is only a reference and
+        # selecting a different finger is not a failure to follow a cue.
+        category_display = {
+            CAT_CK_CF: "Correct key + cued/reference finger",
+            CAT_CK_WF: "Correct key + different from cued/reference finger",
+            CAT_WK_CF: "Wrong key + cued/reference finger",
+            CAT_WK_WF: "Wrong key + different from cued/reference finger",
+            CAT_UNRESOLVED: CAT_UNRESOLVED,
+            CAT_NO_RESPONSE: CAT_NO_RESPONSE,
+        }
         for i, c in enumerate(present):
             bottom = 0.0
             for cat in CATEGORIES:
@@ -1150,9 +1187,11 @@ class GroupAnalysisWindow(QMainWindow):
                 if pct >= 4:
                     ax.text(i, bottom + pct / 2, f"{pct:.0f}%", ha="center", va="center", fontsize=8)
                 bottom += pct
-        ax.legend(handles=[Patch(facecolor=CATEGORY_COLORS[cat], label=cat) for cat in CATEGORIES],
+        ax.legend(handles=[Patch(facecolor=CATEGORY_COLORS[cat],
+                                 label=category_display[cat]) for cat in CATEGORIES],
                   fontsize=7, loc="center left", bbox_to_anchor=(1.0, 0.5))
-        ax.set_xticks(range(len(present)), present)
+        ax.set_xticks(range(len(present)),
+                      ["A\n(reference)" if c == "A" else c for c in present])
         ax.set_ylabel("mean of participant-level % of valid events")
         ax.set_ylim(0, 100)
         ax.set_title("Event outcome composition (mean of participant-level proportions)", fontsize=10)
@@ -1162,7 +1201,11 @@ class GroupAnalysisWindow(QMainWindow):
         fig2 = Figure(figsize=(10.5, 3.6))
         ax2 = fig2.subplots(1, 1)
         ckwf = props[props["category"] == CAT_CK_WF]
-        for xi, c in enumerate(CONDITIONS):
+        guidance_conditions = [
+            c for c in ga.GUIDANCE_CONDITIONS
+            if (ckwf["condition"] == c).any()
+        ]
+        for xi, c in enumerate(guidance_conditions):
             sub = ckwf[ckwf["condition"] == c]
             vals = sub["proportion"].to_numpy(dtype=float) * 100
             jitter = (np.arange(len(vals)) - (len(vals) - 1) / 2) * (0.25 / max(len(vals), 1))
@@ -1177,10 +1220,11 @@ class GroupAnalysisWindow(QMainWindow):
                                  color="black", capsize=4, linewidth=1.3, zorder=3)
                 ax2.scatter([xi], [mean], s=140, marker="D", color=CONDITION_COLORS[c],
                             edgecolor="black", zorder=4)
-        ax2.set_xticks(range(len(CONDITIONS)), CONDITIONS)
+        ax2.set_xticks(range(len(guidance_conditions)), guidance_conditions)
         ax2.set_ylabel("% of valid events")
-        ax2.set_title("Correct key + wrong finger — participant-level rate by condition", fontsize=10)
-        zero_based_ylim(ax2)
+        ax2.set_title("Correct key + non-cued finger — participant-level rate (B/C)",
+                      fontsize=10)
+        ax2.set_ylim(0, 12)
         fig2.tight_layout()
 
         # Caption: pooled counts (supplementary) + wrong-key distance.
@@ -1815,8 +1859,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylim(max(0.0, floor - 3.0), 102.5)
         ax.set_xlim(-0.5, len(ga.FINGER_IDS) - 0.5)
         ax.set_ylabel("Main FA (%)")
-        ax.set_title("Finger accuracy per cell — descriptive only, no ANOVA "
-                     "(bounded proportion against the 100% ceiling)", fontsize=10)
+        ax.set_title("Finger accuracy by homologous digit (descriptive)", fontsize=10)
         ax.legend(fontsize=7, loc="lower right")
         fig.tight_layout()
         return fig

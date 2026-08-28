@@ -38,7 +38,7 @@ own protocol and write-up.
 
 | Study | Launcher | Document |
 |---|---|---|
-| **Actuator validation** — resonance, intensity, motor→ACC delay, spectra, adhesives | section 9 | [main/validation_experiments/README.md](main/validation_experiments/README.md) and one README per experiment |
+| **Actuator validation** — resonance, intensity, motor→ACC delay, spectra, adhesives | section 10 | [main/validation_experiments/README.md](main/validation_experiments/README.md) and one README per experiment |
 | **Main User Study** — which cue modality teaches a key-and-finger mapping best | sections 6–7 | method chapter; stimulus algorithm in [main/SEQUENCE_GENERATOR_ALGORITHM.md](main/SEQUENCE_GENERATOR_ALGORITHM.md) |
 | **Tele-training** — guidance delivered over a network | section 8 | [main/REMOTE_GUIDANCE.md](main/REMOTE_GUIDANCE.md) |
 | **Rhythm experiment** — what survives when the cue is withdrawn | section 11 | [main/RHYTHM_EXPERIMENT.md](main/RHYTHM_EXPERIMENT.md) |
@@ -76,7 +76,7 @@ individual_project_2026/
 │   ├── server/                  the relay server - imports nothing from the platform
 │   ├── melody_generator/        rhythm-experiment stimulus generator (stdlib only)
 │   ├── rhythm_study/            rhythm-experiment sessions and analysis
-│   ├── validation_experiments/  hardware validation experiments (section 9)
+│   ├── validation_experiments/  hardware validation experiments (section 10)
 │   ├── data/                    calibration profiles, stimuli, and every study's data
 │   └── test-script/             the test suite, plus older non-UI hardware scripts
 ├── teensy_driver/        Teensy 4.1 firmware: motors (async PWM), WS2812 LEDs, LIS3DH

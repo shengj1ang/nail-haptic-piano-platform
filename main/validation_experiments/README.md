@@ -2,7 +2,7 @@
 
 Small hardware-validation / calibration experiments that inform the main
 user study's design constants but are not part of the main protocol
-(launcher section **9. Validation Experiments**). One subfolder per
+(launcher section **10. Validation Experiments**). One subfolder per
 experiment, each with its own full write-up:
 
 | Folder | Experiment |
@@ -337,7 +337,7 @@ it closes automatically with the last validation window.
 
 ## 6. Picking the metric in the GUI
 
-Launcher → **9. Validation Experiments** → any of the three intensity
+Launcher → **10. Validation Experiments** → any of the three intensity
 windows has a **Plot metric** dropdown:
 
 * **Demeaned 3-axis vector RMS (Recommended)** — the default

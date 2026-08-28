@@ -33,7 +33,7 @@ import itertools
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QProcess
+from PySide6.QtCore import Qt, QProcess, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -65,7 +65,9 @@ BOX_CHROME_WEIGHT = 1.5
 APP_ICON = Path(__file__).resolve().parent / "app" / "assets" / "image" / "icon.png"
 
 from app.config import Config
+from app.gui.about_window import AboutWindow
 from app.gui.accelerometer_window import AccelerometerWindow
+from app.gui.demo_mode_window import DemoModeDialog
 from app.gui.calibration_wizard import KeyboardCalibrationWizard
 from app.gui.camera_selection_window import CameraSelectionWindow
 from app.gui.computational_model_window import ComputationalModelWindow
@@ -131,8 +133,8 @@ def balance_columns(weights, columns: int):
     only where the column breaks fall is chosen. Returns a list of index
     lists, one per column.
 
-    Brute force over the possible cut positions: with nine sections and
-    four columns that is 56 combinations, so an exact answer costs
+    Brute force over the possible cut positions: with twelve sections and
+    four columns that is 165 combinations, so an exact answer costs
     nothing and there is no heuristic to be wrong."""
     n = len(weights)
     if n == 0:
@@ -162,6 +164,31 @@ class ProcessEntry:
 
     def __init__(self, action: str):
         self.action = action
+
+
+class ActionEntry:
+    """A launcher button that calls a method on LauncherWindow, for the few
+    controls that are neither a sub-window nor an independent process - the
+    Demo Mode entry in section 12.
+
+    Unlike the window buttons, its lifetime is not derived from ProcessEntry /
+    CONCURRENT_TOOLS, so it carries its own hover text."""
+
+    def __init__(self, action: str, tooltip: str):
+        self.action = action
+        self.tooltip = tooltip
+
+
+# Hover text for the Demo Mode button. Defined here, before SECTIONS, because
+# ActionEntry carries its own tooltip and SECTIONS builds the entry at import.
+DEMO_TOOLTIP = (
+    "Opens a chooser for showing the platform off in screenshots: the Visual "
+    "Cue screen (with a finger you pick already lit), and the Teacher and "
+    "Student tele-training windows shown OFFLINE - no relay, no login, no "
+    "peer - with their camera and MIDI still working locally.\n\n"
+    "The chosen windows all stay open together, unlike the one-at-a-time "
+    "tools, and close with the launcher."
+)
 
 
 # (section heading, [(button label, window class or ProcessEntry), ...])
@@ -264,19 +291,6 @@ SECTIONS = [
         ],
     ),
     (
-        # Small hardware-validation experiments (validation_experiments/)
-        # that informed the platform's design constants - kept separate
-        # from the Main User Study protocol.
-        "9. Validation Experiments",
-        [
-            ("Actuator Spectrogram (ERM/LRA)", SpectrogramWindow),
-            ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
-            ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
-            ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
-            ("Adhesion Vibration Comparison (LRA)", AdhesionComparisonWindow),
-        ],
-    ),
-    (
         # Housekeeping on data that has already been collected - nothing
         # here is part of running a session or analysing one. Both are
         # GUIs over the two console tools that came first
@@ -289,10 +303,23 @@ SECTIONS = [
         # ffmpeg and 7z - which each window looks for in runtime/bin and
         # then on PATH, and says so in its own status line rather than
         # failing at the moment of use (see app/tool_binaries.py).
-        "10. Tools",
+        "9. Tools",
         [
             ("Review Video Compression (ffmpeg)", ReviewCompressWindow),
             ("Participant ZIP Backup (7z)", QuizBackupWindow),
+        ],
+    ),
+    (
+        # Small hardware-validation experiments (validation_experiments/)
+        # that informed the platform's design constants - kept separate
+        # from the Main User Study protocol.
+        "10. Validation Experiments",
+        [
+            ("Actuator Spectrogram (ERM/LRA)", SpectrogramWindow),
+            ("LRA Frequency Sweep (Resonance)", FrequencySweepWindow),
+            ("LRA Amplitude Sweep (Intensity)", AmplitudeSweepWindow),
+            ("Motor → ACC Delay (LRA/ERM)", MotorAccDelayWindow),
+            ("Adhesion Vibration Comparison (LRA)", AdhesionComparisonWindow),
         ],
     ),
     (
@@ -359,6 +386,24 @@ SECTIONS = [
             ("Rhythm Group Analysis", RhythmGroupAnalysisWindow),
         ],
     ),
+    (
+        # The platform's own front matter, not a tool for running or
+        # analysing a study.
+        #
+        #   - "About" opens the About panel: the dissertation title, its
+        #     abstract and acknowledgements, and the two public repositories,
+        #     all copied verbatim from the report (app/gui/about_window.py).
+        #     It claims no hardware, so it is a CONCURRENT_TOOL - it stays open
+        #     alongside a tool and re-clicking raises it.
+        #   - "Demo Mode" is an ActionEntry rather than a window: a
+        #     hardware-optional walkthrough for showing the platform without
+        #     the rig. Not built yet - launch_demo describes the plan.
+        "12. Demo && About",
+        [
+            ("Demo Mode", ActionEntry("launch_demo", DEMO_TOOLTIP)),
+            ("About", AboutWindow),
+        ],
+    ),
 ]
 
 # Tools exempt from the one-tool-at-a-time rule, which exists because most
@@ -384,6 +429,9 @@ CONCURRENT_TOOLS = {
     ReviewCompressWindow,
     QuizBackupWindow,
     RemoteLatencyAnalysisWindow,
+    # Reference-only front matter: holds no hardware, so it stays open beside
+    # whatever tool you are using, and re-clicking About raises it.
+    AboutWindow,
 }
 
 # The three lifetimes a button can have, as hover text. Which one a
@@ -415,6 +463,8 @@ PROCESS_TOOLTIP = (
 def lifetime_tooltip(entry) -> str:
     """How this button's tool coexists with the others, and whether it
     outlives the launcher."""
+    if isinstance(entry, ActionEntry):
+        return entry.tooltip
     if isinstance(entry, ProcessEntry):
         return PROCESS_TOOLTIP
     if entry in CONCURRENT_TOOLS:
@@ -475,6 +525,15 @@ class LauncherWindow(QWidget):
         self.cfg = cfg
         self._current = None          # the one exclusive tool, if any
         self._concurrent = {}         # window_cls -> its open window
+        # Demo Mode windows (section 12): kept in their own map so they are
+        # exempt from the one-tool-at-a-time rule - the whole point is to
+        # show several at once - and so the references stay alive (a
+        # top-level Qt window with no Python reference can be collected and
+        # vanish). Keyed by window class name so re-opening the same kind
+        # replaces it rather than stacking a duplicate that fights for the
+        # same camera.
+        self._demo_windows = {}       # demo_kind -> its open window
+        self._demo_dialog = None      # the persistent Demo Mode panel, if open
         self.remote = RemoteGuidanceConfig.load()
 
         title = QLabel("Multi-Modal Platform")
@@ -504,7 +563,7 @@ class LauncherWindow(QWidget):
         # (e.g. "3. Recording & Playback", 2 buttons) sharing a row with a
         # tall one (5-6 buttons) was stretched to match and wasted the gap.
         # Columns let each box hug its own content, and the freed vertical
-        # space flows to the sections that need it (e.g. "9. Validation").
+        # space flows to the sections that need it (e.g. "10. Validation").
         #
         # Which sections go in which column is balanced by size rather
         # than dealt out round-robin - see balance_columns.
@@ -548,7 +607,7 @@ class LauncherWindow(QWidget):
         layout.addStretch(1)
 
     def _activate(self, entry) -> None:
-        if isinstance(entry, ProcessEntry):
+        if isinstance(entry, (ProcessEntry, ActionEntry)):
             getattr(self, entry.action)()
         else:
             self._open(entry)
@@ -637,6 +696,80 @@ class LauncherWindow(QWidget):
             return False
         return self._start_process(server_spec(self.remote, gui=True))
 
+    # ------------------------------------------------------------------
+    # Demo Mode (section 12) - open real windows for screenshots
+    # ------------------------------------------------------------------
+
+    def launch_demo(self) -> None:
+        """Open (or re-raise) the persistent Demo Mode panel.
+
+        The panel is NON-modal and stays open: pressing Open selected there
+        opens the ticked windows and leaves the panel up, so more can be
+        added over time. The windows it opens - the Visual Cue screen and
+        the two tele-training clients in offline demo mode - are kept OUTSIDE
+        the one-tool-at-a-time machinery, so a teacher screen and a student
+        screen can be photographed side by side."""
+        if self._demo_dialog is not None:
+            self._demo_dialog.raise_()
+            self._demo_dialog.activateWindow()
+            return
+        # Reflect whatever is already open, so re-opening the panel after
+        # closing it shows the true state of its boxes.
+        dialog = DemoModeDialog(self.cfg, self, initially_open=self._open_demo_kinds())
+        dialog.openRequested.connect(self._on_demo_open_requested)
+        dialog.finished.connect(lambda _result, d=dialog: self._on_demo_dialog_finished(d))
+        self._demo_dialog = dialog
+        dialog.show()
+
+    def _open_demo_kinds(self) -> set:
+        """The demo-window kinds that are actually on screen right now.
+
+        Open state is read from the windows themselves rather than tracked as
+        they close: a closed demo window is simply hidden (isVisible() is
+        False), and deliberately NOTHING hooks its close - a filter that
+        dropped the window's last reference mid-close crashed the process."""
+        open_kinds = set()
+        for kind, window in self._demo_windows.items():
+            try:
+                if window.isVisible():
+                    open_kinds.add(kind)
+            except RuntimeError:
+                pass  # the C++ window is gone
+        return open_kinds
+
+    def _on_demo_open_requested(self) -> None:
+        """Open every ticked window that is not already open, from the panel."""
+        if self._demo_dialog is None:
+            return
+        for window in self._demo_dialog.build_pending(self._open_demo_kinds()):
+            self._open_demo_window(window)
+
+    def _on_demo_dialog_finished(self, dialog) -> None:
+        """The panel was dismissed. Drop the reference (the demo windows it
+        opened stay open) so the next Demo Mode press builds a fresh panel
+        that reflects what is still open."""
+        if self._demo_dialog is dialog:
+            self._demo_dialog = None
+
+    def _open_demo_window(self, window) -> None:
+        """Show one demo window and auto-open its camera once on screen if the
+        panel asked to. A previously-opened window of the same kind that the
+        user has since closed is simply replaced by this fresh one."""
+        self._demo_windows[window.demo_kind] = window
+        window.show()
+        autostart = getattr(window, "demo_autostart", None)
+        if autostart is not None:
+            # After the window is painted: opening the camera first would
+            # only capture a blank frame, and some clients pop their own
+            # dialogs on a device problem, which must land on a real window.
+            QTimer.singleShot(200, lambda: self._run_demo_autostart(autostart))
+
+    def _run_demo_autostart(self, autostart) -> None:
+        try:
+            autostart()
+        except Exception as e:  # noqa: BLE001 - a device miss must not kill the launcher
+            QMessageBox.warning(self, "Demo camera", f"Couldn't open the camera for the demo:\n\n{e}")
+
     def closeEvent(self, event) -> None:
         """Closing the launcher ends the session: every window it opened
         goes with it, and so does anything those windows opened themselves.
@@ -656,6 +789,12 @@ class LauncherWindow(QWidget):
         for window in list(self._concurrent.values()):
             window.close()
         self._concurrent.clear()
+        for window in list(self._demo_windows.values()):
+            window.close()
+        self._demo_windows.clear()
+        if self._demo_dialog is not None:
+            self._demo_dialog.close()
+            self._demo_dialog = None
         if self._current is not None:
             self._current.close()
             self._current = None

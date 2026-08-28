@@ -1,4 +1,4 @@
-"""Participant ZIP Backup window (launcher section 10: Tools).
+"""Participant ZIP Backup window (launcher section 9: Tools).
 
 The GUI over app/quiz_backup.py, and the exact equivalent of running
 main/tool_backup_quiz_to_zip.py in a terminal: Scan is that script's

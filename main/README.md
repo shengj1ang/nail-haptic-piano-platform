@@ -6,7 +6,7 @@ analyse every study built on them. The repository front door and its
 documentation map are one level up, in [`../README.md`](../README.md).
 
 Everything is reachable from one hub window, which groups the tools into the
-eleven numbered sections used throughout this file:
+twelve numbered sections used throughout this file:
 
 ```bash
 python launcher.py
@@ -27,14 +27,14 @@ it is written up.
 | Firmware and the serial protocol | [`../teensy_driver/README.md`](../teensy_driver/README.md) |
 | **Main User Study** stimulus algorithm | [`SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) |
 | **Tele-training** (section 8) | [`REMOTE_GUIDANCE.md`](REMOTE_GUIDANCE.md), and [`server/README.md`](server/README.md) for the relay |
-| **Validation experiments** (section 9) | [`validation_experiments/README.md`](validation_experiments/README.md), plus one README per experiment |
+| **Validation experiments** (section 10) | [`validation_experiments/README.md`](validation_experiments/README.md), plus one README per experiment |
 | **Rhythm experiment** (section 11) | [`RHYTHM_EXPERIMENT.md`](RHYTHM_EXPERIMENT.md), and [`melody_generator/README.md`](melody_generator/README.md) for the generator |
 | Study protocols and rationale | `../../final_report_2026/method/method.tex` |
 
 What is written up **here** and nowhere else: the directory layout, the
 FingerAccuracy pipeline and calibration profiles (sections 1–3), the Main
 User Study runner and the analysis windows (sections 6–7), the quiz data
-maintenance tools (section 10), the haptic actuator configuration, and the
+maintenance tools (section 9), the haptic actuator configuration, and the
 LED/audio helper modules.
 
 ## Layout
@@ -43,11 +43,11 @@ LED/audio helper modules.
 app/                            UI package: camera + MIDI finger-accuracy detection, quiz, generator
 launcher.py                     entry point - hub window for every tool below, grouped into the same
                                  numbered sections used throughout this README (1 Initial Setup ...
-                                 11 Rhythm Experiment). Section 8 Tele-training is the one
+                                 12 Demo & About). Section 8 Tele-training is the one
                                  section whose buttons start SEPARATE processes rather than a
                                  sub-window, because a student, a teacher and a relay have to run at
                                  the same time - see "Tele-training" below.
-                                 Section 10 Tools is data housekeeping, not part of running or
+                                 Section 9 Tools is data housekeeping, not part of running or
                                  analysing a session - see "Quiz data maintenance tools" below.
                                  Section 11 Rhythm Experiment is a separate study, deliberately
                                  isolated so it cannot affect any of the others - see "Rhythm
@@ -110,11 +110,11 @@ quiz_analysis.py                entry point - batch offline analysis of saved qu
 tool_compress_review_videos.py  entry point (console) - scans data/quiz/*/review.mp4 and converts only
                                  non-H.264 review copies with ffmpeg; never enters raw/. A thin
                                  frontend over app/review_compress.py, which the launcher's
-                                 "Review Video Compression" window (section 10) also drives
+                                 "Review Video Compression" window (section 9) also drives
 tool_backup_quiz_to_zip.py      entry point (console) - participant backup: creates one tested
                                  data/quiz-zip/Pxx.zip for each complete P01-P20 participant.
                                  A thin frontend over app/quiz_backup.py, which the launcher's
-                                 "Participant ZIP Backup" window (section 10) also drives
+                                 "Participant ZIP Backup" window (section 9) also drives
 
 config.json                     app/ settings (auto-created): camera/MIDI, active_keyboard_profile,
                                  visual_cue_style, haptic (actuator in use + per-actuator default
@@ -159,7 +159,7 @@ note_audio.py                   reusable, GUI-free: MIDI note -> audio tone play
 common/                         shared low-level modules (serial/motor/LED), used by both
                                  test_virtual_piano_led.py and test-script/
 validation_experiments/         small hardware-validation experiments, separate from the main study
-                                 (section 9: validation experiments) - one subfolder per experiment
+                                 (section 10: validation experiments) - one subfolder per experiment
                                  plus three shared modules: rig.py (serial helpers + the ACC sample
                                  collector), acceleration_metrics.py (the two vibration-intensity
                                  metrics, the counts -> m/s^2 conversion and the raw three-axis
@@ -201,7 +201,7 @@ launcher.bat                    Do not read/write this file
 
 ---
 
-## Quiz data maintenance tools (launcher section 10)
+## Quiz data maintenance tools (launcher section 9)
 
 Two tools for looking after data that has already been collected. Neither
 is part of running a session or analysing one, and neither reads anything
@@ -209,7 +209,7 @@ the experiment reads.
 
 Each has two frontends over one implementation:
 
-| | window (launcher section 10) | console | shared logic |
+| | window (launcher section 9) | console | shared logic |
 | --- | --- | --- | --- |
 | review videos -> H.264 | Review Video Compression | `python3 tool_compress_review_videos.py` | `app/review_compress.py` |
 | participant backups | Participant ZIP Backup | `python3 tool_backup_quiz_to_zip.py` | `app/quiz_backup.py` |
@@ -794,10 +794,10 @@ app/
                                #   maintenance tools"); imports nothing from the rest of app/
   review_compress.py           # GUI-free: scan + convert data/quiz/*/review.mp4 to H.264, with the
                                #   rollback rules that make deleting the original safe. Driven by
-                               #   tool_compress_review_videos.py and the section 10 window
+                               #   tool_compress_review_videos.py and the section 9 window
   quiz_backup.py               # GUI-free: eligibility + one tested data/quiz-zip/Pxx.zip per
                                #   complete participant. Driven by tool_backup_quiz_to_zip.py and
-                               #   the section 10 window
+                               #   the section 9 window
   keyboard/
     template.py                # KeyBox, KeyboardTemplate - the pixel-exact key map
     wizard.py                  # KeyFillWizard - paint-bucket key segmentation
@@ -812,7 +812,7 @@ app/
                                 #   controller, trial runner, participant-facing experiment cue
                                 #   screen; and the analysis windows: quiz_analysis_window,
                                 #   quiz_detail_window, event_review_window, video_sync_window,
-                                #   participant_analysis_window; and the section 10 maintenance
+                                #   participant_analysis_window; and the section 9 maintenance
                                 #   windows: maintenance_window.py - the shared shell (worker
                                 #   thread, progress bars, log, tool status) - with
                                 #   review_compress_window and quiz_backup_window over it)
@@ -933,7 +933,7 @@ drive every motor under test at once, and microphone placement dominates the
 measurement. They estimate the *acoustic* end-to-end path - serial, MCU,
 motor spin-up, sound propagation and audio capture together. The
 instrumented, repeatable version of this measurement is the motor→ACC delay
-experiment in launcher section 9, which uses an accelerometer instead of a
+experiment in launcher section 10, which uses an accelerometer instead of a
 microphone: see
 [validation_experiments/motor_acc_delay_experiment/README.md](validation_experiments/motor_acc_delay_experiment/README.md).
 
@@ -1044,7 +1044,7 @@ research rig — but the Initial Setup window says so in an advisory note.
 * Adhesion Vibration Comparison: the frequency **and** amp it drives —
   always read from `haptic.lra` (even when `using` is `erm`) and shown
   read-only, so all three adhesives get an identical drive;
-* the descriptions, tooltips and status lines of section 9 — they quote
+* the descriptions, tooltips and status lines of section 10 — they quote
   the configured numbers, not literals;
 * the Wiring Guide's pin table (which actuator is in use, on which port).
 

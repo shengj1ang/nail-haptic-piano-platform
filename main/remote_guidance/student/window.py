@@ -117,7 +117,7 @@ from note_led_map import WHITE_LEDS
 from ..config import RemoteGuidanceConfig, student_config
 from ..client_styles import STUDENT_STATUS_STYLES, STUDENT_STYLE_SHEET
 from ..cue_outputs import build_student_cue, wants_haptic, wants_visual
-from ..gui_common import STATUS_STYLES, StageWindow, header_label, room_summary
+from ..gui_common import DEMO_ROOM, STATUS_STYLES, StageWindow, header_label, room_summary
 from ..protocol import (
     GUIDANCE_MODES,
     PLAYBACK_PACED,
@@ -181,10 +181,16 @@ def append_session_log(line: str) -> None:
 
 
 class StudentRemoteWindow(QMainWindow, StageWindow):
-    def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None):
+    def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None, demo: bool = False):
         super().__init__()
         self.setWindowTitle("Remote Guidance - Student Client")
         self.resize(1180, 760)
+
+        # Demo Mode (launcher section 12): show the session page with no
+        # relay, so the student view can be photographed. enter_session()
+        # skips all networking when this is set; the camera, LED and MIDI
+        # still open normally from "Ready for guidance".
+        self.demo = demo
 
         self.remote = remote or RemoteGuidanceConfig.load()
         # The platform-wide config, kept so the Settings dialog can offer
@@ -241,6 +247,12 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(TICK_MS)
+
+        # Land straight on the session page for a screenshot. _on_room_chosen
+        # switches to it and calls enter_session(), which returns early
+        # (offline) because self.demo is set.
+        if self.demo:
+            self._on_room_chosen(DEMO_ROOM)
 
     # ------------------------------------------------------------------
     # UI
@@ -548,9 +560,24 @@ class StudentRemoteWindow(QMainWindow, StageWindow):
         """Reaching the session page opens the WebSocket and nothing
         else. The camera, MediaPipe and the MIDI port are claimed by
         "Ready for guidance" (see _start_session), using the MIDI port
-        saved in this client's Settings - the LED strip included."""
+        saved in this client's Settings - the LED strip included.
+
+        In Demo Mode there is no relay: the socket is never opened (and
+        there is no signed-in session to open it against), so the page is
+        shown offline. "Ready for guidance" still opens the local camera,
+        LED and MIDI, which is what a screenshot needs."""
         self.room = room
         self.room_label.setText(room_summary(room))
+        if self.demo:
+            self.link_label.setText("Demo mode — offline, no relay")
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+            self._set_status(
+                "Demo mode: press \"Ready for guidance\" to open the local camera, "
+                "LED and MIDI. No relay and no teacher are involved.",
+                "idle",
+            )
+            return
         self.persist_connection(self.remote, room)
 
         self.bridge = RemoteClientBridge(

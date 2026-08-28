@@ -2,7 +2,7 @@
 
 The run-time half of the rhythm experiment - the platform's most recently
 built study, not its second: the actuator validation experiments (section
-9) and the tele-training work (section 8) both came earlier, and the Main
+10) and the tele-training work (section 8) both came earlier, and the Main
 User Study earlier still. Its stimulus half is the standalone
 ``melody_generator`` package (launcher section 11's first two buttons);
 this package is what actually puts a participant through the melody.

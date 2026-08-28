@@ -1,4 +1,4 @@
-"""Review Video Compression window (launcher section 10: Tools).
+"""Review Video Compression window (launcher section 9: Tools).
 
 The GUI over app/review_compress.py, and the exact equivalent of running
 main/tool_compress_review_videos.py in a terminal: Scan is that script's

@@ -84,6 +84,7 @@ from note_audio import DEFAULT_TIMBRE, TIMBRES, NoteAudioPlayer
 from ..config import RemoteGuidanceConfig, teacher_config
 from ..client_styles import TEACHER_STATUS_STYLES, TEACHER_STYLE_SHEET
 from ..gui_common import (
+    DEMO_ROOM,
     STATUS_STYLES,
     ApiCallWorker,
     StageWindow,
@@ -174,10 +175,16 @@ def _set_highlight(button: QPushButton, on: bool) -> None:
 
 
 class TeacherRemoteWindow(QMainWindow, StageWindow):
-    def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None):
+    def __init__(self, cfg: Config, remote: Optional[RemoteGuidanceConfig] = None, demo: bool = False):
         super().__init__()
         self.setWindowTitle("Remote Guidance - Teacher Client")
         self.resize(1180, 760)
+
+        # Demo Mode (launcher section 12): show the session page with no
+        # relay, so the control desk can be photographed. enter_session()
+        # skips all networking when this is set; the camera and MIDI still
+        # open normally from Get ready.
+        self.demo = demo
 
         self.remote = remote or RemoteGuidanceConfig.load()
         # The platform-wide config, kept so the Settings dialog can offer
@@ -229,6 +236,12 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(TICK_MS)
+
+        # Land straight on the session page for a screenshot. _on_room_chosen
+        # switches to it and calls enter_session(), which returns early
+        # (offline) because self.demo is set.
+        if self.demo:
+            self._on_room_chosen(DEMO_ROOM)
 
     # ------------------------------------------------------------------
     # UI
@@ -553,9 +566,28 @@ class TeacherRemoteWindow(QMainWindow, StageWindow):
     def enter_session(self, room: dict) -> None:
         """Reaching the session page opens the WebSocket and nothing
         else. The camera, MediaPipe and the MIDI port wait for Start
-        live session. The MIDI port comes from this client's Settings."""
+        live session. The MIDI port comes from this client's Settings.
+
+        In Demo Mode there is no relay: everything that touches the
+        network (persisting the connection, opening the socket) is
+        skipped, so the page is shown exactly as it looks in a lesson but
+        entirely offline. Get ready still opens the local camera and MIDI."""
         self.room = room
         self.room_label.setText(room_summary(room))
+        if self.demo:
+            self.link_label.setText("Demo mode — offline, no relay")
+            self._set_status(
+                "Demo mode — offline. No relay and no student; Get ready still "
+                "opens the local camera and MIDI.",
+                "idle",
+            )
+            self._refresh_songs()
+            self._sync_guidance_controls()
+            self.detect_label.setText(
+                "Demo mode: press Get ready to open the local camera and MIDI. "
+                "No relay and no student are involved."
+            )
+            return
         self.persist_connection(self.remote, room)
         self._connect_websocket(room)
         self._refresh_songs()

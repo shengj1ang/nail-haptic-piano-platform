@@ -188,7 +188,7 @@ python lra_frequency_sweep.py    # ~1.5 min, prints f0
 python lra_amplitude_sweep.py    # ~35 s, prints the recommended cue amp
 ```
 
-Alternatively, open them from `launcher.py`, section "9. Validation
+Alternatively, open them from `launcher.py`, section "10. Validation
 Experiments" - the GUI windows (`app/gui/validation_experiment_window.py`)
 are thin Start/Stop + progress-bar + log wrappers around the same
 `run_experiment()` functions and write identical output files. They also

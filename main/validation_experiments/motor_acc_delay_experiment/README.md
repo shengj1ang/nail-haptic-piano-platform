@@ -418,7 +418,7 @@ python motor_acc_delay.py            # CLI, defaults: LRA on port 11
 python -c "from validation_experiments.motor_acc_delay_experiment import motor_acc_delay as m; m.run_experiment(actuator_type='ERM', motor_index=10, vib_duration_s=5.0)"
 ```
 
-or launcher → "9. Validation Experiments" → **Motor → ACC Delay
+or launcher → "10. Validation Experiments" → **Motor → ACC Delay
 (LRA/ERM)**. The controls sit on three short rows so the window fits a
 laptop screen:
 

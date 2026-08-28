@@ -8,7 +8,7 @@ build new work on top of these.
 
 Repeatable calibration/validation experiments live in
 `main/validation_experiments/` (with GUI entries in launcher
-section 9).
+section 10).
 
 ## Early firmware / bring-up sketches
 

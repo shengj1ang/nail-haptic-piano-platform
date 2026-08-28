@@ -150,7 +150,7 @@ class AccelerometerWindow(QMainWindow):
             "Changing the sensor id only retargets the live view - nothing "
             "is saved automatically. Press \"Save as Default\" to store it in "
             "config.json (accelerometer.sensor_id); the saved id is what the "
-            "Validation Experiments windows (launcher section 9) preselect as "
+            "Validation Experiments windows (launcher section 10) preselect as "
             "their ACC sensor."
         )
         hint.setWordWrap(True)

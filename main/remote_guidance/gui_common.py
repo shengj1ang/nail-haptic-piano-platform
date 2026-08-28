@@ -57,6 +57,13 @@ STATUS_STYLES = {
 STAGE_SIGN_IN, STAGE_ROOM, STAGE_SESSION = 0, 1, 2
 STAGE_NAMES = ("Sign in", "Room", "Session")
 
+# A stand-in "room" for the launcher's Demo Mode (launcher.py section 12):
+# a client can show its full session page for screenshots without a relay,
+# a login or a peer. It only fills the room chip - enter_session() skips all
+# networking when the window was built with demo=True, so nothing here is
+# ever sent anywhere.
+DEMO_ROOM = {"name": "Demo (offline)"}
+
 # The demo accounts that exist on the development relay, pre-filled into
 # the sign-in form: role -> (username, password). Both clients are
 # started for every trial run, and typing the same two pairs each time

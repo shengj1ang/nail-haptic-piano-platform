@@ -62,7 +62,7 @@ because the others depend on its numbers.
 
 | strand | launcher | what it measures | first built |
 |---|---|---|---|
-| **Validation experiments** | section 9 | the actuators themselves - LRA resonance and intensity calibration, motor-to-accelerometer delay, ERM/LRA spectra, adhesive comparison | 2026-07-22 |
+| **Validation experiments** | section 10 | the actuators themselves - LRA resonance and intensity calibration, motor-to-accelerometer delay, ERM/LRA spectra, adhesive comparison | 2026-07-22 |
 | **Main User Study** | section 6 | which cue modality teaches a key-and-finger mapping best - key-only / visual / vibrotactile x 3 difficulty levels | 2026-07-22 |
 | **Tele-training** | section 8 | guidance delivered over a network: a teacher, a student and a relay running at once, with its own latency budget and analysis | 2026-08-06 |
 | **Rhythm experiment** | section 11 | *this document* - what survives when the cue is withdrawn | 2026-08-25 |

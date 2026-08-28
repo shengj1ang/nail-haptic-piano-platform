@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "study": "rhythm",
+  "created_at": 1787856454.935482,
+  "participant": {
+    "name": "P01",
+    "sex": "male",
+    "age": 22,
+    "handedness": "right",
+    "piano_experience_years": 0,
+    "notes": ""
+  },
+  "keyboard_profile": "white-city-lab-20260717",
+  "melody": "melody_seed42",
+  "melody_summary": {
+    "name": "melody_seed42",
+    "note_count": 15,
+    "fingers_used": [
+      "L1",
+      "L3",
+      "L2",
+      "R3",
+      "R2"
+    ],
+    "key_display": "C major",
+    "layout": "middle_c",
+    "bpm": 60.0,
+    "duration_s": 22.0,
+    "seed": 42
+  },
+  "phases": {
+    "training": "Training (backlight + haptic)",
+    "probe": "Probe (backlight only)",
+    "final": "Final test (no guidance)"
+  },
+  "phase_guidance": {
+    "training": {
+      "backlight": true,
+      "haptic": true
+    },
+    "probe": {
+      "backlight": true,
+      "haptic": false
+    },
+    "final": {
+      "backlight": false,
+      "haptic": false
+    }
+  },
+  "quiz_name_prefix": "rhythm",
+  "trials": [
+    {
+      "index": 1,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 2,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 2,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 3,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 3,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 4,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 4,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 5,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 5,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 6,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 7,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 6,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 8,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 7,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 9,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 8,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 10,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 9,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 11,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 10,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 12,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 2,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 13,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 11,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 14,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 12,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 15,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 13,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 16,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 14,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 17,
+      "phase": "training",
+      "phase_label": "Training (backlight + haptic)",
+      "phase_number": 15,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": true,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 18,
+      "phase": "probe",
+      "phase_label": "Probe (backlight only)",
+      "phase_number": 3,
+      "melody": "melody_seed42",
+      "backlight": true,
+      "haptic": false,
+      "rest_after": true,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    },
+    {
+      "index": 19,
+      "phase": "final",
+      "phase_label": "Final test (no guidance)",
+      "phase_number": 1,
+      "melody": "melody_seed42",
+      "backlight": false,
+      "haptic": false,
+      "rest_after": false,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null
+    }
+  ],
+  "progress": {
+    "completed": 0,
+    "total": 19,
+    "next_trial_index": 1,
+    "finished": false
+  }
+}

@@ -115,12 +115,15 @@ class TestLifetimeTooltips(unittest.TestCase):
             launcher.EXCLUSIVE_TOOLTIP,
             launcher.CONCURRENT_TOOLTIP,
             launcher.PROCESS_TOOLTIP,
+            launcher.DEMO_TOOLTIP,
         }
         for _title, tools in launcher.SECTIONS:
             for label, entry in tools:
                 tip = launcher.lifetime_tooltip(entry)
                 self.assertIn(tip, known, label)
-                if isinstance(entry, launcher.ProcessEntry):
+                if isinstance(entry, launcher.ActionEntry):
+                    expected = entry.tooltip
+                elif isinstance(entry, launcher.ProcessEntry):
                     expected = launcher.PROCESS_TOOLTIP
                 elif entry in launcher.CONCURRENT_TOOLS:
                     expected = launcher.CONCURRENT_TOOLTIP

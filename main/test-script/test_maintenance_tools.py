@@ -522,7 +522,7 @@ class TestConsoleAndWindowShareOneImplementation(unittest.TestCase):
     def test_the_launcher_offers_both_tools_in_one_section(self):
         import launcher
 
-        section = dict(launcher.SECTIONS)["10. Tools"]
+        section = dict(launcher.SECTIONS)["9. Tools"]
         self.assertEqual(
             [entry for _label, entry in section],
             [ReviewCompressWindow, QuizBackupWindow],

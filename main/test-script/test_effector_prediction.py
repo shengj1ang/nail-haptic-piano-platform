@@ -381,14 +381,17 @@ class TestLauncherIntegration(unittest.TestCase):
         self.assertIn(ParticipantAnalysisWindow, launcher.CONCURRENT_TOOLS)
         self.assertNotIn(QuizAnalysisWindow, launcher.CONCURRENT_TOOLS)
 
-    def test_section_numbering_is_unchanged(self):
-        """Section numbers are referenced in the README and the report, so
-        adding a window must not renumber them."""
+    def test_section_numbering_is_stable(self):
+        """Section numbers are referenced in the README and the report, so a
+        change to the numbering must be a deliberate renumber, not an accident
+        of adding a window. Data Analysis is 7; the tail is Rhythm Experiment
+        (11) then the Demo & About front matter (12)."""
         import launcher
 
         titles = [title for title, _ in launcher.SECTIONS]
         self.assertTrue(titles[6].startswith("7. Data Analysis"))
-        self.assertTrue(titles[-1].startswith("11. Rhythm Experiment"))
+        self.assertTrue(titles[-2].startswith("11. Rhythm Experiment"))
+        self.assertTrue(titles[-1].startswith("12. Demo && About"))
 
 
 if __name__ == "__main__":

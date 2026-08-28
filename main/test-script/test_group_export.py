@@ -254,6 +254,32 @@ class TestExportCoverage(unittest.TestCase):
         self.assertEqual(set(theta["theta"]), {0.30, 0.35, 0.40, 0.45, 0.50})
         self.assertEqual(set(theta["source"]), {"automatic_target_probability"})
 
+    def test_contrasts_plot_primary_complete_rt_without_duplicate_exports(self):
+        figure = self.window._figures["group_contrasts"]
+        self.assertIn("key-and-finger-correct", figure.axes[2].get_title())
+        diffs = self.window._datasets["contrasts_participant_differences"]
+        self.assertEqual(set(diffs["metric"]), {
+            "fa_main", "key_accuracy", "rt_complete_s", "rt_correct_key_s",
+        })
+        self.assertFalse(diffs.duplicated(
+            ["participant", "contrast", "metric"]).any())
+
+    def test_error_figures_distinguish_reference_from_cued_fingers(self):
+        composition = self.window._figures["group_errors_composition"].axes[0]
+        self.assertEqual(composition.get_xticklabels()[0].get_text(), "A\n(reference)")
+        legend_labels = [text.get_text() for text in composition.get_legend().get_texts()]
+        self.assertFalse(any("wrong finger" in label.lower() for label in legend_labels))
+
+        cued = self.window._figures["group_errors_correct_key_wrong_finger"].axes[0]
+        self.assertEqual([tick.get_text() for tick in cued.get_xticklabels()], ["B", "C"])
+        self.assertEqual(tuple(cued.get_ylim()), (0.0, 12.0))
+        self.assertIn("non-cued finger", cued.get_title())
+
+    def test_finger_accuracy_descriptive_title_is_concise(self):
+        figure = self.window._figures["group_rm_anova_fa_descriptive"]
+        self.assertEqual(figure.axes[0].get_title(),
+                         "Finger accuracy by homologous digit (descriptive)")
+
 
 class TestExportWritesFiles(unittest.TestCase):
 

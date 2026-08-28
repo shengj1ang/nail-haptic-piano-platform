@@ -73,7 +73,7 @@ data/validation_experiments/adhesion_vibration_comparison/:
                                        firmware, files, result
 
 Runs standalone (python adhesion_vibration.py --method "Blu Tack") or
-through the launcher's "9. Validation Experiments" section; both paths
+through the launcher's "10. Validation Experiments" section; both paths
 write the same files.
 """
 

@@ -104,7 +104,7 @@ care about.
 
 ## Running it
 
-Launcher → **9. Validation Experiments** → **Actuator Spectrogram
+Launcher → **10. Validation Experiments** → **Actuator Spectrogram
 (ERM/LRA)**: the standard Start/Stop + progress bar + log + plot-preview
 shell, with the motor-port / type / precision / Vibrate pickers, a Test
 Buzz, and an "Open Accelerometer Live View" button. The selected motor port

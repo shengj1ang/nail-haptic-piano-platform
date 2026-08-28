@@ -8,7 +8,7 @@ mounting adhesives the project uses, and compares them:
 2. **Double-sided tape**
 3. **Cosmetic adhesive** — the cosmetic eyelash adhesive, single-use
 
-Launcher → **9. Validation Experiments → Adhesion Vibration Comparison
+Launcher → **10. Validation Experiments → Adhesion Vibration Comparison
 (LRA)**, or standalone from `main/`:
 
 ```
