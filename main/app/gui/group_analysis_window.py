@@ -164,6 +164,12 @@ class GroupAnalysisWindow(QMainWindow):
         figure_prefs.set_show_participant_traces(not self.hide_traces_check.isChecked())
         self.hide_traces_check.toggled.connect(self._on_hide_traces_toggled)
         left_layout.addWidget(self.hide_traces_check)
+        margins = left_layout.contentsMargins()
+        left.setFixedWidth(max(
+            300,
+            self.hide_traces_check.sizeHint().width()
+            + margins.left() + margins.right(),
+        ))
         left_layout.addWidget(analyze_btn)
         left_layout.addWidget(self.save_figs_btn)
 
@@ -1311,15 +1317,16 @@ class GroupAnalysisWindow(QMainWindow):
         fig2 = Figure(figsize=(10.5, 3.6))
         ax2 = fig2.subplots(1, 1)
         ckwf = props[props["category"] == CAT_CK_WF]
-        guidance_conditions = [
-            c for c in ga.GUIDANCE_CONDITIONS
+        present_conditions = [
+            c for c in CONDITIONS
             if (ckwf["condition"] == c).any()
         ]
-        for xi, c in enumerate(guidance_conditions):
+        for xi, c in enumerate(present_conditions):
             sub = ckwf[ckwf["condition"] == c]
             vals = sub["proportion"].to_numpy(dtype=float) * 100
             jitter = (np.arange(len(vals)) - (len(vals) - 1) / 2) * (0.25 / max(len(vals), 1))
-            ax2.scatter(xi + jitter, vals, s=30, color=CONDITION_COLORS[c], alpha=0.8, zorder=2)
+            ax2.scatter(xi + jitter, vals, s=18, marker="o",
+                        color=CONDITION_COLORS[c], alpha=0.8, zorder=2)
             center = ga.group_center(sub, "proportion", ["condition"])
             if len(center) and not np.isnan(float(center["mean"].iloc[0])):
                 mean = float(center["mean"].iloc[0]) * 100
@@ -1330,11 +1337,13 @@ class GroupAnalysisWindow(QMainWindow):
                                  color="black", capsize=4, linewidth=1.3, zorder=3)
                 ax2.scatter([xi], [mean], s=140, marker="D", color=CONDITION_COLORS[c],
                             edgecolor="black", zorder=4)
-        ax2.set_xticks(range(len(guidance_conditions)), guidance_conditions)
+        ax2.set_xticks(range(len(present_conditions)), present_conditions)
         ax2.set_ylabel("% of valid events")
-        ax2.set_title("Correct key + non-cued finger — participant-level rate (B/C)",
+        ax2.set_title("Correct key + wrong finger — participant-level rate by condition",
                       fontsize=10)
-        ax2.set_ylim(0, 12)
+        zero_based_ylim(ax2)
+        for spine in ax2.spines.values():
+            spine.set_zorder(0)
         fig2.tight_layout()
 
         # Caption: pooled counts (supplementary) + wrong-key distance.
@@ -1474,7 +1483,7 @@ class GroupAnalysisWindow(QMainWindow):
         axes = fig2.subplots(1, len(CONDITIONS))
         for ax, c in zip(axes, CONDITIONS):
             self._draw_confusion(ax, by_cond[c],
-                                 f"{self._cond_titles[c]} (n = {by_cond[c]['total']})",
+                                 f"{self._cond_titles[c]}\n(n = {by_cond[c]['total']})",
                                  normalized=True, vmax=100.0, cell_fontsize=6.0)
         axes[0].set_ylabel("target finger", fontsize=8)
         fig2.suptitle("Row-normalized % per target finger, by condition", fontsize=11)
@@ -1817,6 +1826,12 @@ class GroupAnalysisWindow(QMainWindow):
         metric, frame = res["metric"], res["frame"]
         factor, levels = res["factor"], res["levels"]
         conditions = res["conditions"]
+        # ``xlabel`` is "repetition within cell" for the repetition model.
+        # Reusing it verbatim before "cell means" produced the visible title
+        # "repetition within cell cell means". Titles only need the factor
+        # name; the x-axis keeps the more precise within-cell wording.
+        title_factor = "repetition" if factor == "repetition" else xlabel
+        difference_factor = "repetition" if factor == "repetition" else "level"
         fig = Figure(figsize=(10.5, 4.0))
         ax, ax_d = fig.subplots(1, 2)
         x = np.arange(len(levels))
@@ -1839,7 +1854,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_xticks(x, tick_labels, fontsize=9)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f"{metric_label.split(' — ')[0]} ({unit})")
-        ax.set_title(f"{metric_label} — condition × {xlabel} cell means", fontsize=10)
+        ax.set_title(f"{metric_label} — condition × {title_factor} cell means", fontsize=10)
         ax.legend(fontsize=7)
         if zero_based_rt:
             zero_based_ylim(ax)
@@ -1861,7 +1876,10 @@ class GroupAnalysisWindow(QMainWindow):
             ax_d.errorbar(x, means, yerr=[means - lo, hi - means], fmt="D", markersize=9,
                           color="#d9663d", markeredgecolor="black", capsize=4,
                           linewidth=1.3, linestyle="none", zorder=4)
-            ax_d.set_title(f"Paired {hi_c} − {lo_c} per level (interaction term)", fontsize=10)
+            ax_d.set_title(
+                f"Paired {hi_c} − {lo_c} per {difference_factor} (interaction term)",
+                fontsize=10,
+            )
             ax_d.set_ylabel(f"{hi_c} − {lo_c} ({unit})")
         else:
             ax_d.set_title("Paired difference needs exactly two conditions", fontsize=10)

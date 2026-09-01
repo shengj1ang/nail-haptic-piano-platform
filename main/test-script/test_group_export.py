@@ -144,6 +144,13 @@ class TestExportCoverage(unittest.TestCase):
         titles = [self.window.tabs.tabText(i) for i in range(self.window.tabs.count())]
         self.assertEqual(titles, list(TAB_TABLE_PREFIXES))
 
+    def test_sidebar_is_wide_enough_for_trace_checkbox(self):
+        checkbox = self.window.hide_traces_check
+        sidebar = checkbox.parentWidget()
+        margins = sidebar.layout().contentsMargins()
+        required = checkbox.sizeHint().width() + margins.left() + margins.right()
+        self.assertGreaterEqual(sidebar.width(), required)
+
     def test_every_tab_contributes_at_least_one_figure(self):
         slugs = list(self.window._figures)
         for tab, prefix in TAB_FIGURE_PREFIXES.items():
@@ -208,6 +215,22 @@ class TestExportCoverage(unittest.TestCase):
                   for tick in heatmap.axes[0].get_xticklabels()]
         self.assertEqual(labels, cas.SPATIAL_FINGER_ORDER)
 
+    def test_condition_a_motor_demand_always_keeps_participant_pairs(self):
+        """The paired lines are this figure's variability display, so its
+        clean mode must not reduce the plot to two unsupported mean lines."""
+        figure = self.window._figures["group_condition_a_motor_demand"]
+        expected_pairs_per_axis = self.window._data.n * len(cas.LEVELS)
+        for ax in figure.axes:
+            participant_pairs = [
+                line for line in ax.lines
+                if line.get_linewidth() == 0.7 and len(line.get_xdata()) == 2
+            ]
+            self.assertEqual(len(participant_pairs), expected_pairs_per_axis)
+        self.assertIn(
+            "participant pair",
+            [text.get_text() for text in figure.legends[0].get_texts()],
+        )
+
     def test_inferential_performance_exports_exclude_condition_a(self):
         for slug in ("condition_difficulty_participant_cells",
                      "fingers_participant_cells"):
@@ -264,21 +287,52 @@ class TestExportCoverage(unittest.TestCase):
         self.assertFalse(diffs.duplicated(
             ["participant", "contrast", "metric"]).any())
 
-    def test_error_figures_distinguish_reference_from_cued_fingers(self):
+    def test_error_figures_include_condition_a_reference_context(self):
         composition = self.window._figures["group_errors_composition"].axes[0]
         self.assertEqual(composition.get_xticklabels()[0].get_text(), "A\n(reference)")
         legend_labels = [text.get_text() for text in composition.get_legend().get_texts()]
         self.assertFalse(any("wrong finger" in label.lower() for label in legend_labels))
 
-        cued = self.window._figures["group_errors_correct_key_wrong_finger"].axes[0]
-        self.assertEqual([tick.get_text() for tick in cued.get_xticklabels()], ["B", "C"])
-        self.assertEqual(tuple(cued.get_ylim()), (0.0, 12.0))
-        self.assertIn("non-cued finger", cued.get_title())
+        errors = self.window._figures["group_errors_correct_key_wrong_finger"].axes[0]
+        self.assertEqual(
+            [tick.get_text() for tick in errors.get_xticklabels()],
+            ["A", "B", "C"],
+        )
+        self.assertEqual(errors.get_ylim()[0], 0.0)
+        self.assertNotEqual(tuple(errors.get_ylim()), (0.0, 12.0))
+        self.assertIn("wrong finger", errors.get_title())
+        self.assertEqual(errors.spines["bottom"].get_zorder(), 0)
 
     def test_finger_accuracy_descriptive_title_is_concise(self):
         figure = self.window._figures["group_rm_anova_fa_descriptive"]
         self.assertEqual(figure.axes[0].get_title(),
                          "Finger accuracy by homologous digit (descriptive)")
+
+    def test_equalisation_null_is_a_b_to_c_trajectory(self):
+        axis = self.window._figures["group_finger_equalisation"].axes[0]
+        lines = {line.get_label(): line for line in axis.lines}
+        observed = lines["observed group mean"]
+        null = lines["expected under proportional speed-up"]
+        np.testing.assert_allclose(null.get_xdata(), [0, 1])
+        self.assertAlmostEqual(null.get_ydata()[0], observed.get_ydata()[0])
+        self.assertEqual(null.get_linestyle(), "--")
+
+    def test_condition_confusion_titles_put_sample_size_on_its_own_line(self):
+        figure = self.window._figures["group_confusion_by_condition"]
+        for ax, condition in zip(figure.axes, ga.CONDITIONS):
+            lines = ax.get_title().splitlines()
+            self.assertEqual(len(lines), 2)
+            self.assertTrue(lines[0].startswith(f"{condition} ("))
+            self.assertRegex(lines[1], r"^\(n = \d+\)$")
+
+    def test_repetition_anova_titles_name_repetition_once(self):
+        figure = self.window._figures["group_rm_anova_repetition"]
+        self.assertIn("condition × repetition cell means", figure.axes[0].get_title())
+        self.assertNotIn("cell cell", figure.axes[0].get_title())
+        self.assertEqual(
+            figure.axes[1].get_title(),
+            "Paired C − B per repetition (interaction term)",
+        )
 
 
 class TestExportWritesFiles(unittest.TestCase):
@@ -348,6 +402,9 @@ class TestExportWritesFiles(unittest.TestCase):
             self.assertFalse(
                 (out / "group_contrasts_detailed.png").is_file(),
                 "a figure with no participant lines should get no _detailed twin")
+            self.assertFalse(
+                (out / "group_condition_a_motor_demand_detailed.png").is_file(),
+                "motor-demand pairs are always shown, so a duplicate twin is redundant")
 
     def test_one_unwritable_item_does_not_abort_the_rest(self):
         """A single bad figure must cost one file, not the whole export."""

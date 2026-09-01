@@ -240,11 +240,12 @@ def _equalisation_figure(res: dict) -> Figure:
                     color="#bbbbbb", alpha=0.7, zorder=2)
         means = [float(wide[baseline].mean()) * scale, float(wide[cued].mean()) * scale]
         ax.plot([0, 1], means, "-D", markersize=11, linewidth=2.4, color="black",
-                zorder=4, label="group mean")
+                zorder=4, label="observed group mean")
         if key == "sd_corrected" and np.isfinite(res.get("proportional_null_ratio", np.nan)):
             null = means[0] * res["proportional_null_ratio"]
-            ax.plot([1], [null], marker="_", markersize=26, color="#c23b22", zorder=5,
-                    label="proportional-speed-up null")
+            ax.plot([0, 1], [means[0], null], "--", linewidth=1.6,
+                    color="#c23b22", zorder=3,
+                    label="expected under proportional speed-up")
         ax.set_xticks([0, 1], [baseline, cued])
         ax.set_xlim(-0.3, 1.3)
         ax.set_ylabel(ylabel, fontsize=9)

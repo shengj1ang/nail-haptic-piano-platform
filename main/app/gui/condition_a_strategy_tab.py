@@ -330,17 +330,20 @@ def _effort_figure(participant_effort: pd.DataFrame,
     offset = 0.07
     for ax, (metric, ylabel) in zip(axes, specs):
         rows = participant_effort[participant_effort["metric"] == metric]
-        if figure_prefs.show_participant_traces:
-            for level_index, level in enumerate(cas.LEVELS):
-                level_rows = rows[rows["level"] == level]
-                for _participant, row in level_rows.groupby("participant"):
-                    ax.plot(
-                        [level_index - offset, level_index + offset],
-                        [float(row["generated_reference"].iloc[0]),
-                         float(row["actual"].iloc[0])],
-                        "-", color=PARTICIPANT_LINE, linewidth=0.7,
-                        alpha=0.42, zorder=1,
-                    )
+        # The paired participant lines are the uncertainty display in this
+        # figure: the summary table's CI is for actual - reference, not for
+        # either endpoint separately. Keep the pairs in both trace modes so
+        # the clean export never presents two bare means with no variability.
+        for level_index, level in enumerate(cas.LEVELS):
+            level_rows = rows[rows["level"] == level]
+            for _participant, row in level_rows.groupby("participant"):
+                ax.plot(
+                    [level_index - offset, level_index + offset],
+                    [float(row["generated_reference"].iloc[0]),
+                     float(row["actual"].iloc[0])],
+                    "-", color=PARTICIPANT_LINE, linewidth=0.7,
+                    alpha=0.42, zorder=1,
+                )
         metric_summary = (effort_summary[effort_summary["metric"] == metric]
                           .set_index("level").reindex(cas.LEVELS))
         reference = metric_summary["generated_reference_mean"].to_numpy(dtype=float)
@@ -363,10 +366,9 @@ def _effort_figure(participant_effort: pd.DataFrame,
                linewidth=2.3, markersize=5, label="hidden generated reference"),
         Line2D([0], [0], color="#3a76c4", marker="o",
                linewidth=2.6, markersize=5, label="observed free choice"),
+        Line2D([0], [0], color=PARTICIPANT_LINE,
+               linewidth=0.7, label="participant pair"),
     ]
-    if figure_prefs.show_participant_traces:
-        effort_handles.append(Line2D([0], [0], color=PARTICIPANT_LINE,
-                                     linewidth=0.7, label="participant pair"))
     fig.legend(handles=effort_handles, loc="upper center",
                ncols=len(effort_handles), frameon=False, fontsize=8)
     fig.suptitle(
