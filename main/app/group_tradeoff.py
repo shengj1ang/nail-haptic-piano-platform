@@ -13,7 +13,7 @@ descriptive context and never enters the planned B/C inference.
 Aggregation hierarchy (participants are the only independent unit):
 
   trial points          -> participant x condition (x level) centroids
-  participant centroids -> group centroids, 95% t-CI over PARTICIPANTS
+  participant centroids -> group centroids, 95% bootstrap CI over PARTICIPANTS
 
 Group centroids and their intervals are always computed from the
 participant-level centroids (each participant enters with equal weight);
@@ -151,7 +151,7 @@ def participant_centroids(points: pd.DataFrame, by_level: bool = False) -> pd.Da
 
 
 def group_centroids(pcent: pd.DataFrame, by_level: bool = False) -> pd.DataFrame:
-    """Group centroid per condition (x level): mean and 95% t-CI of the
+    """Group centroid per condition (x level): mean and 95% bootstrap CI of the
     PARTICIPANT centroids (n = participants; CI absent below n = 2).
     Never computed from pooled trials or events - that would treat
     dependent observations as independent samples."""
@@ -312,7 +312,7 @@ class TradeoffOptions:
     show_participant_centroids: bool = True
     show_group_centroids: bool = True
     connect_b_to_c: bool = True
-    # Group-centroid error bars: "ci" = 95% t-CI over participants (the
+    # Group-centroid error bars: "ci" = 95% bootstrap CI over participants (the
     # inferentially honest default - huge at N = 2 by construction),
     # "sd" = ±SD over participants (descriptive spread, stays readable
     # at small N). Both are participant-level; trials are never pooled.
@@ -337,7 +337,7 @@ def error_bounds(row, axis: str, mode: str):
 
 
 def error_bar_label(mode: str) -> str:
-    return "95% t-CI" if mode == "ci" else "SD"
+    return "95% bootstrap CI" if mode == "ci" else "SD"
 
 
 def shared_rt_limits(points: pd.DataFrame) -> tuple:
@@ -371,7 +371,7 @@ def build_group_tradeoff_2d(data: TradeoffData,
                             xlim: Optional[tuple] = None) -> Figure:
     """Main figure: trial points (small, translucent), participant
     centroids (hollow rings), group centroids (large diamonds with
-    participant-level 95% t-CI bars). No regression / connecting lines
+    participant-level 95% bootstrap CI bars). No regression / connecting lines
     on purpose. Group centroids without a CI (n < 2 participants) still
     plot - they are descriptive either way."""
     colors = colors or CONDITION_COLORS
@@ -428,7 +428,7 @@ def build_group_tradeoff_2d(data: TradeoffData,
 
 
 def _plane_error_bars(ax, r, z: float, mode: str) -> None:
-    """x/y error bars (95% t-CI or ±SD per `mode`) drawn flat inside a
+    """x/y error bars (95% bootstrap CI or ±SD per `mode`) drawn flat inside a
     fixed-z plane of a 3D axis (no z error bar - difficulty/participant
     are design categories)."""
     x_b = error_bounds(r, "rt", mode)

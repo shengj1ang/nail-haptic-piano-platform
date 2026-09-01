@@ -347,13 +347,52 @@ def load_group(participants: List[str], data_dir: Path = STUDY_DATA_DIR) -> Grou
 # and condition x level means - is participant_condition_metrics /
 # participant_cell_metrics, imported above from app.participant_analysis.
 
+# Percentile bootstrap over participants is the study's uniform 95% CI for
+# every Group Analysis figure: resample the participant-level values with
+# replacement, recompute the mean, and read the 2.5 / 97.5 percentiles. It
+# replaces the older t-interval so a near-ceiling accuracy CI cannot cross
+# 0/100%. Seeded (fixed) so a figure and its exported CSV reproduce exactly.
+BOOTSTRAP_RESAMPLES = 10000
+BOOTSTRAP_SEED = 20260901
+
+
+def bootstrap_ci(values, n_resamples: int = BOOTSTRAP_RESAMPLES, rng=None):
+    """Percentile bootstrap 95% CI of the mean of participant-level values.
+
+    Resample the values (participants, the independent unit) with
+    replacement, recompute the mean, and take the 2.5 / 97.5 percentiles
+    over ``n_resamples`` draws.  Every resampled mean averages observed
+    values, so the interval stays inside their range - a near-ceiling
+    accuracy CI can never cross 100%.  Returns ``(nan, nan)`` for fewer than
+    two finite values.  Pass ``rng`` to share one generator across a batch
+    of cells (keeps a whole figure's CIs reproducible in one call);
+    otherwise a fixed-seed generator makes a standalone call reproducible.
+    """
+    values = np.asarray(values, dtype=float)
+    # Sort so the CI depends only on the multiset of values, not the row
+    # order they arrive in: the same participants give the same interval
+    # whether computed for a figure or its caption/CSV.
+    values = np.sort(values[np.isfinite(values)])
+    n = len(values)
+    if n < 2:
+        return float("nan"), float("nan")
+    if rng is None:
+        rng = np.random.default_rng(BOOTSTRAP_SEED)
+    draws = rng.integers(0, n, size=(n_resamples, n))
+    means = values[draws].mean(axis=1)
+    lo, hi = np.percentile(means, [2.5, 97.5])
+    return float(lo), float(hi)
+
+
 def group_center(df: pd.DataFrame, value_col: str, group_cols: List[str]) -> pd.DataFrame:
-    """Mean / SD / 95% t-CI of participant-level values per group cell.
-    n counts PARTICIPANT values (the independent unit), NaNs dropped;
-    the interval is NaN when n < 2 - never fabricated."""
+    """Mean / SD / percentile-bootstrap 95% CI of participant-level values
+    per group cell.  n counts PARTICIPANT values (the independent unit),
+    NaNs dropped; the interval is a participant bootstrap (:func:`bootstrap_ci`)
+    and is NaN when n < 2 - never fabricated."""
     out_cols = group_cols + ["n", "mean", "sd", "sem", "ci95_lo", "ci95_hi"]
     if df.empty:
         return pd.DataFrame(columns=out_cols)
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
     rows = []
     for key, sub in df.groupby(group_cols, sort=True):
         key = key if isinstance(key, tuple) else (key,)
@@ -362,11 +401,7 @@ def group_center(df: pd.DataFrame, value_col: str, group_cols: List[str]) -> pd.
         mean = float(np.mean(vals)) if n else np.nan
         sd = float(np.std(vals, ddof=1)) if n >= 2 else np.nan
         sem = sd / np.sqrt(n) if n >= 2 else np.nan
-        if n >= 2:
-            half = float(sstats.t.ppf(0.975, n - 1)) * sem
-            lo, hi = mean - half, mean + half
-        else:
-            lo = hi = np.nan
+        lo, hi = bootstrap_ci(vals, rng=rng)
         rows.append(dict(zip(group_cols, key), n=n, mean=mean, sd=sd, sem=sem,
                          ci95_lo=lo, ci95_hi=hi))
     return pd.DataFrame(rows, columns=out_cols)
@@ -711,7 +746,7 @@ def ceiling_diagnostics(pf_df: pd.DataFrame, metric: str = "fa",
 
 def finger_cell_descriptives(pf_df: pd.DataFrame, metric: str = "fa",
                              conditions: Optional[List[str]] = None) -> pd.DataFrame:
-    """Group mean / SD / 95% t-CI per (condition, finger_id) over the
+    """Group mean / SD / 95% bootstrap CI per (condition, finger_id) over the
     same complete-case participants the ANOVA uses, so the descriptive
     table and the model describe one identical grid. n counts
     PARTICIPANTS, as everywhere else in this module."""
@@ -858,8 +893,9 @@ def condition_inference(pc_df: pd.DataFrame, metric: str) -> dict:
     A is intentionally absent: without target-finger information its
     hidden-target agreement and response-selection complexity are not
     commensurate performance baselines. The primary summary is the paired
-    C-B mean difference, t interval/test and Cohen's dz; a paired Wilcoxon
-    signed-rank result is retained as a small-sample sensitivity check. No
+    C-B mean difference with a participant bootstrap 95% CI, a paired t-test
+    and Cohen's dz; a paired Wilcoxon signed-rank result is retained as a
+    small-sample sensitivity check. No
     independent-samples test is used and no test runs below MIN_TEST_N.
     """
     pivot = condition_pivot(pc_df, metric)
@@ -888,7 +924,10 @@ def condition_inference(pc_df: pd.DataFrame, metric: str) -> dict:
     mean_diff = float(np.mean(diffs))
     sd_diff = float(np.std(diffs, ddof=1))
     sem = sd_diff / np.sqrt(n)
-    half = float(sstats.t.ppf(0.975, n - 1)) * sem
+    # The reported 95% CI is a participant bootstrap of the mean paired
+    # difference (the study's uniform CI method). The paired t-test t/p and
+    # Cohen's dz below stay the significance test.
+    boot_lo, boot_hi = bootstrap_ci(diffs)
     # A paired t-test is a one-sample t-test of the paired differences.
     # Compute it directly so a synthetic or ceiling-limited sample with
     # exactly constant differences has an explicit result rather than a
@@ -906,8 +945,8 @@ def condition_inference(pc_df: pd.DataFrame, metric: str) -> dict:
         "contrast": "C−B",
         "n": n,
         "mean_diff": mean_diff,
-        "ci95_lo": mean_diff - half,
-        "ci95_hi": mean_diff + half,
+        "ci95_lo": boot_lo,
+        "ci95_hi": boot_hi,
         "statistic": float(t_stat),
         "p": float(t_p),
         "effect_size": mean_diff / sd_diff if sd_diff > 0 else np.nan,

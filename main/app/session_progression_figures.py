@@ -12,11 +12,12 @@ to point at any line here and find it in the raw trial table.
 
 from typing import Dict
 
+import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from .figure_axes import zero_based_ylim
+from . import figure_prefs
 from .group_analysis import LEVEL_DISPLAY_LABELS, LEVELS
 
 
@@ -32,19 +33,32 @@ def _plot_panel(ax, frame: pd.DataFrame, summary: pd.DataFrame, metric: str,
                 scale: float, ylabel: str, title: str) -> None:
     """Draw all participant trajectories and the three group means."""
     occurrences = sorted(frame["difficulty_occurrence"].unique())
+    occ_arr = np.asarray(occurrences, dtype=float)
     for level in LEVELS:
         level_rows = frame[frame["level"] == level]
         color = LEVEL_COLORS[level]
-        for _participant, participant_rows in level_rows.groupby("participant"):
-            values = (participant_rows.set_index("difficulty_occurrence")[metric]
-                      .reindex(occurrences).to_numpy(dtype=float) * scale)
-            ax.plot(occurrences, values, color=color, linewidth=0.8,
-                    alpha=0.20, zorder=1)
+        if figure_prefs.show_participant_traces:
+            for _participant, participant_rows in level_rows.groupby("participant"):
+                values = (participant_rows.set_index("difficulty_occurrence")[metric]
+                          .reindex(occurrences).to_numpy(dtype=float) * scale)
+                ax.plot(occurrences, values, color=color, linewidth=0.8,
+                        alpha=0.20, zorder=1)
 
         mean_rows = (summary[(summary["level"] == level)
                              & (summary["metric"] == metric)]
                      .set_index("difficulty_occurrence")
                      .reindex(occurrences))
+        if not figure_prefs.show_participant_traces:
+            # Spread now comes from a 95% CI band rather than the traces.
+            # Alpha is kept low (0.08) because all three difficulty levels
+            # overlay their bands on one axis; near the accuracy ceiling
+            # they overlap heavily and a heavier fill blends into one blob.
+            lo = mean_rows["ci95_lo"].to_numpy(dtype=float) * scale
+            hi = mean_rows["ci95_hi"].to_numpy(dtype=float) * scale
+            mask = np.isfinite(lo) & np.isfinite(hi)
+            if mask.any():
+                ax.fill_between(occ_arr[mask], lo[mask], hi[mask],
+                                color=color, alpha=0.08, linewidth=0, zorder=2)
         ax.plot(
             occurrences,
             mean_rows["mean"].to_numpy(dtype=float) * scale,
@@ -76,9 +90,11 @@ def build_progression_figure(frame: pd.DataFrame,
                 "RT (ms)", "Correct-key reaction time")
     _plot_panel(key_ax, frame, summary, "key_accuracy_raw", 100,
                 "key accuracy (%)", "Key accuracy")
-    # RT from zero; key accuracy autoscales to its own near-ceiling range,
-    # the same rule the other accuracy panels follow.
-    zero_based_ylim(rt_ax)
+    # Both panels autoscale. This auxiliary figure is a within-difficulty
+    # progression (a trend across occurrences 1–9), not a B/C gap, so its RT
+    # axis is deliberately not pinned to zero the way the primary latency
+    # panels are: the data sit around 580–1000 ms and a 0–~500 ms baseline
+    # was all empty space, flattening the trend the figure exists to show.
 
     level_handles = [
         Line2D([0], [0], color=LEVEL_COLORS[level],
@@ -86,12 +102,19 @@ def build_progression_figure(frame: pd.DataFrame,
                label=LEVEL_DISPLAY_LABELS[level])
         for level in LEVELS
     ]
-    style_handles = [
-        Line2D([0], [0], color="#777777", linewidth=0.8, alpha=0.45,
-               label="individual participant"),
-        Line2D([0], [0], color="#333333", marker="o", linewidth=2.6,
-               markersize=4.5, label="group mean"),
-    ]
+    # With the individual traces hidden, the only lines left are the three
+    # coloured difficulty means, which the difficulty handles already key; a
+    # lone black "group mean" swatch (no black line is ever drawn) just makes
+    # a reader hunt for a line that is not there. Show the thin/thick style
+    # key only when the traces are actually on.
+    style_handles = []
+    if figure_prefs.show_participant_traces:
+        style_handles = [
+            Line2D([0], [0], color="#777777", linewidth=0.8, alpha=0.45,
+                   label="individual participant"),
+            Line2D([0], [0], color="#333333", marker="o", linewidth=2.6,
+                   markersize=4.5, label="group mean"),
+        ]
     fig.suptitle(
         "Difficulty-aligned session progression — observed trials",
         fontsize=11, y=0.985)

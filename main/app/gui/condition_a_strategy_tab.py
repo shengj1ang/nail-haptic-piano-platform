@@ -15,6 +15,7 @@ from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
 from .. import condition_a_strategy as cas
+from .. import figure_prefs
 from ..figure_axes import zero_based_ylim
 
 
@@ -91,11 +92,12 @@ def _progression_panel(ax, trials: pd.DataFrame, summary: pd.DataFrame,
     for level in cas.LEVELS:
         level_trials = trials[trials["level"] == level]
         color = LEVEL_COLORS[level]
-        for _participant, rows in level_trials.groupby("participant"):
-            values = (rows.set_index("level_occurrence")[metric]
-                      .reindex(occurrences).to_numpy(dtype=float))
-            ax.plot(occurrences, values, color=color,
-                    linewidth=0.7, alpha=0.15, zorder=1)
+        if figure_prefs.show_participant_traces:
+            for _participant, rows in level_trials.groupby("participant"):
+                values = (rows.set_index("level_occurrence")[metric]
+                          .reindex(occurrences).to_numpy(dtype=float))
+                ax.plot(occurrences, values, color=color,
+                        linewidth=0.7, alpha=0.15, zorder=1)
         center = (summary[
             (summary["metric"] == metric) & (summary["level"] == level)
         ].set_index("level_occurrence").reindex(occurrences))
@@ -303,9 +305,9 @@ def _performance_figure(trials: pd.DataFrame,
         "key accuracy (%)", "Accuracy remains near ceiling",
         ylim=(90, 101),
     )
-    # RT from zero; the accuracy panel keeps its 90-101% window, where the
-    # per-repetition movement is actually visible.
-    zero_based_ylim(rt_ax)
+    # Response speed autoscales (~350-550 ms): a zero baseline wasted the
+    # lower two-thirds of the panel. The accuracy panel keeps its 90-101%
+    # window, where the per-repetition movement is actually visible.
     switch_ax.legend(fontsize=6.8, frameon=False, loc="best")
     fig.suptitle(
         "Condition A — strategy simplification alongside performance",
@@ -328,16 +330,17 @@ def _effort_figure(participant_effort: pd.DataFrame,
     offset = 0.07
     for ax, (metric, ylabel) in zip(axes, specs):
         rows = participant_effort[participant_effort["metric"] == metric]
-        for level_index, level in enumerate(cas.LEVELS):
-            level_rows = rows[rows["level"] == level]
-            for _participant, row in level_rows.groupby("participant"):
-                ax.plot(
-                    [level_index - offset, level_index + offset],
-                    [float(row["generated_reference"].iloc[0]),
-                     float(row["actual"].iloc[0])],
-                    "-", color=PARTICIPANT_LINE, linewidth=0.7,
-                    alpha=0.42, zorder=1,
-                )
+        if figure_prefs.show_participant_traces:
+            for level_index, level in enumerate(cas.LEVELS):
+                level_rows = rows[rows["level"] == level]
+                for _participant, row in level_rows.groupby("participant"):
+                    ax.plot(
+                        [level_index - offset, level_index + offset],
+                        [float(row["generated_reference"].iloc[0]),
+                         float(row["actual"].iloc[0])],
+                        "-", color=PARTICIPANT_LINE, linewidth=0.7,
+                        alpha=0.42, zorder=1,
+                    )
         metric_summary = (effort_summary[effort_summary["metric"] == metric]
                           .set_index("level").reindex(cas.LEVELS))
         reference = metric_summary["generated_reference_mean"].to_numpy(dtype=float)
@@ -355,17 +358,17 @@ def _effort_figure(participant_effort: pd.DataFrame,
         # figure's whole claim is "observed sits below generated", so the
         # gap must be read against the full quantity, not a crop of it.
         zero_based_ylim(ax)
-    fig.legend(
-        handles=[
-            Line2D([0], [0], color="#d77a47", marker="s", linestyle="--",
-                   linewidth=2.3, markersize=5, label="hidden generated reference"),
-            Line2D([0], [0], color="#3a76c4", marker="o",
-                   linewidth=2.6, markersize=5, label="observed free choice"),
-            Line2D([0], [0], color=PARTICIPANT_LINE,
-                   linewidth=0.7, label="participant pair"),
-        ],
-        loc="upper center", ncols=3, frameon=False, fontsize=8,
-    )
+    effort_handles = [
+        Line2D([0], [0], color="#d77a47", marker="s", linestyle="--",
+               linewidth=2.3, markersize=5, label="hidden generated reference"),
+        Line2D([0], [0], color="#3a76c4", marker="o",
+               linewidth=2.6, markersize=5, label="observed free choice"),
+    ]
+    if figure_prefs.show_participant_traces:
+        effort_handles.append(Line2D([0], [0], color=PARTICIPANT_LINE,
+                                     linewidth=0.7, label="participant pair"))
+    fig.legend(handles=effort_handles, loc="upper center",
+               ncols=len(effort_handles), frameon=False, fontsize=8)
     fig.suptitle(
         "Condition A motor-demand proxies by generated difficulty",
         fontsize=11, y=0.91,

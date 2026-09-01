@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
+from app import figure_prefs  # noqa: E402
 from app import session_progression as sp  # noqa: E402
 from app import session_progression_figures as sp_figures  # noqa: E402
 from app.group_analysis import CONDITIONS, LEVELS  # noqa: E402
@@ -90,6 +91,15 @@ class TestSummaryAndFigures(unittest.TestCase):
             schedule("P01", 0.0) + schedule("P02", 0.2))
         cls.summary = sp.difficulty_progression_summary(cls.frame)
 
+    def setUp(self):
+        # The figure tests here assert the per-participant overlay traces
+        # are drawn (and that the axis spans them), so run this class with
+        # the overlay on and restore the shipped default afterwards.
+        figure_prefs.set_show_participant_traces(True)
+
+    def tearDown(self):
+        figure_prefs.set_show_participant_traces(False)
+
     def test_group_summary_uses_one_value_per_participant(self):
         cell = self.summary[
             (self.summary["metric"] == "rt_correct_key_s_raw")
@@ -142,23 +152,27 @@ class TestSummaryAndFigures(unittest.TestCase):
                     np.testing.assert_array_equal(line.get_xdata(), np.arange(1, 10))
 
     def test_figures_plot_observed_columns_on_uncropped_axes(self):
-        """No adjusted value is drawn, and no axis is cropped to its data.
+        """No adjusted value is drawn, and no drawn point is cropped out.
 
-        A cropped axis or a shifted value is the thing a reader cannot
-        reconstruct from the trial table, so both are asserted here
-        rather than left to review.
+        A shifted value or a clipped data point is the thing a reader
+        cannot reconstruct from the trial table, so both are asserted here
+        rather than left to review. The RT axis is deliberately not pinned
+        to zero for this auxiliary within-difficulty figure, so "uncropped"
+        means every drawn point is in view, not that the axis reaches zero.
         """
         figures = sp_figures.build_difficulty_progression_figures(
             self.frame, self.summary)
 
         rt_ax = figures["group_learning_difficulty_progression"].axes[0]
         self.assertEqual(rt_ax.get_yscale(), "linear")
-        self.assertEqual(rt_ax.get_ylim()[0], 0.0)
-        observed_max = float(self.frame["rt_correct_key_s_raw"].max()) * 1000
-        self.assertGreaterEqual(rt_ax.get_ylim()[1], observed_max)
         drawn = np.concatenate([
             np.asarray(line.get_ydata(), dtype=float) for line in rt_ax.lines])
         drawn = drawn[np.isfinite(drawn)]
+        # RT autoscales (the empty 0–~500 ms baseline flattened the trend),
+        # but must still show every drawn point and waste no space below it.
+        self.assertGreater(rt_ax.get_ylim()[0], 0.0)
+        self.assertLessEqual(rt_ax.get_ylim()[0], float(drawn.min()))
+        self.assertGreaterEqual(rt_ax.get_ylim()[1], float(drawn.max()))
         adjusted = set(np.round(
             self.frame["rt_correct_key_s_adjusted"].dropna() * 1000, 6))
         observed = set(np.round(

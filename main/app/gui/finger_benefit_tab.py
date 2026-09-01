@@ -227,15 +227,17 @@ def _equalisation_figure(res: dict) -> Figure:
     baseline, cued = res["baseline"], res["cued"]
     fig = Figure(figsize=(10.5, 3.9))
     ax_sd, ax_cv = fig.subplots(1, 2)
-    colors = _participant_colors(table["participant"].unique())
     specs = [(ax_sd, "sd_corrected", MS, "SD across fingers, noise-corrected (ms)"),
              (ax_cv, "cv_raw", 1.0, "Coefficient of variation (SD / mean)")]
     for ax, key, scale, ylabel in specs:
         wide = table.pivot(index="participant", columns="condition", values=key)
         for participant, row in wide.iterrows():
             ys = [row.get(baseline, np.nan) * scale, row.get(cued, np.nan) * scale]
+            # Uniform light grey: 20 per-participant colours carried no
+            # meaning and read as noise. The black group mean and red null
+            # below are what the eye should land on.
             ax.plot([0, 1], ys, "-o", markersize=5, linewidth=1.1,
-                    color=colors.get(participant, "#888888"), alpha=0.8, zorder=2)
+                    color="#bbbbbb", alpha=0.7, zorder=2)
         means = [float(wide[baseline].mean()) * scale, float(wide[cued].mean()) * scale]
         ax.plot([0, 1], means, "-D", markersize=11, linewidth=2.4, color="black",
                 zorder=4, label="group mean")

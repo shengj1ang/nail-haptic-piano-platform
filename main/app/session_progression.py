@@ -65,7 +65,6 @@ SUMMARY_COLUMNS = [
     "ci95_hi",
 ]
 
-
 def _number(value) -> float:
     """Return a finite float or NaN without turning missing data into zero."""
     if value is None or pd.isna(value):
@@ -133,7 +132,12 @@ def difficulty_progression_metrics(trial_rows: List[dict]) -> pd.DataFrame:
 
 
 def difficulty_progression_summary(frame: pd.DataFrame) -> pd.DataFrame:
-    """Participant-weighted group mean/SD/95% CI for every plotted point."""
+    """Participant-weighted group mean/SD + percentile-bootstrap 95% CI.
+
+    Every number comes straight from :func:`group_center`, whose 95% CI is
+    now the study-wide participant bootstrap (:func:`bootstrap_ci`), so a
+    near-ceiling key-accuracy interval cannot cross 100%.
+    """
     if frame.empty:
         return pd.DataFrame(columns=SUMMARY_COLUMNS)
 
@@ -141,9 +145,10 @@ def difficulty_progression_summary(frame: pd.DataFrame) -> pd.DataFrame:
     for metric in [*METRICS.keys(), *METRICS.values()]:
         center = group_center(
             frame, metric, ["level", "difficulty_occurrence"])
-        if len(center):
-            center["level_symbol"] = center["level"].map(LEVEL_SYMBOLS)
-            summaries.append(center.assign(metric=metric))
+        if not len(center):
+            continue
+        center["level_symbol"] = center["level"].map(LEVEL_SYMBOLS)
+        summaries.append(center.assign(metric=metric))
     if not summaries:
         return pd.DataFrame(columns=SUMMARY_COLUMNS)
     out = pd.concat(summaries, ignore_index=True)

@@ -18,7 +18,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from scipy import stats as sstats
+
+from .group_analysis import bootstrap_ci
 
 
 FINGERS = [f"{hand}{digit}" for hand in ("L", "R") for digit in range(1, 6)]
@@ -385,11 +386,8 @@ def _center(values: pd.Series) -> dict:
     mean = float(np.mean(finite)) if n else np.nan
     sd = float(np.std(finite, ddof=1)) if n >= 2 else np.nan
     sem = sd / np.sqrt(n) if n >= 2 else np.nan
-    if n >= 2:
-        half = float(sstats.t.ppf(0.975, n - 1)) * sem
-        lo, hi = mean - half, mean + half
-    else:
-        lo = hi = np.nan
+    # Participant bootstrap CI, matching group_center (the study-wide method).
+    lo, hi = bootstrap_ci(finite)
     return {
         "n": n,
         "mean": mean,

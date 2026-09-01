@@ -51,8 +51,8 @@ import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch, Rectangle
 from PySide6.QtCore import Qt
-from scipy import stats as sstats
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -69,7 +69,8 @@ from PySide6.QtWidgets import (
 
 from .. import group_analysis as ga
 from .. import group_tradeoff as gt
-from ..figure_axes import shared_ylim, zero_based_ylim
+from .. import figure_prefs
+from ..figure_axes import zero_based_ylim
 from .. import session_progression as sp
 from .. import session_progression_figures as sp_figures
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
@@ -151,6 +152,18 @@ class GroupAnalysisWindow(QMainWindow):
         row.addWidget(all_btn)
         row.addWidget(none_btn)
         left_layout.addLayout(row)
+        # Declutter toggle: ticked (default) drops the faint per-participant
+        # overlay traces so each panel shows only its group mean + 95% CI.
+        self.hide_traces_check = QCheckBox("Hide participant lines (mean + 95% bootstrap CI)")
+        self.hide_traces_check.setChecked(True)
+        self.hide_traces_check.setToolTip(
+            "When ticked (default), the faint per-participant traces behind each "
+            "panel are removed, leaving the group mean and its 95% CI — a participant "
+            "percentile bootstrap, the study-wide CI method. Untick to overlay every "
+            "participant's trajectory.")
+        figure_prefs.set_show_participant_traces(not self.hide_traces_check.isChecked())
+        self.hide_traces_check.toggled.connect(self._on_hide_traces_toggled)
+        left_layout.addWidget(self.hide_traces_check)
         left_layout.addWidget(analyze_btn)
         left_layout.addWidget(self.save_figs_btn)
 
@@ -275,6 +288,17 @@ class GroupAnalysisWindow(QMainWindow):
             return
         self.save_figs_btn.setEnabled(True)
 
+    def _on_hide_traces_toggled(self, checked: bool) -> None:
+        """Redraw with/without the per-participant overlay traces.
+
+        Only rebuilds when an analysis is already on screen; otherwise the
+        new preference simply applies the next time the user analyses. The
+        rebuild reuses the same path as the Analyse button.
+        """
+        figure_prefs.set_show_participant_traces(not checked)
+        if getattr(self, "_data", None) is not None:
+            self._analyze()
+
     def _tab_builders(self):
         """Every tab in display order, as (title, builder).
 
@@ -372,7 +396,7 @@ class GroupAnalysisWindow(QMainWindow):
         The line deliberately retains A-B and B-C to make each participant's
         three observed condition summaries visible. It is descriptive context,
         not an inferential contrast: formal performance comparisons remain B/C
-        only. Diamonds are group means and bars are 95% t-CIs.
+        only. Diamonds are group means and bars are 95% bootstrap CIs.
         """
         pivot = ga.condition_pivot(self._pc, metric) * scale
         x = np.arange(len(CONDITIONS))
@@ -465,8 +489,11 @@ class GroupAnalysisWindow(QMainWindow):
         lines.append(
             "Each participant enters every mean once (their own across-trial mean under the "
             "single-participant definitions: FA over video-analyzed trials, RT over trials with a "
-            "valid RT, carry-over events already excluded). Error bars in the figures are 95% t-CIs "
-            "across participants and require N ≥ 2. Descriptive only. <b>Condition A is a task "
+            "valid RT, carry-over events already excluded). Error bars and shaded bands in every "
+            "figure are 95% CIs from a participant percentile bootstrap (10 000 resamples of the "
+            "participant-level values, 2.5/97.5 percentiles of the resampled means; require N ≥ 2). "
+            "This is the study-wide CI method: it stays inside the observed range, so a near-ceiling "
+            "accuracy CI never crosses 100%. Descriptive only. <b>Condition A is a task "
             "reference, not a modality-performance baseline:</b> it supplies no target-finger cue, "
             "so its finger score is hidden-target agreement and its RT has lower response-selection "
             "complexity. The thin A–B–C trace is retained only to show each participant's three "
@@ -597,11 +624,12 @@ class GroupAnalysisWindow(QMainWindow):
         for ax, (metric, scale, unit, title) in zip(axes, specs):
             for c in ga.GUIDANCE_CONDITIONS:
                 sub = cells[cells["condition"] == c]
-                # Thin per-participant lines
-                for p, prow in sub.groupby("participant"):
-                    by_level = prow.set_index("level")[metric].reindex(LEVELS) * scale
-                    ax.plot(x, by_level.to_numpy(dtype=float), "-",
-                            color=CONDITION_COLORS[c], linewidth=0.8, alpha=0.3, zorder=1)
+                # Thin per-participant lines (hidden unless the overlay is on)
+                if figure_prefs.show_participant_traces:
+                    for p, prow in sub.groupby("participant"):
+                        by_level = prow.set_index("level")[metric].reindex(LEVELS) * scale
+                        ax.plot(x, by_level.to_numpy(dtype=float), "-",
+                                color=CONDITION_COLORS[c], linewidth=0.8, alpha=0.3, zorder=1)
                 center = ga.group_center(sub, metric, ["level"]).set_index("level").reindex(LEVELS)
                 means = center["mean"].to_numpy(dtype=float) * scale
                 ax.plot(x, means, "o-", color=CONDITION_COLORS[c], linewidth=2.0,
@@ -663,7 +691,7 @@ class GroupAnalysisWindow(QMainWindow):
             "<p>Performance-comparable guidance conditions only: B visual versus C haptic. "
             "Condition A is excluded because it provides no target-finger information.</p>"
             "<p>Faint lines: one per participant per condition (their mean over that cell's trials). "
-            "Bold lines: group mean across participants; shaded band = 95% t-CI (needs N ≥ 2). "
+            "Bold lines: group mean across participants; shaded band = 95% bootstrap CI (needs N ≥ 2). "
             "The RT panel starts at zero. <b>The two accuracy panels are autoscaled and each spans "
             "only the top few percent</b>, so their vertical gaps are magnified relative to the RT "
             "panel — read them off the tick values. Cell means per group:</p>"
@@ -717,7 +745,7 @@ class GroupAnalysisWindow(QMainWindow):
         cap_blocks = ["<h3>Paired B–C guidance contrast (within-participant)</h3>",
                       "C−B compares haptic with visual target-finger guidance. Condition A is not "
                       "an inferential baseline because it provides no target-finger information. One dot per "
-                      "participant (their paired difference), diamond = group mean, bar = 95% t-CI "
+                      "participant (their paired difference), diamond = group mean, bar = 95% bootstrap CI "
                       "(needs N ≥ 2). Accuracy differences are in percentage points; the underlying "
                       "proportions (previous tabs) stay the computation basis."]
         for metric in tested_metrics:
@@ -731,15 +759,20 @@ class GroupAnalysisWindow(QMainWindow):
             for xi, label in enumerate(contrast_labels):
                 sub = diffs[diffs["contrast"] == label]["diff"] * scale
                 n_pairs = len(sub)
-                jitter = (np.arange(n_pairs) - (n_pairs - 1) / 2) * (0.28 / max(n_pairs, 1))
+                # Spread the per-participant dots into a narrow vertical band
+                # around the column centre (linear, not random, so a rerun is
+                # reproducible). Smaller factor = tighter band.
+                jitter = (np.arange(n_pairs) - (n_pairs - 1) / 2) * (0.14 / max(n_pairs, 1))
                 ax.scatter(xi + jitter, sub, s=26, color="#3a76c4", alpha=0.75, zorder=2)
                 if n_pairs:
                     mean = float(sub.mean())
                     if n_pairs >= 2:
-                        sd = float(sub.std(ddof=1))
-                        half = float(sstats.t.ppf(0.975, n_pairs - 1)) * sd / np.sqrt(n_pairs)
-                        ax.errorbar([xi], [mean], yerr=[[half], [half]], color="black",
-                                    capsize=4, linewidth=1.3, zorder=3)
+                        # Participant bootstrap of the mean difference, the
+                        # same interval condition_inference reports for the
+                        # caption (asymmetric, so drawn low/high separately).
+                        lo, hi = ga.bootstrap_ci(sub.to_numpy(dtype=float))
+                        ax.errorbar([xi], [mean], yerr=[[mean - lo], [hi - mean]],
+                                    color="black", capsize=4, linewidth=1.3, zorder=3)
                     ax.scatter([xi], [mean], s=140, marker="D", color="#d9663d",
                                edgecolor="black", zorder=4)
                     missing = self._data.n - n_pairs
@@ -753,9 +786,13 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_title(title, fontsize=10)
             metric_lines.append(self._inference_html(metric, scale, unit))
             cap_blocks.append("<br>".join(metric_lines))
-        # The two percentage-point panels measure the same thing in the
-        # same unit, so they share one range instead of each autoscaling.
-        shared_ylim(axes[0], axes[1])
+        # Each difference panel is pinned to a fixed range so a
+        # participant at the extreme reads as an outlier, not a point
+        # pressed against the frame. The panels use different units, so
+        # each keeps its own range rather than sharing one.
+        axes[0].set_ylim(-5, 10)       # Main Finger Accuracy (pp)
+        axes[1].set_ylim(-2, 5)        # Key Accuracy (pp)
+        axes[2].set_ylim(-500, 0)      # RT — key-and-finger-correct (ms)
         fig.tight_layout()
         rt_note = self._rt_definition_note(
             self._pc, ["condition"], plotted_metric="rt_complete_s")
@@ -852,11 +889,11 @@ class GroupAnalysisWindow(QMainWindow):
             toggles.addWidget(check)
         toggles.addWidget(QLabel("Error bars:"))
         self.tr_errbar_combo = QComboBox()
-        self.tr_errbar_combo.addItems(["95% t-CI", "±SD"])
+        self.tr_errbar_combo.addItems(["95% bootstrap CI", "±SD"])
         self.tr_errbar_combo.setToolTip(
-            "Group-centroid error bars, both across PARTICIPANT centroids: 95% t-CI is the "
-            "inferentially honest default but is very wide at small N (t = 12.7 at N = 2); "
-            "±SD shows descriptive spread and stays readable. Trials are never pooled either way."
+            "Group-centroid error bars, both across PARTICIPANT centroids: the 95% CI is a "
+            "participant percentile bootstrap (the study-wide method) and stays inside the "
+            "observed range; ±SD shows descriptive spread. Trials are never pooled either way."
         )
         self.tr_errbar_combo.currentIndexChanged.connect(self._refresh_tradeoff_figures)
         toggles.addWidget(self.tr_errbar_combo)
@@ -876,10 +913,10 @@ class GroupAnalysisWindow(QMainWindow):
         self.tabs.addTab(scroll, "Trade-off")
         self._refresh_tradeoff_figures()
 
-    def _refresh_tradeoff_figures(self) -> None:
-        """(Re)build the three figures under the current toggles and
-        swap them into the tab; the export registry sees exactly what is
-        on screen."""
+    def _build_tradeoff_figures(self) -> Dict[str, Figure]:
+        """The three trade-off figures under the current display toggles.
+        Mode-independent (participant-centroid scatter, no participant-line
+        overlay), so the export's clean and detailed passes share them."""
         options = gt.TradeoffOptions(
             show_trial_points=self.tr_points_check.isChecked(),
             show_participant_centroids=self.tr_pcent_check.isChecked(),
@@ -889,10 +926,16 @@ class GroupAnalysisWindow(QMainWindow):
         )
         figs = gt.build_figures(self._tradeoff, cond_titles=self._cond_titles,
                                 colors=CONDITION_COLORS, options=options)
-        self._figures["group_tradeoff_2d"] = figs["group_tradeoff_2d"]
-        self._figures["group_tradeoff_by_difficulty_3d"] = figs["group_tradeoff_by_difficulty_3d"]
-        self._figures["group_tradeoff_by_participant_3d"] = figs["group_tradeoff_by_participant_3d"]
+        return {k: figs[k] for k in ("group_tradeoff_2d",
+                                     "group_tradeoff_by_difficulty_3d",
+                                     "group_tradeoff_by_participant_3d")}
 
+    def _refresh_tradeoff_figures(self) -> None:
+        """(Re)build the three figures under the current toggles and
+        swap them into the tab; the export registry sees exactly what is
+        on screen."""
+        figs = self._build_tradeoff_figures()
+        self._figures.update(figs)
         self._clear_layout(self._tradeoff_fig_box)
 
         def make_canvas(fig):
@@ -940,9 +983,11 @@ class GroupAnalysisWindow(QMainWindow):
             "Hollow rings = participant × condition centroids (mean over that participant's "
             "included trials); large diamonds = group centroids computed FROM the participant "
             "centroids (every participant weighs equally — trials and events are never pooled "
-            "across participants), error bars = 95% t-CI over participants by default, "
-            "switchable to ±SD (both need ≥ 2; the t-CI is wide at small N by construction — "
-            "t(0.975, n−1) = 12.7 at N = 2 — while ±SD shows descriptive spread only). "
+            "across participants), error bars = 95% CI (participant percentile bootstrap, "
+            "10 000 resamples) over participants by default, switchable to ±SD (both need "
+            "≥ 2; the bootstrap CI is a percentile of resampled means, so it stays inside the "
+            "observed range — bounded at small N rather than blown up the way a t-interval is — "
+            "while ±SD shows descriptive spread only). "
             "Trials without a valid correct-key RT or without an analyzed FA are excluded and "
             "counted below, never plotted as 0.",
             "<b>Colour coding:</b> condition sets the hue (A grey, B blue, C orange). In the "
@@ -991,19 +1036,51 @@ class GroupAnalysisWindow(QMainWindow):
         lines.append(" ".join(notes))
         return "".join(f"<p>{line}</p>" for line in lines)
 
+    def _collect_figures(self, show_traces: bool) -> Dict[str, Figure]:
+        """Build every export figure in the given trace mode into a fresh
+        dict, without touching the on-screen tabs or self._figures. Lets the
+        export render both the clean (mean + 95% CI) and the detailed
+        (per-participant traces) variants regardless of the checkbox."""
+        previous = figure_prefs.show_participant_traces
+        figure_prefs.set_show_participant_traces(show_traces)
+        figures: Dict[str, Figure] = {}
+        try:
+            for title, build in self._tab_builders():
+                if title == "Trade-off":
+                    # Owns its UI tab and is mode-independent; build its
+                    # figures directly rather than re-running the tab.
+                    figures.update(self._build_tradeoff_figures())
+                    continue
+                result = build()
+                if result is not None:
+                    figures.update(result[1])
+        finally:
+            figure_prefs.set_show_participant_traces(previous)
+        return figures
+
+    @staticmethod
+    def _trace_line_count(fig) -> int:
+        """Count faint per-participant overlay lines (linewidth < 1) — the
+        signature of a figure that differs between the two trace modes."""
+        return sum(1 for ax in fig.axes for line in ax.lines
+                   if 0 < line.get_linewidth() < 1.0)
+
     def _save_figures(self) -> None:
         """Export figures + data: every figure on every tab as PNG + SVG,
         every tidy table behind them as CSV, plus a manifest, under
         data/MainUserStudy/group_figures/.
 
-        Registration happens in _add_tab, so this writes exactly what the
-        window is showing. The writing itself, and its progress dialog,
+        BOTH trace variants are written regardless of the checkbox: the
+        clean mean + 95% CI figure keeps its original name, and the
+        traces-shown figure is written under a `_detailed` suffix. Figures
+        with no per-participant overlay are identical in both modes, so they
+        get no `_detailed` twin. The writing itself, and its progress dialog,
         live in app.gui.analysis_export - shared with the participant
         window, which exports the same way under a per-participant prefix.
 
-        The manifest makes a flat folder of ~110 files navigable, and its
-        provenance row records WHICH participants the export came from - a
-        CSV lifted into a report appendix has to be self-identifying."""
+        The manifest makes a flat folder navigable, and its provenance row
+        records WHICH participants the export came from - a CSV lifted into a
+        report appendix has to be self-identifying."""
         provenance = {
             "rows": f"N = {self._data.n}",
             "columns": (f"participants: {', '.join(self._data.included)}; "
@@ -1012,9 +1089,21 @@ class GroupAnalysisWindow(QMainWindow):
                         f"({len(ga.valid_events(self._data.event_rows))} valid); "
                         f"exported {pd.Timestamp.now().isoformat(timespec='seconds')}"),
         }
+        self.status_label.setText("Rendering clean + detailed figures for export…")
+        QApplication.processEvents()
+        # Reuse the on-screen set for whichever mode it already holds, and
+        # render only the other mode fresh.
+        if figure_prefs.show_participant_traces:
+            detailed, clean = dict(self._figures), self._collect_figures(False)
+        else:
+            clean, detailed = dict(self._figures), self._collect_figures(True)
+        export = dict(clean)
+        for slug, fig in detailed.items():
+            if slug in clean and self._trace_line_count(fig) > self._trace_line_count(clean[slug]):
+                export[f"{slug}_detailed"] = fig
         self.status_label.setText(export_analysis(
             self, STUDY_DATA_DIR / "group_figures",
-            self._figures, self._datasets, provenance))
+            export, self._datasets, provenance))
 
     # ------------------------------------------------------------------
     # Learning / order
@@ -1028,12 +1117,22 @@ class GroupAnalysisWindow(QMainWindow):
                                           (ax_rt, "rt_correct_key_s", 1000, "RT (ms)")):
             for c in ga.GUIDANCE_CONDITIONS:
                 sub = rep[rep["condition"] == c]
-                for _, prow in sub.groupby("participant"):
-                    by_rep = prow.set_index("repetition")[metric].reindex([1, 2, 3]) * scale
-                    ax.plot([1, 2, 3], by_rep.to_numpy(dtype=float), "-",
-                            color=CONDITION_COLORS[c], linewidth=0.8, alpha=0.3, zorder=1)
+                if figure_prefs.show_participant_traces:
+                    for _, prow in sub.groupby("participant"):
+                        by_rep = prow.set_index("repetition")[metric].reindex([1, 2, 3]) * scale
+                        ax.plot([1, 2, 3], by_rep.to_numpy(dtype=float), "-",
+                                color=CONDITION_COLORS[c], linewidth=0.8, alpha=0.3, zorder=1)
                 center = (ga.group_center(sub, metric, ["repetition"])
                           .set_index("repetition").reindex([1, 2, 3]))
+                if not figure_prefs.show_participant_traces:
+                    # Spread now comes from a 95% CI band rather than the traces.
+                    lo = center["ci95_lo"].to_numpy(dtype=float) * scale
+                    hi = center["ci95_hi"].to_numpy(dtype=float) * scale
+                    mask = np.isfinite(lo) & np.isfinite(hi)
+                    if mask.any():
+                        xs = np.array([1, 2, 3], dtype=float)
+                        ax.fill_between(xs[mask], lo[mask], hi[mask],
+                                        color=CONDITION_COLORS[c], alpha=0.12, zorder=2)
                 ax.plot([1, 2, 3], center["mean"].to_numpy(dtype=float) * scale, "o-",
                         color=CONDITION_COLORS[c], linewidth=2.0,
                         label=self._cond_titles[c], zorder=3)
@@ -1055,19 +1154,30 @@ class GroupAnalysisWindow(QMainWindow):
                 (bx_fa, "fa_main_raw", 100, "Main FA (%)"),
                 (bx_rt, "rt_correct_key_s_raw", 1000, "RT (ms)")):
             positions = sorted(pos["position"].unique())
-            for _, prow in pos.groupby("participant"):
-                by_pos = prow.set_index("position")[metric].reindex(positions) * scale
-                ax.plot(positions, by_pos.to_numpy(dtype=float), "-",
-                        color=PARTICIPANT_LINE, linewidth=0.8, alpha=0.55, zorder=1)
+            if figure_prefs.show_participant_traces:
+                for _, prow in pos.groupby("participant"):
+                    by_pos = prow.set_index("position")[metric].reindex(positions) * scale
+                    ax.plot(positions, by_pos.to_numpy(dtype=float), "-",
+                            color=PARTICIPANT_LINE, linewidth=0.8, alpha=0.55, zorder=1)
             center = (ga.group_center(pos, metric, ["position"])
                       .set_index("position").reindex(positions))
+            if not figure_prefs.show_participant_traces:
+                # Spread now comes from a 95% CI band rather than the traces.
+                lo = center["ci95_lo"].to_numpy(dtype=float) * scale
+                hi = center["ci95_hi"].to_numpy(dtype=float) * scale
+                mask = np.isfinite(lo) & np.isfinite(hi)
+                if mask.any():
+                    pos_arr = np.array(positions, dtype=float)
+                    ax.fill_between(pos_arr[mask], lo[mask], hi[mask],
+                                    color=PARTICIPANT_LINE, alpha=0.25, zorder=2)
             ax.plot(positions, center["mean"].to_numpy(dtype=float) * scale, "-",
                     color="black", linewidth=2.0, label="group mean", zorder=3)
             ax.set_xlabel("actual trial position in session (1–27)")
             ax.set_ylabel(ylabel)
             ax.set_title(f"Observed session progression — {ylabel}", fontsize=10)
             ax.legend(fontsize=7)
-        zero_based_ylim(bx_rt)
+        # RT autoscales here (key accuracy already does): the observed
+        # positions sit ~600-1200 ms and a zero baseline is wasted space.
         fig2.tight_layout()
 
         difficulty_progression = sp.difficulty_progression_metrics(
@@ -1138,7 +1248,7 @@ class GroupAnalysisWindow(QMainWindow):
         if len(rep_anova["frame"]):
             figures["group_rm_anova_repetition"] = self._anova_factor_figure(
                 rep_anova, "RT — key-and-finger-correct events",
-                ["1st", "2nd", "3rd"], "repetition within cell")
+                ["1st", "2nd", "3rd"], "repetition within cell", zero_based_rt=False)
         figures.update(difficulty_figures)
         return caption, figures, datasets
 
@@ -1563,9 +1673,9 @@ class GroupAnalysisWindow(QMainWindow):
 
         blocks.append(
             "<i>Figures: left/top — cell means per condition across finger IDs (thin lines = "
-            "individual participants, bold = group mean, bars = 95% t-CI across participants); "
+            "individual participants, bold = group mean, bars = 95% bootstrap CI across participants); "
             "right/bottom — the paired C − B difference per finger, which is the interaction term "
-            "made visible (dots = participants, diamond = group mean, bar = 95% t-CI, dashed line "
+            "made visible (dots = participants, diamond = group mean, bar = 95% bootstrap CI, dashed line "
             "= no difference).</i>")
         return "".join(f"<p>{b}</p>" for b in blocks), figs, datasets
 
@@ -1690,16 +1800,20 @@ class GroupAnalysisWindow(QMainWindow):
               "the ceiling the cell variance is compressed and tied to the mean, so the normality "
               "and homogeneity assumptions behind an F ratio — and above all the Condition × Finger "
               "interaction test — are not credible. FA is therefore reported here as means, SDs and "
-              "95% t-CIs over the same complete-case participants as the reaction-time model, and "
+              "95% bootstrap CIs over the same complete-case participants as the reaction-time model, and "
               "no F test is computed on it. Reaction time carries the inferential result.</i>")
 
     def _anova_factor_figure(self, res: dict, metric_label: str,
                              tick_labels, xlabel: str, scale: float = 1000.0,
-                             unit: str = "ms") -> Figure:
+                             unit: str = "ms", zero_based_rt: bool = True) -> Figure:
         """Cell means per condition across the second repeated factor,
         plus the paired C - B difference per level (the interaction term,
         drawn). Factor-agnostic twin of _anova_rt_figure, used by the
-        Condition x Difficulty and Condition x Repetition models."""
+        Condition x Difficulty and Condition x Repetition models.
+
+        zero_based_rt pins the left (cell-means) axis to zero; the caller
+        turns it off for the repetition view, whose RT sits ~600-1200 ms
+        and wastes the lower half on an empty 0-500 ms baseline."""
         metric, frame = res["metric"], res["frame"]
         factor, levels = res["factor"], res["levels"]
         conditions = res["conditions"]
@@ -1709,10 +1823,11 @@ class GroupAnalysisWindow(QMainWindow):
 
         for c in conditions:
             sub = frame[frame["condition"] == c]
-            for _, prow in sub.groupby("participant"):
-                ys = prow.set_index(factor)[metric].reindex(levels) * scale
-                ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
-                        linewidth=0.8, alpha=0.3, zorder=1)
+            if figure_prefs.show_participant_traces:
+                for _, prow in sub.groupby("participant"):
+                    ys = prow.set_index(factor)[metric].reindex(levels) * scale
+                    ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
+                            linewidth=0.8, alpha=0.3, zorder=1)
             center = (ga.group_center(sub, metric, [factor])
                       .set_index(factor).reindex(levels))
             means = center["mean"].to_numpy(dtype=float) * scale
@@ -1726,7 +1841,8 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel(f"{metric_label.split(' — ')[0]} ({unit})")
         ax.set_title(f"{metric_label} — condition × {xlabel} cell means", fontsize=10)
         ax.legend(fontsize=7)
-        zero_based_ylim(ax)
+        if zero_based_rt:
+            zero_based_ylim(ax)
 
         ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")
         if len(conditions) == 2:
@@ -1766,10 +1882,11 @@ class GroupAnalysisWindow(QMainWindow):
 
         for c in conditions:
             sub = frame[frame["condition"] == c]
-            for _, prow in sub.groupby("participant"):
-                ys = prow.set_index("finger_id")[metric].reindex(ga.FINGER_IDS) * 1000
-                ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
-                        linewidth=0.8, alpha=0.3, zorder=1)
+            if figure_prefs.show_participant_traces:
+                for _, prow in sub.groupby("participant"):
+                    ys = prow.set_index("finger_id")[metric].reindex(ga.FINGER_IDS) * 1000
+                    ax.plot(x, ys.to_numpy(dtype=float), "-", color=CONDITION_COLORS[c],
+                            linewidth=0.8, alpha=0.3, zorder=1)
             center = (ga.group_center(sub, metric, ["finger_id"])
                       .set_index("finger_id").reindex(ga.FINGER_IDS))
             means = center["mean"].to_numpy(dtype=float) * 1000
@@ -1783,7 +1900,8 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel("RT (ms)")
         ax.set_title(f"{metric_label} — condition × finger cell means", fontsize=10)
         ax.legend(fontsize=7)
-        zero_based_ylim(ax)
+        # RT autoscales: per-finger means sit ~600-1200 ms and a zero
+        # baseline wastes the lower half on empty space.
 
         # Paired difference: only defined for exactly two conditions.
         ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")

@@ -324,11 +324,30 @@ class TestExportWritesFiles(unittest.TestCase):
 
     def test_status_line_reports_the_counts(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self._export(Path(tmp))
+            out = self._export(Path(tmp))
+            # The export now also writes the *_detailed trace variants, so the
+            # count is the number of figure stems actually on disk, not the
+            # size of the current-mode registry.
+            png_count = len(list(out.glob("*.png")))
             text = self.window.status_label.text()
-            self.assertIn(f"{len(self.window._figures)} figures", text)
+            self.assertIn(f"{png_count} figures", text)
             self.assertIn(f"{len(self.window._datasets)} CSVs", text)
             self.assertNotIn("FAILED", text)
+
+    def test_both_trace_variants_are_exported(self):
+        """A figure with per-participant lines is written twice: the clean
+        mean + 95% CI version under its name and the traces-shown version
+        as *_detailed. A figure with no overlay gets no redundant twin."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._export(Path(tmp))
+            for ext in ("png", "svg"):
+                self.assertTrue((out / f"group_condition_difficulty.{ext}").is_file())
+                self.assertTrue(
+                    (out / f"group_condition_difficulty_detailed.{ext}").is_file(),
+                    "trace figure is missing its _detailed variant")
+            self.assertFalse(
+                (out / "group_contrasts_detailed.png").is_file(),
+                "a figure with no participant lines should get no _detailed twin")
 
     def test_one_unwritable_item_does_not_abort_the_rest(self):
         """A single bad figure must cost one file, not the whole export."""
@@ -373,6 +392,18 @@ class TestAxisPolicy(unittest.TestCase):
     # reserve space for an impossible value.
     NON_ZERO_FLOORS = {"effective number of fingers": 1.0}
 
+    # Documented exceptions to the zero-based-latency rule: secondary RT
+    # views the user asked to autoscale, because their data sit well above
+    # zero (~350-1200 ms) and an empty 0-~500 ms baseline wasted the panel.
+    # The primary Condition x Difficulty RT figures stay zero-based.
+    RT_AXIS_NOT_ZERO_BASED = {
+        "group_learning_difficulty_progression",
+        "group_learning_session_position",
+        "group_rm_anova_repetition",
+        "group_rm_anova_rt",
+        "group_condition_a_strategy_performance",
+    }
+
     @staticmethod
     def _axes(figure):
         """2D axes only - a 3D projection keeps its limits elsewhere."""
@@ -387,6 +418,9 @@ class TestAxisPolicy(unittest.TestCase):
         """
         for slug, figure in self.window._figures.items():
             for index, ax in enumerate(self._axes(figure)):
+                if (slug in self.RT_AXIS_NOT_ZERO_BASED
+                        and "(ms)" in ax.get_ylabel()):
+                    continue  # documented non-zero-based latency axis
                 candidates = []
                 if "%" not in ax.get_ylabel():
                     candidates.append(("y", ax.get_ylim, ax.dataLim.y0, ax.dataLim.y1))
@@ -414,6 +448,8 @@ class TestAxisPolicy(unittest.TestCase):
                 label = ax.get_ylabel()
                 if "(ms)" not in label and label != "ms":
                     continue
+                if slug in self.RT_AXIS_NOT_ZERO_BASED:
+                    continue  # documented non-zero-based latency axis
                 if ax.dataLim.y0 < 0:     # a signed paired difference
                     continue
                 self.assertLessEqual(ax.get_ylim()[0], 1e-9,

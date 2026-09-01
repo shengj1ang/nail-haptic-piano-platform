@@ -180,10 +180,12 @@ class TestCarryOver(unittest.TestCase):
 
 
 class TestErrorBarModes(unittest.TestCase):
-    def test_sd_bounds_narrower_than_t_ci_at_n2(self):
+    def test_bootstrap_ci_is_bounded_by_the_data_at_n2(self):
         # Two participants, RTs 400 / 600 ms: SD = 141.4 -> ±SD bar
-        # (358.6, 641.4); the 95% t-CI uses t(0.975, 1) = 12.706 ->
-        # (-770.6, 1770.6). Both computed over participant centroids.
+        # (358.6, 641.4). The participant bootstrap CI is a percentile of
+        # resampled means, so it can never leave the observed range
+        # [400, 600] -> unlike the old t-interval (which was ±1270 at n=2)
+        # it sits INSIDE the ±SD bars. Both are over participant centroids.
         trials = [trial("P01", 1, rt_correct_key_s=0.4),
                   trial("P02", 1, rt_correct_key_s=0.6)]
         data = gt.compute(trials, ["P01", "P02"])
@@ -192,9 +194,10 @@ class TestErrorBarModes(unittest.TestCase):
         self.assertAlmostEqual(sd_lo, 500 - 141.4213562, places=4)
         self.assertAlmostEqual(sd_hi, 500 + 141.4213562, places=4)
         ci_lo, ci_hi = gt.error_bounds(row, "rt", "ci")
-        self.assertAlmostEqual(ci_lo, 500 - 12.7062047 * 100, places=3)
-        self.assertLess(ci_lo, sd_lo)  # the long bars the CI mode draws
-        self.assertGreater(ci_hi, sd_hi)
+        self.assertGreaterEqual(ci_lo, 400.0 - 1e-6)   # never below the min
+        self.assertLessEqual(ci_hi, 600.0 + 1e-6)      # never above the max
+        self.assertGreater(ci_lo, sd_lo)  # bootstrap CI inside the SD bars
+        self.assertLess(ci_hi, sd_hi)
 
     def test_no_bounds_in_either_mode_below_two_participants(self):
         data = gt.compute([trial("P01", 1)], ["P01"])
