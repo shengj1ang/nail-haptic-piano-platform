@@ -1342,6 +1342,13 @@ class GroupAnalysisWindow(QMainWindow):
         ax2.set_title("Correct key + wrong finger — participant-level rate by condition",
                       fontsize=10)
         zero_based_ylim(ax2)
+        # Keep exact-zero observations fully inside the plotting area.  A
+        # zero-based lower boundary clips half of each circular marker even
+        # when the bottom spine is drawn behind the points, making those
+        # observations look hidden by the axis.  The small negative margin is
+        # display-only; the 0% tick and the underlying values are unchanged.
+        _, upper = ax2.get_ylim()
+        ax2.set_ylim(-0.03 * upper, upper)
         for spine in ax2.spines.values():
             spine.set_zorder(0)
         fig2.tight_layout()

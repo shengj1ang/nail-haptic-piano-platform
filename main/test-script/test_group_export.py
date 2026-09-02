@@ -298,7 +298,13 @@ class TestExportCoverage(unittest.TestCase):
             [tick.get_text() for tick in errors.get_xticklabels()],
             ["A", "B", "C"],
         )
-        self.assertEqual(errors.get_ylim()[0], 0.0)
+        self.assertLess(errors.get_ylim()[0], 0.0)
+        self.assertGreaterEqual(errors.get_ylim()[0], -3.0)
+        self.assertTrue(any(
+            np.isclose(collection.get_offsets()[:, 1], 0.0).any()
+            for collection in errors.collections
+            if len(collection.get_offsets())
+        ))
         self.assertNotEqual(tuple(errors.get_ylim()), (0.0, 12.0))
         self.assertIn("wrong finger", errors.get_title())
         self.assertEqual(errors.spines["bottom"].get_zorder(), 0)
