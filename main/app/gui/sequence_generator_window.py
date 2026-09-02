@@ -1,20 +1,20 @@
 """Experiment Sequence Generator.
 
 Builds the constrained bimanual motor-sequence stimuli described in
-final_report_2026/method/method.tex ("Sequence Design and Difficulty
-Levels"): click Generate and get a fresh matched family of 30-event
+final_report_2026/method/method.tex (§"Controlled Stimulus Sequence
+Generator"): click Generate and get a fresh matched family of 30-event
 sequences for *every* difficulty level (alpha, beta, gamma) at once -
 there is no level picker, since a stimulus set always needs all three.
 Each level's family size is set by the Count field (default 9); every
 sequence in a level's family is named "<level symbol>-<id>" (id =
 1..count), e.g. "α-1".."α-9".
 
-The table shows the five family-matching statistics from method.tex's
-"Pairwise matching tolerances" table (H_norm, d̄m/S, A_h, B_h, O_LR) plus
+The table shows the five family-matching statistics from
+implementation.tex's "Pairwise matching tolerances" table (H_norm, d̄m/S, A_h, B_h, O_LR) plus
 H_hand as a descriptive diagnostic; the full component set of
 D = (C_m, C_s, C_c) for saved sequences lives in the Sequence Metrics
 window, which recomputes them with the exact same functions. After every generation run the difficulty
-validation from method.tex (per-component median/IQR/range, monotonic
+validation from the report (per-component median/IQR/range, monotonic
 medians with <10% adjacent-pair violations, separate cross-region and
 structural checks) runs automatically over the fresh pools; the "View
 validation report" button opens the full report, which should be checked
@@ -24,8 +24,9 @@ There's no profile picker - this always generates against config.json's
 active_keyboard_profile (set by the Keyboard Calibration Wizard), so
 there's no way to accidentally generate a sequence for the wrong physical
 keyboard. START_NOTE/END_NOTE are actual MIDI note numbers, bounded by
-whatever that profile's own midi_mapping.json covers (method.tex:
-START_NOTE = min(V), END_NOTE = max(V), optionally narrowed).
+whatever that profile's own midi_mapping.json covers (implementation.tex
+§"Hand Regions and Cross-Region Rules": the effective bounds k_min /
+k_max, optionally narrowed).
 
 Generation is seeded for reproducibility: the Seed field fixes the random
 stream, so the same profile + note range + Count + seed + software
@@ -98,8 +99,8 @@ from ..sequence_generator import (
 from ..stimulus_validation import ValidationReport, validate_level_pools
 from .stimulus_validation_dialog import StimulusValidationDialog
 
-# The five family-matching statistics from method.tex Table "Pairwise
-# matching tolerances", plus H_hand - shown as a descriptive diagnostic
+# The five family-matching statistics from implementation.tex Table
+# "Pairwise matching tolerances", plus H_hand - shown as a descriptive diagnostic
 # only (it is neither a level constraint nor a matching tolerance; see
 # app.sequence_generator.LEVEL_CONSTRAINTS) - as (header,
 # SequenceStats.metric key) pairs.
@@ -371,8 +372,8 @@ class SequenceGeneratorWindow(QMainWindow):
         self._populate_table(families)
         self.export_csv_btn.setEnabled(bool(self._rows))
 
-        # method.tex step 4: validate the freshly generated pools before
-        # they can be locked for the pilot study.
+        # Validate the freshly generated pools before they can be locked
+        # for the main user study (appendix/stimulus_register.tex).
         pools = {level: list(family.values()) for level, family in families.items()}
         self._validation_report = validate_level_pools(pools) if pools else None
         self.validation_btn.setEnabled(self._validation_report is not None)

@@ -11,7 +11,7 @@ The values live in the project's `config.json` under a "haptic" key:
     "haptic": {
       "using": "lra",
       "lra": {"default_frequency": 224, "default_amp": 64},
-      "erm": {"default_frequency": 1000, "default_amp": 80}
+      "erm": {"default_frequency": 1000, "default_amp": 50}
     }
 
 `using` names the actuator the platform currently drives; each actuator
@@ -105,10 +105,11 @@ TYPICAL_FREQUENCY_HZ: Dict[str, Tuple[int, int]] = {
 # --- built-in defaults ---------------------------------------------------
 #: LRA: the measured resonance and the calibrated ~0.5 m/s2 cue level
 #: (validation_experiments/lra_resonance_intensity_calibration/README.md).
-#: ERM: the measured all-round 1 kHz carrier at a reliably effective cue amp.
+#: ERM: the measured all-round 1 kHz carrier at a reliably effective cue
+#: amp - the code 50 the report's reproducibility manifest documents.
 BUILTIN_DEFAULTS: Dict[str, Tuple[int, int]] = {
     LRA: (224, 64),
-    ERM: (1000, 80),
+    ERM: (1000, 50),
 }
 DEFAULT_USING = LRA
 

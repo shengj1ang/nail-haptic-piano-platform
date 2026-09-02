@@ -20,7 +20,7 @@ anything here.
 | **Relay server operator guide** | [`server/README.md`](server/README.md) | Running the server, accounts/rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, the full REST + WebSocket reference, and the latency-metric definitions |
 | Platform README, Tele-training section | [`README.md`](README.md) § "Tele-training (launcher section 8)" | Orientation only: what the module is, the six launcher buttons, and where to read on. The user-facing detail it used to hold - setup wizard, guidance modes, what is reused, timing, the benchmark - is now § 12 of this file |
 | Platform README, everything else | [`README.md`](README.md) | The non-remote platform: calibration profiles, quiz, sequence generator, analysis, haptic config |
-| Report methodology | `../../final_report_2026/method/method.tex` | § "Network-Based Guidance Latency", § "Tele-training Guidance Modes", § "System Transmission Performance Benchmarking" - the requirements this module implements |
+| Report methodology | `../../final_report_2026/method/method.tex` | § "Tele-training Deployment", plus `../../final_report_2026/appendix/implementation.tex` § "Tele-training Measurement Protocol" - the requirements this module implements |
 | Sequence generator | [`SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) | Only relevant because generated sequences can be uploaded as recordings |
 
 `server/README.md` is the deeper reference for anything protocol- or

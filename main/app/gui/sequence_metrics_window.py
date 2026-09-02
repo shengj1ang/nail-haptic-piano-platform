@@ -1,15 +1,15 @@
 """Sequence/Music Metrics Viewer.
 
 Recomputes every scalar component of D = (C_m, C_s, C_c) - see
-final_report_2026/method/method.tex "Multidimensional Difficulty
-Representation" - for every already-saved song under data/music/ (real
+final_report_2026/appendix/implementation.tex §"Difficulty Components"
+- for every already-saved song under data/music/ (real
 recordings) and data/sequence/ (generated sequences), auto-detected via
 app.song_library.list_song_entries(). The metrics come from
 app.sequence_generator.evaluate_song(), the exact same compute_stats()
 machinery the Experiment Sequence Generator uses to accept/reject a
-candidate while generating - method.tex requires this so that "metrics
-displayed during generation and metrics reported later for saved stimuli
-are directly comparable".
+candidate while generating - implementation.tex requires this so that
+"metrics shown during generation and metrics reported later are directly
+comparable".
 
 Span-normalised components need note bounds: generated sequences carry
 their generation START_NOTE/END_NOTE in meta.json; real recordings fall

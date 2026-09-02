@@ -1,8 +1,9 @@
 # Experiment Sequence Generator — Algorithm Reference
 
 This documents exactly what `app/sequence_generator.py` does, as implemented. It is kept in
-lockstep with `final_report_2026/method/method.tex` ("Sequence Design and Difficulty Levels"
-through "Matched Sequence Families and Difficulty Validation") — as of 2026-07-09 the code and the
+lockstep with `final_report_2026/method/method.tex` (§ "Controlled Stimulus Sequence Generator")
+and `final_report_2026/appendix/implementation.tex` (§ "Difficulty Components" through
+§ "Family Matching Tolerances") — as of 2026-07-09 the code and the
 thesis text describe the same design, including the two deliberate deviations that are documented
 in both places (H_hand demoted to a diagnostic; P_pred estimated translation-invariantly).
 
@@ -193,7 +194,7 @@ RNG and reports per-level successes/failures separately.
 
 ## 8. Difficulty validation (`app/stimulus_validation.py`)
 
-`validate_level_pools({level: [(actions, stats), ...]})` implements method.tex's validation; it
+`validate_level_pools({level: [(actions, stats), ...]})` implements the report's validation; it
 runs automatically in the generator window after every generation (before pools are locked) and
 from the metrics viewer's "Validate Stimulus Set" button (same functions, saved sequences):
 

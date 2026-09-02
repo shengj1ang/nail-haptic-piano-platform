@@ -1,6 +1,6 @@
 """Difficulty validation for the alpha/beta/gamma level pools, as
-specified in method.tex "Matched Sequence Families and Difficulty
-Validation":
+specified in implementation.tex §"Family Matching Tolerances" and
+reported in appendix/stimulus_register.tex:
 
   - For each scalar component of D = (C_m, C_s, C_c), report the median,
     interquartile range, and full range separately per level.
@@ -18,7 +18,7 @@ Validation":
     hold for every alpha and beta sequence, while every gamma sequence
     must stay inside the gamma cross-region limits.
   - Structurally, every sequence must contain both hands and pass the
-    method.tex rejection rules (app.sequence_generator.structural_violations);
+    report's rejection rules (app.sequence_generator.structural_violations);
     the one-key-one-finger-per-event rule is guaranteed by the Action
     event type itself.
 
@@ -55,15 +55,16 @@ LEVELS = ("alpha", "beta", "gamma")
 # generation seed, which is what identifies a batch everywhere else too.
 VALIDATION_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "sequence_validation"
 
-# method.tex: "fewer than 10% of adjacent-level pairwise comparisons
-# violate that ordering".
+# method.tex §"Controlled Stimulus Sequence Generator": level medians
+# must follow the intended ordering "with fewer than 10% adjacent-level
+# violations".
 MONOTONIC_VIOLATION_LIMIT = 0.10
 
 
 @dataclass
 class GroupSummary:
     """Median, IQR, and full range of one component within one level's
-    pool - exactly the statistics method.tex says the generator reports."""
+    pool - exactly the statistics appendix/stimulus_register.tex reports."""
 
     level: str
     n: int
@@ -97,7 +98,7 @@ class CrossRegionCheck:
 
 @dataclass
 class BalanceCheck:
-    """method.tex: B_h is checked against the level-specific balance
+    """Per the report, B_h is checked against the level-specific balance
     threshold rather than interpreted as a monotonic difficulty score."""
 
     level: str
@@ -172,7 +173,8 @@ def _validate_component(
 
 
 def _check_cross_region(level: str, stats_list: List[SequenceStats]) -> CrossRegionCheck:
-    """method.tex: X_f = X_e = 0 must hold for alpha and beta; gamma must
+    """Per the constraint table, X_f = X_e = 0 must hold for alpha and
+    beta; gamma must
     remain within the gamma cross-region limits of the constraint table."""
     problems = []
     if level in ("alpha", "beta"):

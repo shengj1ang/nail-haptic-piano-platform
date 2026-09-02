@@ -1,9 +1,8 @@
 """Main user study: participant trial schedules.
 
 Implements the locked trial structure from final_report_2026/method/
-method.tex ("Trial Structure" + "Within-Subject Randomisation and
-Counterbalancing"): 3 feedback conditions (A key-only, B visual finger
-cue, C vibrotactile finger cue) x 3 difficulty levels (alpha, beta,
+method.tex (§"Design and Procedure"): 3 feedback conditions (A key-only,
+B visual finger cue, C vibrotactile finger cue) x 3 difficulty levels (alpha, beta,
 gamma) x 3 unique sequence trials per condition-level cell = 27 formal
 trials per participant, randomised as one interleaved list (not condition
 blocks) with a recorded seed, and 2-minute scheduled rests after trials 9
@@ -13,7 +12,7 @@ Sequences come from the generated stimulus pools under data/sequence/
 (app.sequence_generator), whose default names follow
 "<batch>-<level symbol>-<id>" (e.g. "1577174918-α-4"); this module groups
 them by batch so one generation run can be locked as a participant's
-stimulus set. Per method.tex, the three trials within a condition-level
+stimulus set. Per the report, the three trials within a condition-level
 cell must be *different* sequences from that level's pool; when the pool
 holds at least 9 sequences per level (the generator's default family
 count), every sequence is additionally used at most once across the three
@@ -21,8 +20,8 @@ conditions.
 
 The schedule is saved to
 data/MainUserStudy/<participant>/TrialStructure.json together with
-the participant metadata (method.tex logs handedness etc. as descriptive
-metadata, not experimental factors). Every trial row carries its own
+the participant metadata (method.tex §"Design and Procedure" logs
+handedness etc. as descriptive metadata, not experimental factors). Every trial row carries its own
 status/timestamps and the document carries a derived progress block, so
 the future experiment runner can crash at any point and resume from
 next_pending_trial() - the file on disk is always the source of truth for
@@ -44,7 +43,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "MainUserStudy"
 TRIAL_STRUCTURE_FILENAME = "TrialStructure.json"
 SCHEMA_VERSION = 1
 
-# method.tex Table "Pilot study feedback conditions".
+# method.tex §"Design and Procedure" and its session-flow figure.
 CONDITIONS = ("A", "B", "C")
 CONDITION_LABEL = {
     "A": "Key-only practice",
@@ -54,8 +53,8 @@ CONDITION_LABEL = {
 
 TRIALS_PER_CELL = 3  # unique sequences per condition-level cell
 TOTAL_TRIALS = len(CONDITIONS) * len(LEVELS) * TRIALS_PER_CELL  # = 27
-# 2-min seated rests after these trial indices (method.tex "Trial
-# Structure": fatigue management only, not condition/difficulty blocks).
+# 2-min seated rests after these trial indices (method.tex §"Design and
+# Procedure": fatigue management only, not condition/difficulty blocks).
 REST_AFTER_TRIALS = (9, 18)
 REST_DURATION_S = 120
 
@@ -63,7 +62,8 @@ REST_DURATION_S = 120
 # (male/female), but declining to answer must always be possible, so the
 # ethics-standard "prefer not to say" is offered too. Handedness is
 # descriptive metadata, not an experimental factor (method.tex
-# "Handedness and Experimental Factors").
+# §"Design and Procedure": "experience and handedness were metadata,
+# not eligibility criteria or analysis factors").
 SEX_OPTIONS = ("male", "female", "prefer not to say")
 HANDEDNESS_OPTIONS = ("right", "left", "ambidextrous")
 
@@ -122,7 +122,8 @@ def discover_sequence_batches(sequence_data_dir: Path = SEQUENCE_DATA_DIR) -> Di
 
 
 def build_schedule(pools: Dict[str, List[str]], seed: int) -> List[dict]:
-    """The 27-trial randomised schedule (method.tex pseudocode): for every
+    """The 27-trial randomised schedule (method.tex §"Design and
+    Procedure"): for every
     condition-level cell, sample TRIALS_PER_CELL *different* sequences
     from that level's pool, then shuffle the complete factorial list into
     one interleaved order with the given seed. With >= 9 sequences per
@@ -142,7 +143,7 @@ def build_schedule(pools: Dict[str, List[str]], seed: int) -> List[dict]:
         if len(pool) >= need_per_level:
             picks = rng.sample(pool, need_per_level)
         else:
-            # Small pool: still unique within each cell (a hard method.tex
+            # Small pool: still unique within each cell (a hard report
             # requirement); sequences may repeat across conditions.
             picks = []
             for _ in CONDITIONS:
@@ -182,8 +183,9 @@ def new_trial_structure(
     """A complete TrialStructure.json document. `participant` is the
     metadata dict (name, sex, age, handedness, ...); everything needed to
     audit or re-derive the schedule (batch, seed, profile) is recorded,
-    per method.tex: "The generated schedule, random seed, condition order
-    as actually presented ... are saved in the session metadata"."""
+    per method.tex §"Design and Procedure": "The trial list was pre-built
+    and shuffled with a recorded participant-specific seed, interleaving
+    condition and difficulty rather than blocking them"."""
     doc = {
         "schema_version": SCHEMA_VERSION,
         "created_at": time.time(),

@@ -70,7 +70,7 @@ class TestBackwardCompatibility(_TempConfigCase):
         self.assertEqual(config.lra.default_frequency, 224)
         self.assertEqual(config.lra.default_amp, 64)
         self.assertEqual(config.erm.default_frequency, 1000)
-        self.assertEqual(config.erm.default_amp, 80)
+        self.assertEqual(config.erm.default_amp, 50)
         self.assertEqual(hc.last_warnings(), [])
 
     def test_missing_config_file_is_not_an_error(self):
@@ -147,9 +147,9 @@ class TestActiveDefaults(_TempConfigCase):
 
     def test_summary_and_description_follow_the_config(self):
         hc.update_haptic_config(using="erm")
-        self.assertEqual(hc.summary_line(), "ERM @ 1000 Hz, amp 80")
+        self.assertEqual(hc.summary_line(), "ERM @ 1000 Hz, amp 50")
         self.assertIn("Current haptic actuator: ERM", hc.describe_active())
-        self.assertIn("Default drive: 1000 Hz, amp 80", hc.describe_active())
+        self.assertIn("Default drive: 1000 Hz, amp 50", hc.describe_active())
 
 
 # =========================================================================

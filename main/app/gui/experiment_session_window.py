@@ -9,7 +9,7 @@ once:
    tick box and a Start button: Start runs just that row's trial; "Run
    selected trials in order" walks every ticked trial
    smallest-index-first, pausing between trials until the experimenter
-   presses Continue - with the method.tex 2-minute rest countdown shown
+   presses Continue - with the protocol's 2-minute rest countdown shown
    after trials 9 and 18.
 
 2. The trial runner (app/gui/experiment_runner_window.py) - camera view,

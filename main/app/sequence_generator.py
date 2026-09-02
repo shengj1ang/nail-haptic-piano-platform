@@ -1,6 +1,7 @@
 """Generates constrained bimanual motor-sequence stimuli for the controlled
-pilot study described in final_report_2026/method/method.tex ("Sequence
-Design and Difficulty Levels" onward).
+main user study described in final_report_2026/method/method.tex
+(§"Controlled Stimulus Sequence Generator") and detailed in
+final_report_2026/appendix/implementation.tex.
 
 Each stimulus is an ordered sequence of T = 30 single-key cue events
 e_t = (h_t, f_t, m_t) - one active hand, one target finger, one target MIDI
@@ -9,7 +10,8 @@ sequence must use both hands across its 30 events (bimanual at the
 sequence level, single-key at the event level).
 
 Difficulty is the multidimensional representation D = (C_m, C_s, C_c) from
-method.tex - groups of measurable features, never a weighted scalar score:
+method.tex - groups of measurable features, never a weighted scalar score
+(component definitions: implementation.tex §"Difficulty Components"):
 
   - C_m (motor movement cost): mean cross-event displacement d_seq, mean
     and 95th-percentile same-hand key displacement d_m, mean same-hand
@@ -22,15 +24,14 @@ method.tex - groups of measurable features, never a weighted scalar score:
 
 A candidate is accepted for a level (alpha / beta / gamma) only when every
 constrained component falls inside that level's ranges (method.tex Table
-"Bimanual sequence grammar and quantitative difficulty constraints",
-LEVEL_CONSTRAINTS below) and it passes the structural rejection rules: no
+"Level-defining constraints", LEVEL_CONSTRAINTS below) and it passes the structural rejection rules: no
 repeated identical three-event chunk, no hand with more than 60% of
 events, no finger used for more than three consecutive occurrences by
 the same hand, and a hand that presses the same key on consecutive
 occurrences must use the same finger for both.
 
 The valid note pool comes from the active calibrated profile's own
-midi_mapping.json (START_NOTE = min(V), END_NOTE = max(V), optionally
+midi_mapping.json (k_min = min(V), k_max = max(V), optionally
 narrowed by the experimenter), restricted to the white-key subset
 V_white = {m in V : m mod 12 in {0,2,4,5,7,9,11}}. Hand operating regions
 are derived from the keyboard midpoint k_mid = k_min + S/2 with the
@@ -40,7 +41,8 @@ ergonomic checks in _CROSS_* below.
 
 Levels build matched families (default 9 sequences per level, 1-50
 allowed) via the pairwise tolerances in FAMILY_TOLERANCES and a greedy
-clique search, mirroring method.tex Table "Pairwise matching tolerances".
+clique search, mirroring implementation.tex Table "Pairwise matching
+tolerances for sequences within the same level pool".
 
 GUI-free by design (see app/gui/sequence_generator_window.py for the Qt
 wrapper). A generated sequence is saved in the same
@@ -96,22 +98,23 @@ LEVEL_TICK_LABEL = {
 LEVEL_LABEL = {level: f"Level {LEVEL_DISPLAY[level]}" for level in LEVELS}
 LEVEL_DIFFICULTY = {"alpha": 1, "beta": 2, "gamma": 3}
 
-# method.tex, "Sequence Design and Difficulty Levels": every formal
+# method.tex, §"Controlled Stimulus Sequence Generator": every formal
 # sequence trial contains exactly 30 single-key cue events.
 SEQUENCE_LENGTH = 30
 
 # How many matched sequences to generate per difficulty level, by default -
-# user-configurable in the GUI (method.tex: "the default is 9 sequences per
-# bin, with an allowed range of 1-50 sequences").
+# user-configurable in the GUI (appendix/stimulus_register.tex records
+# the locked pool as "3 difficulty levels x 9 sequences = 27").
 DEFAULT_FAMILY_COUNT = 9
 MIN_FAMILY_COUNT, MAX_FAMILY_COUNT = 1, 50
 
-# Level-specific hand-region overlap ratio r (method.tex "Hand Regions and
+# Level-specific hand-region overlap ratio r (implementation.tex
+# §"Hand Regions and
 # Sequence Construction"): R_L(r) = [k_min, k_mid + rS/2],
 # R_R(r) = [k_mid - rS/2, k_max].
 LEVEL_OVERLAP_RATIO = {"alpha": 0.0, "beta": 0.15, "gamma": 0.30}
 
-# method.tex Table "Bimanual sequence grammar and quantitative difficulty
+# method.tex Table "Level-defining constraints"; difficulty
 # constraints". Every entry is an inclusive (lo, hi) range; the *_s keys
 # are normalised by the note span S = k_max - k_min. STRICT_LOWER marks
 # the bounds the table writes as strict ("0.08 < ..." / "0 < ...").
@@ -121,7 +124,8 @@ LEVEL_OVERLAP_RATIO = {"alpha": 0.0, "beta": 0.15, "gamma": 0.30}
 # achievable four-class hand-transition entropy is mathematically pinned
 # to ~[0.81, 1.0] for alpha/beta, and H_hand is non-monotonic in A_h (it
 # peaks at A_h = 0.5, inside gamma's range), so it cannot order the
-# levels. Per method.tex it is retained only as a descriptive diagnostic:
+# levels. Per the report it is retained only as a descriptive diagnostic
+# ("H_hand ... diagnostic, reported only" in the validation summary):
 # computed, displayed, and logged, but neither a level acceptance range
 # nor a family-matching tolerance.
 LEVEL_CONSTRAINTS: Dict[str, Dict[str, Tuple[float, float]]] = {
@@ -171,12 +175,13 @@ STRICT_LOWER: Dict[str, Set[str]] = {
     "gamma": {"d_seq_mean_s", "d_m_mean_s", "x_f"},
 }
 
-# Structural rejection rules (method.tex "Hand Regions and Sequence
-# Construction", final paragraph).
+# Structural rejection rules (implementation.tex §"Candidate
+# Construction and Rejection Rules", first paragraph).
 MAX_SINGLE_HAND_SHARE = 0.60
 MAX_CONSECUTIVE_SAME_FINGER = 3
 
-# Gamma-level cross-region ergonomic checks (method.tex): a cross-region
+# Gamma-level cross-region ergonomic checks (implementation.tex
+# §"Hand Regions and Cross-Region Rules"): a cross-region
 # candidate is legal only if crossing extent X_e/S <= the level's x_e_s
 # bound, no more than two consecutive cross-region events, no jump into or
 # out of cross-region movement greater than 0.45 S, and no adjacent target
@@ -222,8 +227,8 @@ _FINGER_JUMP_BIAS = 0.6
 # P_pred, whose value is precisely the dominant complete move's share.
 _MOVE_PERSISTENCE = {"alpha": 0.5, "beta": 0.2, "gamma": 0.0}
 
-# method.tex Table "Pairwise matching tolerances for sequences within the
-# same level pool". Keys name SequenceStats metrics; d_m_mean_s is
+# implementation.tex Table "Pairwise matching tolerances for sequences
+# within the same level pool". Keys name SequenceStats metrics; d_m_mean_s is
 # span-normalised mean same-hand displacement.
 FAMILY_TOLERANCES: Dict[str, float] = {
     "h_norm": 0.05,
@@ -241,7 +246,7 @@ FAMILY_TOLERANCES: Dict[str, float] = {
 INTER_NOTE_INTERVAL_S = DEFAULT_NOTE_DURATION_S + 0.75
 
 # Displacement binning b(d) shared by the transition classes of C_s
-# (method.tex "Sequence Complexity"): 0 / (0,2] / (2,5] / >5.
+# (implementation.tex §"Difficulty Components"): 0 / (0,2] / (2,5] / >5.
 def displacement_bin(d: float) -> int:
     if d == 0:
         return 0
@@ -281,14 +286,16 @@ def valid_notes_for_profile(keyboard_profile_name: str, profile_data_dir: Path =
     """Every MIDI note that appears anywhere in this profile's
     midi_mapping.json - i.e. every note this specific physical keyboard
     can actually send. min()/max() of this list is the profile's valid
-    note range (method.tex: START_NOTE = min(V), END_NOTE = max(V))."""
+    note range (implementation.tex §"Hand Regions and Cross-Region
+    Rules": the effective bounds k_min / k_max)."""
     mapping = MidiMapping.load(Path(profile_data_dir) / keyboard_profile_name / "midi_mapping.json")
     return sorted(set(mapping.key_to_note.values()))
 
 
 def white_notes_for_profile(keyboard_profile_name: str, profile_data_dir: Path = PROFILE_DATA_DIR) -> List[int]:
     """The response set is restricted to the C-major white-key subset
-    V_white (method.tex "Profile-Based MIDI Note Bounds")."""
+    V_white (method.tex §"Controlled Stimulus Sequence Generator":
+    black keys are excluded because they change reach and posture)."""
     return [n for n in valid_notes_for_profile(keyboard_profile_name, profile_data_dir) if not _is_black_note(n)]
 
 
@@ -303,7 +310,7 @@ def profile_note_range(keyboard_profile_name: str, profile_data_dir: Path = PROF
 
 @dataclass(frozen=True)
 class Action:
-    """One cue event e_t = (h_t, f_t, m_t) - method.tex mandates exactly
+    """One cue event e_t = (h_t, f_t, m_t) - the report mandates exactly
     one hand, one finger, one key per event."""
 
     hand: str  # "L" or "R"
@@ -376,7 +383,7 @@ class ComponentSpec:
     """One scalar component of D, with the metadata the difficulty
     validation and the metrics viewer need: which C-group it belongs to
     and how it is expected to behave across alpha -> beta -> gamma
-    (method.tex "Matched Sequence Families and Difficulty Validation")."""
+    (implementation.tex §"Family Matching Tolerances")."""
 
     key: str  # attribute name on SequenceStats
     label: str  # display label
@@ -421,8 +428,8 @@ class SequenceGenerationError(Exception):
 
 def hand_regions(k_min: float, k_max: float, level: str) -> Dict[str, Tuple[float, float]]:
     """R_L(r) = [k_min, k_mid + rS/2], R_R(r) = [k_mid - rS/2, k_max] with
-    the level-specific overlap ratio r (method.tex "Hand Regions and
-    Sequence Construction")."""
+    the level-specific overlap ratio r (implementation.tex §"Hand Regions
+    and Cross-Region Rules")."""
     span = k_max - k_min
     k_mid = k_min + span / 2.0
     r = LEVEL_OVERLAP_RATIO[level]
@@ -474,7 +481,7 @@ def _same_hand_displacements(actions: Sequence) -> Tuple[List[float], List[float
 def _transition_classes(actions: Sequence) -> List[Tuple[int, int, int]]:
     """c_t = (I(h_t != h_{t-1}), b(d_seq_t), phi_t) with phi_t the binned
     same-hand finger distance, or the dedicated switch symbol on a
-    hand-switch transition (method.tex "Sequence Complexity")."""
+    hand-switch transition (implementation.tex §"Difficulty Components")."""
     classes = []
     for prev, curr in zip(actions, actions[1:]):
         switch = 1 if curr.hand != prev.hand else 0
@@ -507,7 +514,7 @@ def transition_variability(actions: Sequence) -> float:
 
 def predictability(actions: Sequence) -> float:
     """P_pred: predictability of the next *complete* motor action
-    a_{t+1} = (h_{t+1}, f_{t+1}, m_{t+1}) given a_t (method.tex "Sequence
+    a_{t+1} = (h_{t+1}, f_{t+1}, m_{t+1}) given a_t (implementation.tex "Difficulty
     Complexity") - hand and finger count, not only the MIDI note.
 
     A single 30-event sequence cannot support a full action-to-action
@@ -525,7 +532,7 @@ def predictability(actions: Sequence) -> float:
     single-guess accuracy of a first-order predictor of the next complete
     action. A regular key pattern with inconsistent hand or finger
     assignments spreads the move distribution and lowers P_pred, as
-    method.tex requires."""
+    the report's P_pred definition requires."""
     if len(actions) < 2:
         return 0.0
     moves: Dict[Tuple[bool, int, int], int] = {}
@@ -608,7 +615,7 @@ def compute_stats(actions: Sequence, k_min: int, k_max: int) -> SequenceStats:
     against the note bounds the sequence was (or is being) generated
     for. The same function serves generation-time acceptance and the
     metrics viewer's recomputation for saved stimuli, so the two always
-    agree (method.tex, last paragraph of "Matched Sequence Families and
+    agree (implementation.tex, last paragraph of "Family Matching
     Difficulty Validation")."""
     d_seq = [abs(curr.note - prev.note) for prev, curr in zip(actions, actions[1:])]
     d_m, d_f = _same_hand_displacements(actions)
@@ -672,7 +679,7 @@ def has_repeated_trigram(actions: Sequence) -> bool:
 
 
 def structural_violations(actions: Sequence) -> List[str]:
-    """The method.tex structural rejection rules, applicable to any
+    """The implementation.tex structural rejection rules, applicable to any
     action sequence (fresh candidate or a saved stimulus re-checked by
     the validation): both hands present, no repeated three-event chunk,
     no hand over 60% of events, no finger used more than three
@@ -754,7 +761,7 @@ def _sample_hand_labels(level: str, rng: random.Random, max_attempts: int = 400)
     """A length-T L/R hand-label sequence satisfying the level's A_h and
     B_h constraints plus the 60% single-hand share rule - sampled first so
     the note/finger walk knows every hand assignment (and hence every
-    same-hand transition) in advance (method.tex "Hand Regions and
+    same-hand transition) in advance (implementation.tex "Hand Regions and
     Sequence Construction"). H_hand is not gated here (see the
     LEVEL_CONSTRAINTS comment)."""
     cons = LEVEL_CONSTRAINTS[level]
@@ -798,7 +805,7 @@ def _build_one_sequence(
     running-budget movement constraints, the cross-region ergonomic
     checks, and the consecutive-finger rule; the level's mean/entropy
     ranges are verified afterwards on the finished candidate. Returns
-    None (restart) when no legal continuation exists (method.tex "Hand
+    None (restart) when no legal continuation exists (implementation.tex "Hand
     Regions and Sequence Construction")."""
     cons = LEVEL_CONSTRAINTS[level]
     span = k_max - k_min
@@ -1112,7 +1119,7 @@ def generate_matched_family(
     profile_data_dir: Path = PROFILE_DATA_DIR,
 ) -> Dict[int, Tuple[Sequence, SequenceStats]]:
     """`count` sequences (ids 1..count) for one difficulty level, mutually
-    matched within FAMILY_TOLERANCES (method.tex Table "Pairwise matching
+    matched within FAMILY_TOLERANCES (implementation.tex Table "Pairwise matching
     tolerances"), drawn from keyboard_profile_name's own valid MIDI
     notes. Candidates are deduplicated on their exact event list before
     matching."""
@@ -1337,9 +1344,9 @@ def evaluate_song(
     already-saved song - a real recording (data_dir=MUSIC_DATA_DIR) or a
     generated sequence (data_dir=SEQUENCE_DATA_DIR), see app.song_library -
     using the exact same compute_stats() machinery as generation, so the
-    numbers are directly comparable either way (method.tex: "The sequence
-    metrics viewer recomputes all components ... using the same functions
-    as the generator").
+    numbers are directly comparable either way (implementation.tex: "A
+    read-only metrics viewer recomputes every component ... using the same
+    functions as the generator").
 
     Span-dependent components need note bounds (k_min, k_max). These come
     from, in order: the saved meta.json's start_note/end_note (present on

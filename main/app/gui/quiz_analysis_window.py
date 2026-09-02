@@ -124,7 +124,8 @@ def _condition_of(name: str) -> Optional[str]:
 
 def _build_metric_columns():
     """The per-trial metric columns, following the report's outcome-measure
-    plan (final_report_2026/method/method.tex): (title, tooltip,
+    plan (final_report_2026/method/method.tex, §"Outcome Measures and
+    Analysis"): (title, tooltip,
     needs_analysis, getter(meta, summary) -> str). needs_analysis columns
     show an em dash until the finger-matching video pass has run - their
     values would be meaningless before it."""

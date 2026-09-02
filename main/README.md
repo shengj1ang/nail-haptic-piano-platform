@@ -771,7 +771,7 @@ app/
                                #   matched families, seeded RNG (see SEQUENCE_GENERATOR_ALGORITHM.md)
   stimulus_validation.py       # difficulty validation of the alpha/beta/gamma level pools
   pilot_study.py               # main user study: 27-trial randomised schedules (3 conditions x
-                               #   3 levels x 3 sequences, method.tex "Trial Structure"), saved to
+                               #   3 levels x 3 sequences, method.tex § "Design and Procedure"), saved to
                                #   data/MainUserStudy/<participant>/TrialStructure.json with
                                #   per-trial status for crash-resume
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools
@@ -991,7 +991,7 @@ window or experiment carries its own copy of "224 Hz / amp 64".
 "haptic": {
   "using": "lra",
   "lra": { "default_frequency": 224, "default_amp": 64 },
-  "erm": { "default_frequency": 1000, "default_amp": 80 }
+  "erm": { "default_frequency": 1000, "default_amp": 50 }
 }
 ```
 
@@ -1001,7 +1001,7 @@ window or experiment carries its own copy of "224 Hz / amp 64".
 | `haptic.lra.default_frequency` | LRA drive frequency in Hz. | `224` |
 | `haptic.lra.default_amp` | LRA drive amp (firmware PWM duty byte). | `64` |
 | `haptic.erm.default_frequency` | ERM PWM **carrier** frequency in Hz. | `1000` |
-| `haptic.erm.default_amp` | ERM drive amp. | `80` |
+| `haptic.erm.default_amp` | ERM drive amp. | `50` |
 
 **The two frequencies do not mean the same thing.** An LRA's frequency is
 a real mechanical drive frequency: the actuator only vibrates properly at
