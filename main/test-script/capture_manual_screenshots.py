@@ -370,6 +370,10 @@ WINDOWS = [
     ("experiment_session",   "app.gui.experiment_session_window", "ExperimentSessionWindow", "6", "Formal Experiment Session", 1150, 850),
 
     ("quiz_analysis",        "app.gui.quiz_analysis_window", "QuizAnalysisWindow", "7", "Quiz Analysis", 1400, 900),
+    # Reached by double-clicking a row / an event in Quiz Analysis rather than
+    # from the launcher, so they take their own constructor arguments.
+    ("quiz_detail",          "app.gui.quiz_detail_window", "QuizDetailWindow", "7", "Quiz Detail (per-trial)", 1300, 950),
+    ("event_review",         "app.gui.event_review_window", "EventReviewWindow", "7", "Event Review (per-event)", 1000, 830),
     ("participant_analysis", "app.gui.participant_analysis_window", "ParticipantAnalysisWindow", "7", "Participant Analysis", 1400, 900),
     ("group_analysis",       "app.gui.group_analysis_window", "GroupAnalysisWindow", "7", "Group Analysis", 1400, 900),
     ("computational_model",  "app.gui.computational_model_window", "ComputationalModelWindow", "7", "Computational Model Analysis", 1400, 900),
@@ -397,6 +401,17 @@ WINDOWS = [
 ]
 
 BY_KEY = {w[0]: w for w in WINDOWS}
+
+# The sub-windows Quiz Analysis opens are constructed from a quiz, not from
+# the Config every launcher window takes. This trial is a Visual-guidance one
+# carrying a handful of finger discrepancies, so the confusion matrix has
+# something off the diagonal and the review panel has a real disagreement to
+# rule on - a flawless trial would show neither tool doing anything.
+DETAIL_QUIZ = "P14-T02-B\u03b1"
+FACTORY_ARGS = {
+    "quiz_detail": (DETAIL_QUIZ,),
+    "event_review": (DETAIL_QUIZ, 2, "white-city-lab-20260717"),
+}
 
 # Windows that open empty and only show anything once told to load or compute
 # something: (button label - matched as a substring, seconds to allow).
@@ -473,10 +488,13 @@ def capture_one(key: str, out: Path) -> int:
         win.resize(*win.preferred_size())
     else:
         cls = getattr(__import__(modpath, fromlist=[clsname]), clsname)
-        try:
-            win = cls(cfg)
-        except TypeError:
-            win = cls()
+        if key in FACTORY_ARGS:
+            win = cls(*FACTORY_ARGS[key])
+        else:
+            try:
+                win = cls(cfg)
+            except TypeError:
+                win = cls()
         if want_w and want_h:
             win.resize(want_w, want_h)
 

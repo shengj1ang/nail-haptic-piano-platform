@@ -703,19 +703,83 @@ were counted at.
 | **Re-render review video** | Rebuilds the review copy without re-detecting. |
 | **Export participant data…** | Writes `<P>_trials.csv` / `<P>_events.csv` next to that participant's `TrialStructure.json`. |
 
-**Reviewing and correcting.** Double-click a quiz for the per-trial detail
-window: all events with their verdicts, borderline-probability highlighting, a
-finger confusion matrix and distribution stats. Double-click an event there to
-play back its keypress ±5 s and correct the detected finger — corrections
-change `actual_finger` only (the softmax is kept as the audit trail) and are
-flagged in a Manual column.
+#### Quiz Detail — one trial, event by event
 
-**Carry-over review.** A matched response faster than 100 ms cannot be a
-reaction to its cue — in practice these are the tail of the previous event's
-presses. Such events are flagged `review!` in the detail window's Validity
-column, never auto-labelled. **Right-click the event row** to confirm one as
-`invalid_carryover` (or restore it): confirmed events are excluded from every
-statistic, RT and accuracy alike.
+**Double-click a quiz row** to open it.
+
+![Quiz Detail](image/quiz_detail.png)
+
+Every event of the trial as its own row: the cued key and finger against what
+was actually pressed and detected, the detector's confidence `p(target)`, the
+reaction time, and whether a human has ruled on it.
+
+**The colours are the whole point of the window** — they say which events
+deserve your attention, so you are not reading thirty rows evenly:
+
+| Row / cell | Means |
+|---|---|
+| Amber row, red ✗ in **Finger ✓** | The finger rule failed: the cued finger never held enough of the probability mass. |
+| Yellow `p(target)`, e.g. `R3 (≈R2)` in **Actual finger** | A **near-tie** — scored correct, but a neighbouring finger was the most probable one. Worth a look. |
+| `R4 (p<θ)` | A **sub-threshold match**: the cued finger *was* the most probable, but never cleared θ. |
+| `✎ manual` in **Manual** | A human has already corrected this event's finger. |
+| `review!` in **Validity** | A suspected carry-over — see below. |
+| `✔ reviewed` in **Review** | Someone has ruled on it; it is off the review queue. |
+
+**Only events to review** at the top collapses the table to what is still
+outstanding, and its count is the size of the job.
+
+Underneath, the **finger confusion matrix** (rows = cued finger, columns =
+most probable detected fingertip) shows the trial's error *structure* rather
+than its rate, and the **distribution / trend / audit stats** panel names
+every count the table's colours encode — borderline events, near-ties,
+sub-threshold matches, carry-over suspects, manual corrections, and the QC
+tally of raw presses that never matched an event.
+
+> Off the diagonal is **not** automatically an error. An event still scores
+> correct while the cued finger holds at least θ = 0.40 of the mass — those
+> are the amber `R3 (≈R2)` rows. Red failed the rule; grey is unresolved.
+
+#### Event Review — watch one keypress
+
+**Double-click an event row** in the detail window.
+
+![Event Review](image/event_review.png)
+
+The recording around that keypress, ±5 s, so you can see for yourself which
+finger pressed the key. The target key is tinted, every tracked fingertip is
+dotted, and the finger the detector chose is circled and labelled.
+
+- **Play** / **Speed** / the scrubber move through the clip; **Jump to
+  keypress** returns to the moment itself, marked `KEYPRESS FRAME`.
+- The four tick boxes turn each overlay off, for when an overlay is covering
+  the thing you are trying to see.
+- **Correct Actual Finger** states the disagreement in one line — cued finger,
+  what the detector chose, and how much probability the cued finger got — then
+  lets you set what actually happened.
+
+**Save correction** records a different finger; **Confirm as is** agrees with
+the detector. Either one counts as a human verdict and takes the event off the
+review queue. A correction changes `actual_finger` **only** — the stored
+probabilities are never rewritten, so the detector's original opinion survives
+as the audit trail.
+
+#### Carry-over review
+
+A matched response faster than 100 ms cannot be a reaction to its cue — in
+practice these are the tail of the previous event's presses crossing the gap.
+Such events are flagged `review!` in the Validity column and are **never**
+auto-labelled: only a human sets validity, and the code merely nominates
+suspects.
+
+**Right-click the event row** for the verdict. The menu offers *Confirm as
+invalid carry-over (exclude from RT & accuracy)*, or, on an event already
+excluded, *Restore event (mark valid again)*. A confirmed carry-over is
+dropped from every statistic — reaction time and accuracy alike — and
+re-counted as `excluded_carryover`. Timed-out events have no matched response,
+so there is nothing to rule on and no menu appears.
+
+Excluding an event moves every headline number for the trial, so the window
+rewrites `results.json` and re-derives the cached summary in the same step.
 
 > **Export is the hand-off.** Group Analysis reads the exported CSVs, not
 > `results.json`. Re-run **Export participant data** after any round of finger
