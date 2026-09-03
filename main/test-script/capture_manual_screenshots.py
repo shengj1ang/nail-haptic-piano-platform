@@ -48,6 +48,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MAIN = Path(__file__).resolve().parent.parent
@@ -62,6 +63,15 @@ DEMO_CLIP = "data/quiz/P18-T25-C\u03b3/raw/performance.mp4"
 # Seek in before grabbing - the opening seconds of a trial are an empty
 # keyboard, and a manual wants hands in frame.
 DEMO_START_FRAME = 700
+
+# Accelerometer Live View plots whatever the rig streams, so with a fake
+# serial port it photographs as an empty pair of axes. Replay a real saved
+# run instead: this slice straddles a baseline -> vibration transition at the
+# project's own LRA default (224 Hz, amp 64), so the picture shows the quiet
+# floor, the onset, and the driven signal - which is what the window is for.
+DEMO_ACC = ("data/validation_experiments/motor_acc_delay_experiment/"
+            "delay_trials_1785425851.raw_acc.npz")
+DEMO_ACC_SLICE = (883, 1283)   # 400 samples = the window's rolling buffer
 
 # The offscreen platform reports a ~750x800 screen. Several windows size
 # themselves to the screen they are on - the launcher most of all, which picks
@@ -138,6 +148,25 @@ def _sanitise_config(dest: Path) -> None:
 
 
 # ----------------------------------------------------------------- stubs
+def _demo_acc_lines(sandbox: Path):
+    """The saved accelerometer run, as the lines the firmware would stream.
+
+    Returns [] if the store is missing, which just leaves the live view empty
+    rather than failing the capture."""
+    try:
+        import numpy as np
+
+        store = np.load(sandbox / DEMO_ACC)
+        lo, hi = DEMO_ACC_SLICE
+        return [f"ACC,0,{x},{y},{z}\n".encode()
+                for x, y, z in zip(store["x"][lo:hi],
+                                   store["y"][lo:hi],
+                                   store["z"][lo:hi])]
+    except Exception as e:
+        print(f"  (no demo ACC stream: {e})")
+        return []
+
+
 def _install_stubs(sandbox: Path) -> None:
     """Replace every device the windows might open with a fake.
 
@@ -147,19 +176,42 @@ def _install_stubs(sandbox: Path) -> None:
     import serial
     from serial.tools import list_ports
 
+    acc_lines = _demo_acc_lines(sandbox)
+
     class FakeSerial:
         def __init__(self, port=None, baudrate=9600, timeout=None, **kw):
             self.port, self.baudrate, self.timeout = port, baudrate, timeout
             self.is_open = True
             self.in_waiting = 0
+            self._reply = b""
+            self._streaming = False
+            self._at = 0
 
         def write(self, data):
+            # Enough of the firmware protocol to get the ACC stream running:
+            # rig.open_rig() will not proceed without the identity reply, and
+            # the live view reads nothing until "A START".
+            cmd = data.decode("utf-8", errors="ignore").strip()
+            if cmd == "E":
+                self._reply = b"E haptic-piano v2.10.0\n"
+            elif cmd.startswith("A START"):
+                self._streaming = True
+            elif cmd.startswith("A STOP"):
+                self._streaming = False
             return len(data)
 
         def read(self, n=1):
             return b""
 
         def readline(self):
+            if self._reply:
+                reply, self._reply = self._reply, b""
+                return reply
+            if self._streaming and acc_lines:
+                line = acc_lines[self._at % len(acc_lines)]
+                self._at += 1
+                time.sleep(0.001)   # pace it so the GUI thread keeps up
+                return line
             return b""
 
         def reset_input_buffer(self):
@@ -359,6 +411,7 @@ RECIPES = {
     "rhythm_schedule": [("Load existing", 15)],
     "rhythm_session": [("Load participant", 15)],
     "rhythm_melody_gen": [("Preview (writes nothing)", 20)],
+    "accelerometer": [("Connect", 12)],
 }
 
 # QWizards worth walking, and how many Next presses to photograph.

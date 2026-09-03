@@ -20,7 +20,9 @@ section below.
 > calibrated against — anything else and the key masks would photograph
 > visibly offset from the keys they belong to. The serial and MIDI ports
 > shown are placeholders; on your machine those pickers list your own
-> hardware.
+> hardware, and the Accelerometer Live View is replaying a saved run
+> (`main/data/validation_experiments/motor_acc_delay_experiment/`) in place of
+> a live rig.
 
 ---
 
@@ -382,9 +384,21 @@ Standalone: `python test_haptic_single_motor.py`
 
 ![Accelerometer Live View](image/accelerometer.png)
 
-A live X/Y/Z plot of one LIS3DH on the vibration rig, at 100 Hz. The stream
-carries every sensor interleaved, so the **sensor id** selector switches
-which one you are watching live, with no restart.
+A live X/Y/Z plot of one LIS3DH on the vibration rig, at 100 Hz. Press
+**Connect** and the log underneath reports the port it auto-detected, the
+firmware identity it handshook with, and the stream starting.
+
+![Accelerometer Live View — streaming](image/accelerometer_loaded.png)
+
+Reading the trace: **Z rests near −1000 counts** because that axis carries
+gravity, and the bursts are the actuator driving at the configured default
+(224 Hz, amp 64) with the quiet stretch between them the noise floor. That
+contrast is what the window is for — if a burst does not stand clear of the
+floor, the sensor is not coupled to the motor and every measurement in
+section 10 would be worthless.
+
+The stream carries every sensor interleaved, so the **sensor id** selector
+switches which one you are watching live, with no restart.
 
 Changing the selector only retargets the view. Nothing is written until you
 press **Save as Default**, which stores the id in `config.json`
