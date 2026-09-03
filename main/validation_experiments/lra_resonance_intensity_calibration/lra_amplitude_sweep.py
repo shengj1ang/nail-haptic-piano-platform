@@ -440,12 +440,17 @@ def save_plot(path: str, results: List[StepResult],
 
     fig, ax = plt.subplots(figsize=(10, 5.6))
 
-    # Theoretical shape for reference: intensity ~ sin(pi*amp/255),
-    # scaled to the measured maximum.
-    theory = [max_ms2 * math.sin(math.pi * a / 255) / math.sin(math.pi * max(amps) / 255)
-              for a in amps]
-    ax.plot(amps, theory, "--", linewidth=1.2, alpha=0.7,
-            label="sin(π·amp/255) model (scaled)")
+    # The applied voltage is rectangular PWM, not a sinusoid.  This dashed
+    # reference shows only the magnitude envelope of its fundamental at the
+    # drive frequency: |V1| is proportional to sin(pi*D), D = amp/255.
+    # It is scaled to the measured maximum and is not the drive waveform.
+    pwm_fundamental = [
+        max_ms2 * math.sin(math.pi * a / 255)
+        / math.sin(math.pi * max(amps) / 255)
+        for a in amps
+    ]
+    ax.plot(amps, pwm_fundamental, "--", linewidth=1.2, alpha=0.7,
+            label="PWM fundamental magnitude (scaled)")
 
     ax.plot(amps, ms2, "o-", markersize=4,
             label=f"Measured {metric_spec(metric).short_label}")
@@ -460,7 +465,7 @@ def save_plot(path: str, results: List[StepResult],
         recommended_ms2 = get_metric_value(recommended, metric, "ms2")
         ax.axvline(recommended.amp, linestyle="--", linewidth=1.5,
                    color="tab:red",
-                   label=f"Recommended cue amp = {recommended.amp} "
+                   label=f"Selected PWM amp = {recommended.amp} "
                          f"({recommended_ms2:.2f} m/s²) — amp closest to "
                          "target intensity")
     else:
@@ -471,13 +476,13 @@ def save_plot(path: str, results: List[StepResult],
                 color="tab:red",
                 bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
 
-    ax.set_title(f"LRA amplitude response at {freq_hz} Hz "
+    ax.set_title(f"LRA PWM-amplitude response at {freq_hz} Hz "
                  f"(motor port {motor_index})\n"
                  f"{metric_spec(metric).short_label} — "
                  + (f"target {target.band_label}, {target.status_label}"
                     if target.calibrated else UNCALIBRATED_LABEL),
                  fontsize=11)
-    ax.set_xlabel("amp (PWM duty, 0-255 scale)")
+    ax.set_xlabel("PWM amp (0-255 duty setting)")
     ax.set_ylabel(metric_axis_label(metric))
     ax.legend(fontsize=8)
     ax.grid(True)

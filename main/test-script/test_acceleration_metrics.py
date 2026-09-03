@@ -878,7 +878,7 @@ class TestCueTargetBands(unittest.TestCase):
                                 for s in legacy_labels))
             self.assertTrue(any("provisional calibration" in s
                                 for s in vector_labels))
-            self.assertTrue(any("Recommended cue amp = 52" in s
+            self.assertTrue(any("Selected PWM amp = 52" in s
                                 for s in vector_labels), vector_labels)
             self.assertIn("0.4-0.6 m/s²", legacy_title)
             self.assertIn("2.4-3 m/s²", vector_title)
