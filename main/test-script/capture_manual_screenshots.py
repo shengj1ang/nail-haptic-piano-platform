@@ -15,9 +15,13 @@ clip, and every window is built there. On top of that, `_install_stubs()`
 replaces the camera, the serial ports, the MIDI enumeration and the audio
 output with fakes, so even inside the sandbox nothing can claim a device.
 
-The stand-in camera is `data/music/demoteacher-recording/raw/performance.mp4`
-- a real top-down frame of the rig, which is what makes the previews in the
-manual look like the tool in use rather than a black rectangle.
+The stand-in camera is a recorded study trial (see DEMO_CLIP) rather than a
+synthetic frame, so the previews look like the tool in use. It must be a
+recording made through the camera position the ACTIVE PROFILE was calibrated
+against: every window that draws the profile over the image - Region Preview,
+Live Finger Detection, the MIDI Mapping Wizard - photographs visibly
+misaligned otherwise, which is exactly what a reader would read as a broken
+calibration.
 
 USAGE
 -----
@@ -49,7 +53,15 @@ from pathlib import Path
 MAIN = Path(__file__).resolve().parent.parent
 REPO = MAIN.parent
 DEFAULT_OUT = REPO / "doc" / "image"
-DEMO_CLIP = "data/music/demoteacher-recording/raw/performance.mp4"
+# The stand-in camera must be a recording made through the SAME camera
+# position the active profile was calibrated against, or every window that
+# draws the profile over the image photographs visibly misaligned. A
+# participant recording satisfies that by construction: it was recorded in the
+# session the profile belongs to.
+DEMO_CLIP = "data/quiz/P18-T25-C\u03b3/raw/performance.mp4"
+# Seek in before grabbing - the opening seconds of a trial are an empty
+# keyboard, and a manual wants hands in frame.
+DEMO_START_FRAME = 700
 
 # The offscreen platform reports a ~750x800 screen. Several windows size
 # themselves to the screen they are on - the launcher most of all, which picks
@@ -251,9 +263,15 @@ def _install_stubs(sandbox: Path) -> None:
         clip = str(sandbox / "demo_camera.mp4")
 
         def capture(src=None, *a, **k):
+            seek = isinstance(src, int) or str(src).endswith("demo_camera.mp4")
             if isinstance(src, int):
                 src = clip if src in (0, 1) else "/nonexistent-camera"
-            return real_capture() if src is None else real_capture(src, *a, **k)
+            if src is None:
+                return real_capture()
+            cap = real_capture(src, *a, **k)
+            if seek and cap.isOpened():
+                cap.set(cv2.CAP_PROP_POS_FRAMES, DEMO_START_FRAME)
+            return cap
 
         cv2.VideoCapture = capture
     except Exception:

@@ -14,10 +14,13 @@ section below.
 
 > **About the screenshots.** Every image was captured from the real windows,
 > rendered offscreen against a copy of the project so no live data was
-> touched. The camera in each preview is a recorded clip
-> (`main/data/music/demoteacher-recording/`) standing in for a live feed, and the
-> serial/MIDI ports shown are placeholders — on your machine those pickers
-> list your own hardware.
+> touched. The camera in each preview is a frame from a recorded study trial
+> (`main/data/quiz/P18-T25-Cγ/`) standing in for a live feed. It has to be a
+> recording made through the camera position the active profile was
+> calibrated against — anything else and the key masks would photograph
+> visibly offset from the keys they belong to. The serial and MIDI ports
+> shown are placeholders; on your machine those pickers list your own
+> hardware.
 
 ---
 
