@@ -82,7 +82,7 @@ because the others depend on its numbers.
 
 The validation experiments are experiments in the same sense as the rest: each
 has a protocol, recorded runs and its own write-up (see
-`validation_experiments/README.md`). They are the reason the cue amplitude and
+`doc/validation-experiments.md`). They are the reason the cue amplitude and
 frequency used here are the values they are rather than a guess, which puts
 them upstream of every human study on the platform, this one included.
 
@@ -107,7 +107,7 @@ boundary and why it is enforced structurally rather than by convention.
 
 ### Stimulus: the melody generator
 
-Full detail in [`melody_generator/README.md`](melody_generator/README.md); this
+Full detail in [`doc/melody-generator.md`](melody-generator.md); this
 is what matters for the experiment and why.
 
 The stimulus is **one 15-note melody**, generated once and then frozen for the
@@ -146,7 +146,7 @@ between two phrases obeys the same rules as the inside of one.
 five-white-key position for the entire melody — the default `middle_c` layout
 puts both thumbs on C4, giving nine contiguous white keys from F3 to G4 — and
 a key's finger follows from which block it falls in. (The layouts are tabulated
-in [`melody_generator/README.md`](melody_generator/README.md).)
+in [`doc/melody-generator.md`](melody-generator.md).)
 
 **The same key is therefore always played by the same finger, in every one of
 the 19 trials** — no thumb-under, no hand shift, no finger substitution.
@@ -192,7 +192,7 @@ and lets the seed choose between the best five. Choosing between them rather
 than always taking the single highest is what keeps two seeds from returning
 the same tune — an argmax discarded the ~39 distinct melodies each pool holds,
 and one of them then came up in 9.3% of runs. See
-[`melody_generator/README.md`](melody_generator/README.md) for the
+[`doc/melody-generator.md`](melody-generator.md) for the
 measurements. Which candidate was taken is recorded in the melody's JSON.
 
 Both scores are plain weighted means of features in `[0, 1]`, and every feature

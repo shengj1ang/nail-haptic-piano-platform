@@ -270,7 +270,7 @@ the CSV (`threshold_counts` column) and shown on the figure.
 
 This experiment shares the other accelerometer experiments' raw-sample
 store, their two offline vibration-intensity metrics and the shared
-computation helpers (see [`../README.md`](../README.md)), but its
+computation helpers (see [`doc/validation-experiments.md`](validation-experiments.md)), but its
 **detector keeps its own statistic** — the per-sample per-axis
 deviation above, feeding the CUSUM test and the settling envelope.
 
@@ -432,7 +432,7 @@ Selecting an actuator resets the motor port, PWM frequency and drive
 amp to that actuator's **configured** defaults — the port from the
 project's wiring map (LRA → 11, ERM → 10) and the frequency/amp from
 `config.json`'s `haptic` block (defaults: LRA 224 Hz / amp 64, ERM
-1000 Hz / amp 80; see main/README.md, "Haptic actuator
+1000 Hz / amp 80; see doc/PLATFORM.md, "Haptic actuator
 configuration"). Each can still be overridden afterwards, and an
 override is what the run uses and what its meta records
 (`haptic_config.amp_source` / `pwm_freq_source` say which). **Vibration duration** (0.5–10 s, default 2 s, 0.5 s steps)
@@ -443,7 +443,7 @@ the LRA sweeps: progress bar per trial, Test Buzz (sent at the selected
 PWM frequency), embedded Accelerometer Live View, latest-run preview
 and Load-Chart-from-CSV. The four-panel figure is dense, so **click the
 chart** (or "Enlarge Chart") to open it full size in the shared zoomable
-viewer — see [`../README.md`](../README.md) § 5.5.
+viewer — see [`doc/validation-experiments.md`](validation-experiments.md) § 5.5.
 
 **Drive amp is exposed for exploration, not for the headline number:**
 amp 64 is the calibrated ~0.5 m/s² cue the study delivers, so only
@@ -461,7 +461,7 @@ the status line, and carry their amp in the meta/plot title.
 |---|---|
 | `delay_trials_<ts>.csv` | one row per trial — see the column list below |
 | `delay_samples_<ts>.csv` | per-sample **detector** traces: `trial_id`, `rel_time_s`, `delta`, `envelope` |
-| `delay_trials_<ts>.raw_acc.npz` | **the raw three-axis samples** of every baseline and drive window — the complete X/Y/Z series of each whole vibration period, lossless `int32` counts with Unix-epoch timestamps, so a trial can be re-analysed offline (format: [`../README.md`](../README.md) § 4) |
+| `delay_trials_<ts>.raw_acc.npz` | **the raw three-axis samples** of every baseline and drive window — the complete X/Y/Z series of each whole vibration period, lossless `int32` counts with Unix-epoch timestamps, so a trial can be re-analysed offline (format: [`doc/validation-experiments.md`](validation-experiments.md) § 4) |
 | `delay_summary_<ts>.png` | four panels — see § 6.1 |
 | `delay_trials_<ts>.meta.json` | parameters (including `vib_duration_s` and every detection constant), a `time_definitions` block spelling out the three instants and the three latencies, firmware identity, linked files, result stats, the shared `metrics` block, and `drive_window_intensity` (offline only) |
 | `delay_log_<ts>.txt` | (historical runs only) original console logs |

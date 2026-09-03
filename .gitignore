@@ -7,7 +7,7 @@ main/data/quiz-zip/
 main/runtime/Python311
 # Bundled ffmpeg/7z binaries, not the folder's README
 main/runtime/bin/*
-!main/runtime/bin/README.md
+!main/runtime/bin/.gitkeep
 main/normalisation/
 
 # The full per-event prediction table from Computational Model Analysis:

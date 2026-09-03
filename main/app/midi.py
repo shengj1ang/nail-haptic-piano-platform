@@ -23,7 +23,7 @@ through mido, because mido cannot address two identical keyboards:
     port opens, it just belongs to the other instrument.
 
 That matters because the whole tele-training module (see
-REMOTE_GUIDANCE.md) expects a teacher keyboard and a student keyboard,
+doc/REMOTE_GUIDANCE.md) expects a teacher keyboard and a student keyboard,
 which in practice are two of the same model.
 
 So a port here has three parts (MidiInputPort): the rtmidi `index` it is
@@ -44,7 +44,7 @@ port), but Windows - a supported deployment target here - cannot. WinMM's
 name, all four identical for two keyboards of the same model. A feature
 that silently degrades to enumeration order on the deployment platform
 would be worse than the honest suffix. The full finding, for both the
-keyboards and the cameras, is in REMOTE_GUIDANCE.md §10.
+keyboards and the cameras, is in doc/REMOTE_GUIDANCE.md §10.
 
 On macOS the durable fix is to rename each instrument in Audio MIDI Setup
 (MIDI Studio), which makes the raw names differ and the suffixes go away.

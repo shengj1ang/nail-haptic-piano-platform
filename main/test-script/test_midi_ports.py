@@ -2,7 +2,7 @@
 
 The bug this guards against is silent. mido de-duplicates input ports by
 name and resolves a name with list.index(), so with two keyboards of the
-same model (the normal tele-training setup - see REMOTE_GUIDANCE.md) the
+same model (the normal tele-training setup - see doc/REMOTE_GUIDANCE.md) the
 second one vanishes from every picker, and anything asking for it by name
 opens the first one instead. Nothing raises; the teacher simply receives
 the student's notes.

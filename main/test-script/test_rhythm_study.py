@@ -242,7 +242,7 @@ class TestWriteUp(unittest.TestCase):
     exist.
     """
 
-    DOC = MAIN / "RHYTHM_EXPERIMENT.md"
+    DOC = MAIN.parent / "doc" / "RHYTHM_EXPERIMENT.md"
 
     def test_the_write_up_exists(self):
         self.assertTrue(self.DOC.is_file(), f"{self.DOC.name} is missing")
@@ -289,7 +289,7 @@ class TestWriteUp(unittest.TestCase):
         text = self.DOC.read_text(encoding="utf-8")
         for strand in ("Validation experiments", "Main User Study", "Tele-training"):
             self.assertIn(strand, text)
-        self.assertIn("validation_experiments/README.md", text)
+        self.assertIn("validation-experiments.md", text)
 
     def test_it_states_the_timing_measures_are_not_interchangeable(self):
         # The one place a reader could do real damage is by subtracting a
@@ -312,7 +312,7 @@ class TestDocumentationLinks(unittest.TestCase):
     REPO = MAIN.parent
 
     def docs(self):
-        skip = ("__pycache__", ".pytest_cache", "runtime/", "archived/")
+        skip = ("__pycache__", ".pytest_cache", "main/runtime/", "archived/")
         return [
             path
             for path in sorted(self.REPO.rglob("*.md"))
@@ -380,12 +380,13 @@ class TestDocumentationLinks(unittest.TestCase):
     def test_the_front_door_points_at_every_study(self):
         text = (self.REPO / "README.md").read_text(encoding="utf-8")
         for doc in (
-            "main/README.md",
-            "main/REMOTE_GUIDANCE.md",
-            "main/RHYTHM_EXPERIMENT.md",
-            "main/SEQUENCE_GENERATOR_ALGORITHM.md",
-            "main/validation_experiments/README.md",
-            "teensy_driver/README.md",
+            "doc/PLATFORM.md",
+            "doc/USER_MANUAL.md",
+            "doc/REMOTE_GUIDANCE.md",
+            "doc/RHYTHM_EXPERIMENT.md",
+            "doc/SEQUENCE_GENERATOR_ALGORITHM.md",
+            "doc/validation-experiments.md",
+            "doc/firmware.md",
         ):
             self.assertIn(doc, text, f"the root README does not link {doc}")
 
@@ -415,7 +416,7 @@ class TestDocumentationLinks(unittest.TestCase):
         # The two sections that have their own document must stay
         # orientation-sized. They were 575 and 100 lines before the
         # documents existed, which is how they went stale.
-        text = (MAIN / "README.md").read_text(encoding="utf-8")
+        text = (MAIN.parent / "doc" / "PLATFORM.md").read_text(encoding="utf-8")
         for heading, doc in (
             ("## Tele-training (launcher section 8)", "REMOTE_GUIDANCE.md"),
             ("## Rhythm experiment (launcher section 11)", "RHYTHM_EXPERIMENT.md"),

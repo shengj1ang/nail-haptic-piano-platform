@@ -5,7 +5,7 @@ rails (3.3 V / 5 V / 9 V / GND), the pin assignments for the finger
 motors, the two WS2812 LED strips and the LIS3DH accelerometer bus, all
 next to a labelled board pinout so the pin numbers map straight onto the
 physical header. The content mirrors the *Current Wiring* table in
-teensy_driver/README.md - that file stays the source of truth.
+doc/firmware.md - that file stays the source of truth.
 
 The one interactive part is the accelerometer wiring scan. The four
 accel bus wires (SCK / MOSI / MISO / CS) are easy to swap by accident,
@@ -109,7 +109,7 @@ QPlainTextEdit {
 }
 """
 
-# ---- static wiring content (mirrors teensy_driver/README.md) ----------
+# ---- static wiring content (mirrors doc/firmware.md) ----------
 
 POWER_HTML = """
 <table cellpadding='5' width='100%'>

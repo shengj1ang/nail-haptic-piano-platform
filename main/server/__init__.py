@@ -6,7 +6,7 @@ no haptic modules - because every piece of hardware lives on a client
 machine and the server only ever routes already-computed key/finger
 events between the two endpoints of a room. Copying this one folder onto
 a remote host and installing server/requirements.txt is enough to run it
-(see server/README.md).
+(see doc/server.md).
 
 That independence is also why the message envelope is described twice:
 once here (server/schemas.py) and once on the client side

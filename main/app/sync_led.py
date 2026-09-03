@@ -131,7 +131,7 @@ def alignment_belongs_to(anchor: SyncAnchor, sync: SyncInfo, video_path: Path) -
     correction and catastrophic for one left behind by a *different*
     recording: every event maps to a frame index far outside the video,
     no hands are found there, and the pass returns "no finger" for the
-    whole session without erroring. That happened - see REMOTE_GUIDANCE.md
+    whole session without erroring. That happened - see doc/REMOTE_GUIDANCE.md
     trap 11 - when a session folder was reused and kept the previous
     session's sync_align.json, 145 seconds adrift of a 40-second video.
 

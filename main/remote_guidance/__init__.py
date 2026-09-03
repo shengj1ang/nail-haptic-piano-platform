@@ -3,7 +3,7 @@
 Two independent GUI processes (student and teacher) plus a benchmark
 tool, all talking to the relay in server/ over one persistent WebSocket.
 See the root README's Tele-training section for the whole picture and
-server/README.md for the protocol.
+doc/server.md for the protocol.
 
 Layout:
 

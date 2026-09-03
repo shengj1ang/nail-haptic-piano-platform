@@ -4948,7 +4948,7 @@ class StaleSyncAlignmentTests(unittest.TestCase):
     correction and catastrophic for one a *different* recording left
     behind.
 
-    When a session folder was reused (REMOTE_GUIDANCE.md trap 11) the
+    When a session folder was reused (doc/REMOTE_GUIDANCE.md trap 11) the
     previous session's sync_align.json survived into it, 145s adrift of a
     40s video. Every event mapped to a frame index past the end, no hands
     were found there, and the pass returned "no finger" for the whole

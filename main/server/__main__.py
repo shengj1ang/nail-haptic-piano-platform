@@ -7,7 +7,7 @@
 
 Run it from the folder that *contains* server/ - that is the working
 directory in this repo (main/), and it is also all a remote host needs
-after copying the folder across (see server/README.md).
+after copying the folder across (see doc/server.md).
 """
 
 from __future__ import annotations

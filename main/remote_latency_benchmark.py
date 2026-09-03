@@ -22,7 +22,7 @@ labelled a symmetry-based estimate.
 Built-in mode measures the network/relay route and does not claim Student
 UI, LED, haptic or physical onset timing. Use `--external-student` with a
 real Student Client and room id only when that real software/hardware path
-is the object of the test - see server/README.md.
+is the object of the test - see doc/server.md.
 
 Results land in data/remote_guidance/latency/<run id>/ as samples.csv,
 summary.json and latency.png.

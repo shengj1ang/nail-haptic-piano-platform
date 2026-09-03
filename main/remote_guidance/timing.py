@@ -295,7 +295,7 @@ class DispatchTimings:
     render moments - the instant a command was written and flushed, or a
     frame was painted. They are NOT the instant an LED emitted light or a
     motor began to move; measuring that needs a photodiode and an
-    accelerometer on one acquisition clock (see server/README.md)."""
+    accelerometer on one acquisition clock (see doc/server.md)."""
 
     teacher_send_wall_ns: Optional[int] = None
     server_receive_wall_ns: Optional[int] = None

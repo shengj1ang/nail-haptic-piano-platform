@@ -135,7 +135,7 @@ class CueOutput:
         that can do better override this.
 
         Scoring is deliberately *not* affected: a chord is still judged on
-        its primary note (see REMOTE_GUIDANCE.md §4.11). This is a cue,
+        its primary note (see doc/REMOTE_GUIDANCE.md §4.11). This is a cue,
         not a second definition of what counts as correct."""
         if targets:
             note, finger = targets[0]

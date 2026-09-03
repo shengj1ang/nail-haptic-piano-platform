@@ -1,7 +1,7 @@
 """server_config.json - the only file an operator edits to deploy this.
 
 Every path in it is resolved relative to the server folder itself, so a
-copied-out server/ keeps working wherever it lands (see server/README.md).
+copied-out server/ keeps working wherever it lands (see doc/server.md).
 Secrets are deliberately not in here as values: the config only points at
 the JWT key *files*, which server/tools/generate_keys.py creates outside
 version control.

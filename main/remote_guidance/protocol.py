@@ -183,7 +183,7 @@ def make_envelope(
 ) -> Dict[str, Any]:
     """sent_at_unix_ns is this machine's wall clock. It is a *label*, not
     something another machine may subtract from its own clock - see
-    timing.py and the note in server/README.md."""
+    timing.py and the note in doc/server.md."""
     return {
         "v": PROTOCOL_VERSION,
         "type": type_,

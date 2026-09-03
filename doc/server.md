@@ -203,7 +203,7 @@ the same port name twice. The picker lists those as `... #1` / `... #2`,
 numbered in the order the machine enumerates them, and warns that the
 numbering can change when a keyboard is replugged. Give the two roles
 different ones - identical values silently point both clients at one
-instrument. See [../REMOTE_GUIDANCE.md](../REMOTE_GUIDANCE.md) §9.8.
+instrument. See [../REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md) §9.8.
 
 ```json
 "remote_guidance": {

@@ -69,7 +69,7 @@ DEMO_ROOM = {"name": "Demo (offline)"}
 # started for every trial run, and typing the same two pairs each time
 # is pure friction.
 #
-# These are deliberately *not* config: rule 4.7 (see REMOTE_GUIDANCE.md)
+# These are deliberately *not* config: rule 4.7 (see doc/REMOTE_GUIDANCE.md)
 # keeps every password out of config.json, and a constant here cannot be
 # written back by RemoteGuidanceConfig.save(). Point a client at a real
 # relay and the box is simply overtyped - nothing here is sent unless

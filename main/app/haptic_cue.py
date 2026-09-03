@@ -117,7 +117,7 @@ class HapticCueOutput(CueOutput):
         single-finger case has always sent `S {1 << motor}` - so several
         fingers are one command and one write, not a burst of them. That
         matters: the whole set starts together, and the cue's completion
-        stamp stays a single flush (REMOTE_GUIDANCE.md §4.1).
+        stamp stays a single flush (doc/REMOTE_GUIDANCE.md §4.1).
 
         One target goes through show_target() unchanged."""
         if len(targets) <= 1:

@@ -88,7 +88,7 @@ class _WizardDurationChecks:
 
     Both wizards are the same three-stage flow over the same format - the
     Tele-training one is a deliberate copy, not a subclass (see
-    REMOTE_GUIDANCE.md §1) - so the bug existed twice and the test has to
+    doc/REMOTE_GUIDANCE.md §1) - so the bug existed twice and the test has to
     run twice."""
 
     module = ""  # dotted path of the wizard module, for patching

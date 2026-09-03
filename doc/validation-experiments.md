@@ -267,7 +267,7 @@ override (`amp_source`, `pwm_freq_source`, `freq_source`,
 `parameters` always records **what was actually sent to the rig**;
 `haptic_config` only records the configuration it was compared against.
 Re-rendering a saved run uses that run's own `parameters`, never the
-current config — see main/README.md, "Haptic actuator configuration".
+current config — see doc/PLATFORM.md, "Haptic actuator configuration".
 
 ---
 
@@ -357,7 +357,7 @@ vibration perpendicular to gravity, so on the same drive it reads
 threshold therefore belongs to *one* metric. The amplitude sweep's
 target cue band is defined per metric in `CUE_TARGETS` /
 `cue_target(metric)` (see
-[`lra_resonance_intensity_calibration/README.md`](lra_resonance_intensity_calibration/README.md)
+[`doc/validation-lra-resonance.md`](validation-lra-resonance.md)
 § 2.5); a metric with no calibrated band is reported as
 `Target band not calibrated` and gets no recommendation rather than
 borrowing the other's numbers.

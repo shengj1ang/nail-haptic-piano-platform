@@ -29,7 +29,7 @@ reads as the grid of measured intensities the boxes were "filled" with.
 
 Every cell is measured with **both** shared vibration-intensity metrics
 (the same ones the LRA sweeps use — full definitions in
-[`../README.md`](../README.md)):
+[`doc/validation-experiments.md`](validation-experiments.md)):
 
 - **Demeaned 3-axis vector RMS** — `√(mean(Σₐₓᵢₛ(a−mean_axis)²))`, the
   **default**: gravity, sensor bias and mounting pose all drop out.
@@ -138,7 +138,7 @@ convention as every other validation experiment:
 
 | File | Content |
 |------|---------|
-| `spectrogram_<ts>.raw_acc.npz` | **the raw three-axis samples of every cell** (and of every row baseline), long format, lossless `int32` counts with Unix-epoch timestamps — the file both metrics and every chart can be regenerated from. Format documented in [`../README.md`](../README.md) § 4 |
+| `spectrogram_<ts>.raw_acc.npz` | **the raw three-axis samples of every cell** (and of every row baseline), long format, lossless `int32` counts with Unix-epoch timestamps — the file both metrics and every chart can be regenerated from. Format documented in [`doc/validation-experiments.md`](validation-experiments.md) § 4 |
 | `spectrogram_<ts>.npz` | the intensity grid for re-rendering: `freqs` (n_freq,), `amps` (n_amp,), `intensity_vector_rms_ms2` and `intensity_legacy_magnitude_rms_ms2` (each n_freq × n_amp, NaN where a cell was dropped), plus `intensity` = the legacy grid, which is exactly what that key meant in pre-refactor files |
 | `spectrogram_<ts>.png` | the amp × drive-frequency intensity map (darker = stronger); the colour bar names the metric it shows |
 | `spectrogram_<ts>.csv` | one row per (freq, amp) cell: `freq_hz`, `amp`, then the shared metric block (`n_samples`, `mean_*_counts`, `rms_*_counts`, `legacy_magnitude_rms_counts/_ms2`, `vector_rms_counts/_ms2`, `baseline_magnitude_counts`, `peak_magnitude_delta_counts`) |

@@ -4,7 +4,7 @@
 
 Writes server/secrets/dev_cert.pem and dev_key.pem. It does NOT enable
 TLS: switching a deployment to https/wss is a deliberate edit of
-server_config.json's tls block (see server/README.md), because a
+server_config.json's tls block (see doc/server.md), because a
 self-signed certificate makes every client warn or refuse until it is
 explicitly trusted.
 

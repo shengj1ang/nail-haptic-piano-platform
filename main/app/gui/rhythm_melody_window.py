@@ -40,7 +40,7 @@ Fifteen note-on events by default, one voice, white keys only, on a whole-beat
 grid at 60 BPM (1 beat = 1 s). Every phrase ends on a held note and some phrase
 endings are followed by a one-beat rest; every note carries a fixed target
 finger that never changes between repetitions. See
-``melody_generator/README.md`` for the generation rules, the rejection rules
+``doc/melody-generator.md`` for the generation rules, the rejection rules
 and the scores.
 """
 

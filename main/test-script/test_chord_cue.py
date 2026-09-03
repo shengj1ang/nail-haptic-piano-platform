@@ -20,7 +20,7 @@ Two things these tests exist to hold down:
     stimulus in an experiment that has already been run.
   - **Cueing a chord is not scoring a chord.** A chord is still judged on
     its primary note. Widening the cue must not quietly become a second
-    definition of "correct" (REMOTE_GUIDANCE.md §4.4, §4.11).
+    definition of "correct" (doc/REMOTE_GUIDANCE.md §4.4, §4.11).
 """
 
 import os

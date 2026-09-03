@@ -17,13 +17,13 @@ anything here.
 
 | Document | Path | What it covers |
 |---|---|---|
-| **Relay server operator guide** | [`server/README.md`](server/README.md) | Running the server, accounts/rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, the full REST + WebSocket reference, and the latency-metric definitions |
-| Platform README, Tele-training section | [`README.md`](README.md) § "Tele-training (launcher section 8)" | Orientation only: what the module is, the six launcher buttons, and where to read on. The user-facing detail it used to hold - setup wizard, guidance modes, what is reused, timing, the benchmark - is now § 12 of this file |
-| Platform README, everything else | [`README.md`](README.md) | The non-remote platform: calibration profiles, quiz, sequence generator, analysis, haptic config |
+| **Relay server operator guide** | [`doc/server.md`](server.md) | Running the server, accounts/rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, the full REST + WebSocket reference, and the latency-metric definitions |
+| Platform README, Tele-training section | [`doc/PLATFORM.md`](PLATFORM.md) § "Tele-training (launcher section 8)" | Orientation only: what the module is, the six launcher buttons, and where to read on. The user-facing detail it used to hold - setup wizard, guidance modes, what is reused, timing, the benchmark - is now § 12 of this file |
+| Platform README, everything else | [`doc/PLATFORM.md`](PLATFORM.md) | The non-remote platform: calibration profiles, quiz, sequence generator, analysis, haptic config |
 | Final report | [`../shengjiang_final_report.pdf`](../shengjiang_final_report.pdf) | § "Tele-training Deployment" and Appendix § "Tele-training Measurement Protocol" - the requirements this module implements |
-| Sequence generator | [`SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) | Only relevant because generated sequences can be uploaded as recordings |
+| Sequence generator | [`doc/SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) | Only relevant because generated sequences can be uploaded as recordings |
 
-`server/README.md` is the deeper reference for anything protocol- or
+`doc/server.md` is the deeper reference for anything protocol- or
 deployment-shaped. This file is the architectural overview and the
 "things you would otherwise learn the hard way" list.
 
@@ -118,7 +118,7 @@ starts them with `QProcess.startDetached` (see
 
 ### `server/` - the relay
 
-See `server/README.md`. Structure: `config.py`, `database.py` (SQLite +
+See `doc/server.md`. Structure: `config.py`, `database.py` (SQLite +
 migrations), `auth.py` (Argon2id + RS256 JWT), `schemas.py`, `api.py`
 (REST), `websocket.py` (relay), `app.py` (factory + background writer),
 `gui.py` (Qt control panel), `__main__.py` (CLI), `tools/` (key and
@@ -965,7 +965,7 @@ Both sign-in forms arrive filled in with `http://127.0.0.1:18765` and
 this role's demo account, so on one machine it is: Sign in → room → Sign
 in → join. The demo accounts have to **exist on the relay** - register
 them once (either client's *Create account* button does it, or see
-`server/README.md` § "The demo accounts").
+`doc/server.md` § "The demo accounts").
 
 Teacher creates a room → reads the join code → student joins → teacher
 **Get ready** → student **Ready for guidance** → teacher **Start
@@ -1441,7 +1441,7 @@ If you have room to read only a few files, read them in this order:
 2. `remote_guidance/protocol.py` - the message vocabulary
 3. `server/websocket.py` - what the relay does and refuses to do
 4. `remote_guidance/timing.py` - why RTT and one-way are kept apart
-5. `server/README.md` - the operator/protocol reference
+5. `doc/server.md` - the operator/protocol reference
 
 Then §4 of this file, which is the list of things that look like details
 and are actually load-bearing.
@@ -1539,7 +1539,7 @@ Scoring deliberately does not follow: a chord is judged on its primary
 note, so pressing a different note of the same chord counts as wrong.
 Widening the cue is free; widening the verdict would mean a second
 definition of "correct" in a pipeline shared with the local quiz and an
-already-run study. See [REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md) §4.11.
+already-run study. See [doc/REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md) §4.11.
 
 **None of this reaches the local quiz or the main user study.** They call
 the single-finger cue API, which is unchanged - in particular a one-finger

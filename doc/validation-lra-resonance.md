@@ -86,7 +86,7 @@ Frequency fixed at the Experiment 1 result (224 Hz); `amp` stepped
 
 Every measurement window is scored with **both** shared
 vibration-intensity metrics (defined in full in
-[`../README.md`](../README.md) § 1, implemented once in
+[`doc/validation-experiments.md`](validation-experiments.md) § 1, implemented once in
 `../acceleration_metrics.py`):
 
 | Metric | Formula (raw LIS3DH counts) | Role |
@@ -209,7 +209,7 @@ the accelerometer stream. Outputs are timestamped into
 |------|------|
 | `sweep_<ts>.csv` / `frequency_response_<ts>.png` | Experiment 1 data and plot |
 | `amp_sweep_<ts>.csv` / `amplitude_response_<ts>.png` | Experiment 2 data and plot |
-| `sweep_<ts>.raw_acc.npz` / `amp_sweep_<ts>.raw_acc.npz` | **the raw three-axis samples of every baseline and measurement window** — lossless `int32` counts with Unix-epoch timestamps, keyed by step/pass/commanded frequency/amp. Both metrics and both plots can be regenerated from this file alone (format: [`../README.md`](../README.md) § 4) |
+| `sweep_<ts>.raw_acc.npz` / `amp_sweep_<ts>.raw_acc.npz` | **the raw three-axis samples of every baseline and measurement window** — lossless `int32` counts with Unix-epoch timestamps, keyed by step/pass/commanded frequency/amp. Both metrics and both plots can be regenerated from this file alone (format: [`doc/validation-experiments.md`](validation-experiments.md) § 4) |
 | `sweep_<ts>.meta.json` / `amp_sweep_<ts>.meta.json` | Per-run record: full parameter set (motor/sensor/amp or freq + timing constants), firmware identity, linked csv/png/raw filenames, the `metrics` block (`metric_version`, `available_metrics`, `selected_plot_metric`, `raw_acceleration_file`, `raw_data_format`, `ms2_per_count`) and the headline result **for the selected metric** |
 
 Both CSVs carry the same shared metric block: `n_samples`,
@@ -286,7 +286,7 @@ Both values measured here are **the project defaults stored in
 `common/haptic_config.py` — the quiz cue, the bench windows, Test Buzz
 and the experiment controls all take them from there, so adopting a
 newly measured f₀ or cue amp means editing them once in the launcher's
-Initial Setup → Haptic Actuator Defaults (see main/README.md, "Haptic
+Initial Setup → Haptic Actuator Defaults (see doc/PLATFORM.md, "Haptic
 actuator configuration"). The 224 Hz **firmware boot default** is a
 separate constant: the sweeps restore it on the port when they finish,
 so it tracks the firmware, not the config.
@@ -349,4 +349,4 @@ All knobs are constants at the top of each script:
 `MS2_PER_COUNT` (0.00980665 — LIS3DH HR ±2 g, 1 count = 1 mg), the two
 metric formulas and the raw-sample format now live in
 `../acceleration_metrics.py`, shared with every other accelerometer
-experiment; see [`../README.md`](../README.md).
+experiment; see [`doc/validation-experiments.md`](validation-experiments.md).

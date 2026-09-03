@@ -14,6 +14,10 @@ python launcher.py
 
 Every tool also runs standalone from its own entry-point script.
 
+For what each of those buttons does, with a screenshot of every window, see
+[`doc/USER_MANUAL.md`](USER_MANUAL.md). This file covers how the platform is put
+together; that one covers how it is used.
+
 ## Where to read what
 
 This file documents the platform and the tools that have no document of their
@@ -23,12 +27,13 @@ it is written up.
 
 | Subject | Document |
 |---|---|
+| **Driving the windows** — a screenshot walkthrough of every launcher button, section by section | [`doc/USER_MANUAL.md`](USER_MANUAL.md) |
 | Repository front door, install, structure | [`../README.md`](../README.md) |
-| Firmware and the serial protocol | [`../teensy_driver/README.md`](../teensy_driver/README.md) |
-| **Main User Study** stimulus algorithm | [`SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) |
-| **Tele-training** (section 8) | [`REMOTE_GUIDANCE.md`](REMOTE_GUIDANCE.md), and [`server/README.md`](server/README.md) for the relay |
-| **Validation experiments** (section 10) | [`validation_experiments/README.md`](validation_experiments/README.md), plus one README per experiment |
-| **Rhythm experiment** (section 11) | [`RHYTHM_EXPERIMENT.md`](RHYTHM_EXPERIMENT.md), and [`melody_generator/README.md`](melody_generator/README.md) for the generator |
+| Firmware and the serial protocol | [`doc/firmware.md`](firmware.md) |
+| **Main User Study** stimulus algorithm | [`doc/SEQUENCE_GENERATOR_ALGORITHM.md`](SEQUENCE_GENERATOR_ALGORITHM.md) |
+| **Tele-training** (section 8) | [`doc/REMOTE_GUIDANCE.md`](REMOTE_GUIDANCE.md), and [`doc/server.md`](server.md) for the relay |
+| **Validation experiments** (section 10) | [`doc/validation-experiments.md`](validation-experiments.md), plus one README per experiment |
+| **Rhythm experiment** (section 11) | [`doc/RHYTHM_EXPERIMENT.md`](RHYTHM_EXPERIMENT.md), and [`doc/melody-generator.md`](melody-generator.md) for the generator |
 | Study protocols and rationale | [`../shengjiang_final_report.pdf`](../shengjiang_final_report.pdf) |
 
 What is written up **here** and nowhere else: the directory layout, the
@@ -75,7 +80,7 @@ app/gui/accelerometer_window.py manual-test UI (launcher-only): live X/Y/Z plot 
 experiment_sequence_wizard.py   entry point - generates the controlled bimanual stimulus sequences for
                                  the main user study (30-event, difficulty alpha/beta/gamma, seeded, with
                                  built-in difficulty validation) and saves them under data/sequence/ -
-                                 see SEQUENCE_GENERATOR_ALGORITHM.md (section 3: experiment sequence design)
+                                 see doc/SEQUENCE_GENERATOR_ALGORITHM.md (section 3: experiment sequence design)
 
 music_recording_wizard.py       entry point - records a song (video+MIDI) and saves a fingering-annotated
                                  score under data/music/<song>/ (section 4: recording & playback)
@@ -95,12 +100,12 @@ remote_guidance/                the tele-training client package (config, protoc
                                  "Tele-training" below
 server/                         the relay server: FastAPI REST + WebSocket, SQLite, JWT auth. Copyable
                                  on its own to a remote host; imports nothing from this platform.
-                                 Full operator documentation in server/README.md
-REMOTE_GUIDANCE.md              design + handover notes for the whole tele-training module: file map,
+                                 Full operator documentation in doc/server.md
+doc/REMOTE_GUIDANCE.md              design + handover notes for the whole tele-training module: file map,
                                  the invariants that must not be broken (reaction-time origin, clock
                                  rules, what the server may not do), traps, and the list of known gaps.
                                  START HERE before changing anything under remote_guidance/ or server/
-RHYTHM_EXPERIMENT.md            the rhythm experiment written up as Introduction / Method / Results /
+doc/RHYTHM_EXPERIMENT.md            the rhythm experiment written up as Introduction / Method / Results /
                                  Discussion: the melody generation algorithm, the 19-trial
                                  cue-withdrawal design, the measures and the analysis plan.
                                  START HERE before changing anything under rhythm_study/
@@ -180,11 +185,11 @@ validation_experiments/         small hardware-validation experiments, separate 
 melody_generator/               SEPARATE STUDY (launcher section 11): standalone generator of short,
                                  simple, fixed-fingering practice melodies for the rhythm experiment.
                                  Stdlib only, shares no code with app/sequence_generator.py, writes
-                                 only data/rhythm_experiment/ - see RHYTHM_EXPERIMENT.md
+                                 only data/rhythm_experiment/ - see doc/RHYTHM_EXPERIMENT.md
 rhythm_study/                   SEPARATE STUDY (launcher section 11): the run-time and analysis half -
                                  the 19-trial schedule, the session controller and trial runner, and
                                  the whole analysis stage. Writes data/RhythmStudy/ and the
-                                 rhythm- prefixed folders under data/quiz/ - see RHYTHM_EXPERIMENT.md
+                                 rhythm- prefixed folders under data/quiz/ - see doc/RHYTHM_EXPERIMENT.md
 test-script/                    older, non-UI motor/LED/latency/MIDI scripts + their output
 read_data_from_accelerometer/   legacy standalone LIS3DH sketch + plotters (old bare "x,y,z" serial
                                  format, pre-unified-firmware) - reference only, see its README;
@@ -384,8 +389,8 @@ This section is orientation only. Nothing below is repeated here:
 
 | Document | What it covers |
 |---|---|
-| **[RHYTHM_EXPERIMENT.md](RHYTHM_EXPERIMENT.md)** | The study, written up as Introduction / Method / Results / Discussion: the research question, where it sits among the platform's four experiments, the melody generation algorithm, the 19-trial design, why training and the probes are different *tasks* and what that means for the timing measures, every derived measure, and the analysis plan. |
-| [melody_generator/README.md](melody_generator/README.md) | The generator as a tool: CLI, config, the four generation ideas in detail, the hand layouts, the full validation-code list, the scoring, the output file formats, and using it as a library. |
+| **[doc/RHYTHM_EXPERIMENT.md](RHYTHM_EXPERIMENT.md)** | The study, written up as Introduction / Method / Results / Discussion: the research question, where it sits among the platform's four experiments, the melody generation algorithm, the 19-trial design, why training and the probes are different *tasks* and what that means for the timing measures, every derived measure, and the analysis plan. |
+| [doc/melody-generator.md](melody-generator.md) | The generator as a tool: CLI, config, the four generation ideas in detail, the hand layouts, the full validation-code list, the scoring, the output file formats, and using it as a library. |
 
 ## app/ - FingerAccuracy pipeline
 
@@ -454,7 +459,7 @@ Run these from inside `main/`.
 | `test_virtual_piano_led.py` | Manual-test UI - on-screen piano that lights the physical LED strips (see below). |
 | `music_recording_wizard.py` | PyQt wizard - records a song (video+MIDI), flashes the LEDs for sync, and saves a fingering-annotated score under `data/music/<song>/`. |
 | `music_playback.py` | Manual-test UI - replays a saved song on an on-screen 88-key piano, lighting a dot for whichever finger played each note. |
-| `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
+| `experiment_sequence_wizard.py` | Stimulus generator for the main user study - matched families of 30-event bimanual sequences per difficulty level (α/β/γ), constraint-driven (D = C_m/C_s/C_c), seeded for reproducibility, with automatic difficulty validation. Algorithm: `doc/SEQUENCE_GENERATOR_ALGORITHM.md`. Includes the read-only "Sequence/Music Metrics" viewer (`app/gui/sequence_metrics_window.py`). |
 | `student_quiz.py` / `student_quiz_haptic.py` | Cue-response quiz over a saved song/sequence: LED key cue plus a visual (`student_quiz`) or nail-mounted haptic (`student_quiz_haptic`) finger cue; records the whole session (video+MIDI) under `data/quiz/<attempt>/` for offline scoring. **Preview keyboard profile** draws the active calibration profile over the live camera image before recording - see [Checking the camera against the profile](#checking-the-camera-against-the-profile). |
 | `quiz_analysis.py` | Batch offline analysis of saved quiz sessions: a checkable multi-quiz table with the report's full per-trial outcome measures, LED-anchored video/MIDI sync alignment (auto + manual), per-trial detail / per-event review-and-correction windows (including the carry-over validity review), and one-click per-participant CSV export - see [Data analysis](#data-analysis-launcher-section-7). |
 | launcher section 6 (no standalone scripts) | The main user study tools: **Participant Trial Schedule** (`app/gui/pilot_schedule_window.py`) builds and saves a participant's randomised 27-trial schedule; **Formal Experiment Session** (`app/gui/experiment_session_window.py`) runs it - see [Main user study](#main-user-study-launcher-section-6). |
@@ -768,7 +773,7 @@ app/
   music_recording.py           # song save/load (meta.json/fingering.json), raw capture, sync marks
   song_library.py              # combined data/music/ + data/sequence/ listing for song pickers
   sequence_generator.py        # stimulus generation: D = (C_m,C_s,C_c) metrics, level constraints,
-                               #   matched families, seeded RNG (see SEQUENCE_GENERATOR_ALGORITHM.md)
+                               #   matched families, seeded RNG (see doc/SEQUENCE_GENERATOR_ALGORITHM.md)
   stimulus_validation.py       # difficulty validation of the alpha/beta/gamma level pools
   pilot_study.py               # main user study: 27-trial randomised schedules (3 conditions x
                                #   3 levels x 3 sequences, final report § "Design and Procedure"), saved to
@@ -935,7 +940,7 @@ motor spin-up, sound propagation and audio capture together. The
 instrumented, repeatable version of this measurement is the motor→ACC delay
 experiment in launcher section 10, which uses an accelerometer instead of a
 microphone: see
-[validation_experiments/motor_acc_delay_experiment/README.md](validation_experiments/motor_acc_delay_experiment/README.md).
+[`doc/validation-motor-acc-delay.md`](validation-motor-acc-delay.md).
 
 ## Tele-training (launcher section 8)
 
@@ -972,10 +977,10 @@ own, and nothing here is repeated in them:
 
 | Document | What it covers |
 |---|---|
-| **[REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md)** | The whole module. § 1–7 are the architecture: the three processes, the file map, the invariants that must not be broken (reaction-time origin, clock rules, what the relay may not do), the data flow of one live cue, the UI structure and the config schema. § 8–11 are running it, traps found the hard way, and known gaps. **§ 12 is the user-facing reference** — the setup wizard for a new machine, the guidance modes, what is reused from the local platform, provisional vs final results, which clock each timing measure is taken on, and the latency benchmark. |
-| [server/README.md](server/README.md) | The relay as an operator guide: accounts and rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, and the full REST + WebSocket reference. |
+| **[doc/REMOTE_GUIDANCE.md](REMOTE_GUIDANCE.md)** | The whole module. § 1–7 are the architecture: the three processes, the file map, the invariants that must not be broken (reaction-time origin, clock rules, what the relay may not do), the data flow of one live cue, the UI structure and the config schema. § 8–11 are running it, traps found the hard way, and known gaps. **§ 12 is the user-facing reference** — the setup wizard for a new machine, the guidance modes, what is reused from the local platform, provisional vs final results, which clock each timing measure is taken on, and the latency benchmark. |
+| [doc/server.md](server.md) | The relay as an operator guide: accounts and rooms, HTTP↔HTTPS and ws↔wss, JWT keys vs TLS certificates, deploying `server/` on its own, SQLite backup, and the full REST + WebSocket reference. |
 
-Read REMOTE_GUIDANCE.md before changing anything under `remote_guidance/`
+Read doc/REMOTE_GUIDANCE.md before changing anything under `remote_guidance/`
 or `server/`.
 
 ## Haptic actuator configuration
