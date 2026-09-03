@@ -117,6 +117,44 @@ _fmt = fmt
 _fmt_p = fmt_p
 
 
+def significance_stars(p) -> str:
+    """Two-tier significance key used consistently in exported figures."""
+    try:
+        value = float(p)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(value):
+        return ""
+    if value < 0.01:
+        return "**"
+    if value < 0.05:
+        return "*"
+    return ""
+
+
+def _reported_effect_p(res: dict, source: str) -> float:
+    """Reported (GG-corrected where applicable) p for one ANOVA effect."""
+    for effect in res.get("effects", []):
+        if effect.get("source") == source:
+            return effect.get("p_reported", np.nan)
+    return np.nan
+
+
+def _annotate_effect_stars(ax, labelled_p_values) -> None:
+    """Add a compact in-panel key for significant omnibus effects only."""
+    lines = [f"{label} {stars}" for label, p in labelled_p_values
+             if (stars := significance_stars(p))]
+    if not lines:
+        return
+    ax.text(
+        0.03, 0.97, "\n".join(lines), transform=ax.transAxes,
+        ha="left", va="top", fontsize=8.5, fontweight="bold",
+        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white",
+              "edgecolor": "#aaaaaa", "alpha": 0.88},
+        zorder=10,
+    )
+
+
 class GroupAnalysisWindow(QMainWindow):
     def __init__(self, cfg=None):
         super().__init__()
@@ -616,6 +654,7 @@ class GroupAnalysisWindow(QMainWindow):
 
     def _build_condition_difficulty(self):
         cells = self._cells[self._cells["condition"].isin(ga.GUIDANCE_CONDITIONS)]
+        anova = ga.rm_anova_difficulty(cells, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
         # Plotted panels. rt_complete_s is deliberately absent: it is the
         # correct-key subset that also has the right finger, and on this
         # data the two agree to ~1 ms, so a fourth panel duplicated the
@@ -656,6 +695,12 @@ class GroupAnalysisWindow(QMainWindow):
         # flat lines against the ceiling and the per-level movement that
         # this figure exists to show is no longer legible.
         zero_based_ylim(axes[2])
+        _annotate_effect_stars(axes[2], [
+            ("Condition", _reported_effect_p(anova, "condition")),
+            ("Difficulty", _reported_effect_p(anova, "level")),
+            ("Condition × Difficulty",
+             _reported_effect_p(anova, "condition * level")),
+        ])
         fig.tight_layout()
 
         # Caption: group means per cell + missing-cell report.
@@ -685,7 +730,6 @@ class GroupAnalysisWindow(QMainWindow):
                             f"{p} {c}/{LEVEL_DISPLAY_LABELS[lv]}"
                             for p, c, lv in missing))
         rt_note = self._rt_definition_note(cells, ["condition", "level"])
-        anova = ga.rm_anova_difficulty(cells, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
         anova_html = (
             "<h3>Condition × Difficulty repeated-measures ANOVA</h3>"
             "<p>Same two-way within-participant model as the RM-ANOVA tab, with <b>difficulty "
@@ -761,6 +805,7 @@ class GroupAnalysisWindow(QMainWindow):
             inference_rows.extend(self._inference_rows(metric))
         for ax, (metric, scale, unit, title) in zip(axes, specs):
             diffs = ga.paired_differences(self._pc, metric)
+            inference = ga.condition_inference(self._pc, metric)
             x = np.arange(len(contrast_labels))
             ax.axhline(0, color="#bbbbbb", linewidth=1)
             metric_lines = [f"<b>{title}</b>"]
@@ -792,6 +837,12 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_xticks(x, contrast_labels)
             ax.set_ylabel(unit)
             ax.set_title(title, fontsize=10)
+            if not inference["reason"]:
+                stars = significance_stars(inference["paired_t"]["p"])
+                if stars:
+                    ax.text(0.5, 0.97, stars, transform=ax.transAxes,
+                            ha="center", va="top", fontsize=15,
+                            fontweight="bold", zorder=10)
             metric_lines.append(self._inference_html(metric, scale, unit))
             cap_blocks.append("<br>".join(metric_lines))
         # Each difference panel is pinned to a fixed range so a
@@ -1150,6 +1201,12 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_title(f"Within-cell repetition 1 → 3 — {ylabel}", fontsize=10)
             ax.legend(fontsize=7)
         zero_based_ylim(ax_rt)
+        _annotate_effect_stars(ax_rt, [
+            ("Condition", _reported_effect_p(rep_anova, "condition")),
+            ("Repetition", _reported_effect_p(rep_anova, "repetition")),
+            ("Condition × Repetition",
+             _reported_effect_p(rep_anova, "condition * repetition")),
+        ])
         fig1.tight_layout()
 
         pos = ga.session_position_metrics(self._data.trial_rows)
@@ -1871,6 +1928,12 @@ class GroupAnalysisWindow(QMainWindow):
         if zero_based_rt:
             zero_based_ylim(ax)
 
+        _annotate_effect_stars(ax, [
+            ("Condition", _reported_effect_p(res, "condition")),
+            (("Difficulty" if factor == "level" else "Repetition"),
+             _reported_effect_p(res, factor)),
+        ])
+
         ax_d.axhline(0, color="#bbbbbb", linewidth=1, linestyle="--")
         if len(conditions) == 2:
             lo_c, hi_c = conditions[0], conditions[1]
@@ -1893,6 +1956,11 @@ class GroupAnalysisWindow(QMainWindow):
                 fontsize=10,
             )
             ax_d.set_ylabel(f"{hi_c} − {lo_c} ({unit})")
+            _annotate_effect_stars(ax_d, [
+                (("Condition × Difficulty" if factor == "level"
+                  else "Condition × Repetition"),
+                 _reported_effect_p(res, f"condition * {factor}")),
+            ])
         else:
             ax_d.set_title("Paired difference needs exactly two conditions", fontsize=10)
         ax_d.set_xticks(x, tick_labels, fontsize=9)
@@ -1930,6 +1998,10 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel("RT (ms)")
         ax.set_title(f"{metric_label} — condition × finger cell means", fontsize=10)
         ax.legend(fontsize=7)
+        _annotate_effect_stars(ax, [
+            ("Condition", _reported_effect_p(res, "condition")),
+            ("Finger", _reported_effect_p(res, "finger_id")),
+        ])
         # RT autoscales: per-finger means sit ~600-1200 ms and a zero
         # baseline wastes the lower half on empty space.
 
@@ -1954,6 +2026,10 @@ class GroupAnalysisWindow(QMainWindow):
                           linewidth=1.3, linestyle="none", zorder=4)
             ax_d.set_title(f"Paired {hi_c} − {lo_c} per finger (interaction term)", fontsize=10)
             ax_d.set_ylabel(f"{hi_c} − {lo_c} RT (ms)")
+            _annotate_effect_stars(ax_d, [
+                ("Condition × Finger",
+                 _reported_effect_p(res, "condition * finger_id")),
+            ])
         else:
             ax_d.set_title("Paired difference needs exactly two conditions", fontsize=10)
         ax_d.set_xticks(x, [str(fid) for fid in ga.FINGER_IDS])
@@ -2196,11 +2272,21 @@ class GroupAnalysisWindow(QMainWindow):
             ax_or.plot([lo, hi], [i + 1.0, i + 1.0], color="#444", linewidth=1.4, zorder=3)
             ax_or.plot([s["odds_ratio"]], [i + 1.0], "o", markersize=7, zorder=4,
                        color=CONDITION_COLORS.get("C", "#2c7fb8"), markeredgecolor="black")
+            stars = significance_stars(s.get("p"))
+            if stars:
+                ax_or.annotate(stars, (hi, i + 1.0), xytext=(4, 0),
+                               textcoords="offset points", ha="left", va="center",
+                               fontsize=10, fontweight="bold", zorder=5)
         if overall:
             ax_or.plot([overall["or_lo"], overall["or_hi"]], [0.0, 0.0],
                        color="#444", linewidth=1.6, zorder=3)
             ax_or.plot([overall["odds_ratio"]], [0.0], "D", markersize=9, zorder=4,
                        color="#c23b22", markeredgecolor="black")
+            stars = significance_stars(overall.get("p"))
+            if stars:
+                ax_or.annotate(stars, (overall["or_hi"], 0.0), xytext=(4, 0),
+                               textcoords="offset points", ha="left", va="center",
+                               fontsize=10, fontweight="bold", zorder=5)
             labels.append("all digits")
             y.append(0.0)
             ax_or.axhline(0.5, color="#bbbbbb", linewidth=0.8, linestyle="-", zorder=1)
@@ -2216,6 +2302,12 @@ class GroupAnalysisWindow(QMainWindow):
             ticks = [t for t in ticks if min(finite) / 2 <= t <= max(finite) * 2] or ticks
         ax_or.set_xticks(ticks, [str(t) for t in ticks], fontsize=8)
         ax_or.grid(axis="x", alpha=0.25, linewidth=0.6)
+        interaction_p = next(
+            (effect.get("p", np.nan) for effect in res.get("effects", [])
+             if effect.get("source") == "condition * finger_id"),
+            np.nan,
+        )
+        _annotate_effect_stars(ax_or, [("Condition × Finger", interaction_p)])
 
         fitted = res["fitted"]
         x = np.arange(len(ga.FINGER_IDS))

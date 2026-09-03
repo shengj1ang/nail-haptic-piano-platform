@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from scipy import stats as sstats
 
 from .. import condition_a_strategy as cas
 from .. import figure_prefs
@@ -31,7 +32,7 @@ LEVEL_LABELS = {"alpha": "α (alpha)", "beta": "β (beta)", "gamma": "γ (gamma)
 # because they are the majority baseline.
 # handedness value -> (axis mark, legend marker, legend wording)
 HANDEDNESS_MARKS = {
-    "left": ("*", "*", "self-reported left-hander"),
+    "left": ("L", "<", "self-reported left-hander"),
     "ambidextrous": ("†", "P", "self-reported ambidextrous"),
 }
 HANDEDNESS_MARK_COLOR = "#6a3d9a"
@@ -207,6 +208,18 @@ def _participant_hand_usage_figure(hand_usage: pd.DataFrame) -> Figure:
                 ax.plot([position - bar_width / 2, position + bar_width / 2],
                         [value, value], color=REFERENCE_COLOR, linewidth=1.6,
                         solid_capstyle="butt", zorder=3)
+        differences = left - reference
+        differences = differences[np.isfinite(differences)]
+        if len(differences) >= 2:
+            p_value = float(sstats.ttest_1samp(differences, 0.0).pvalue)
+            stars = "**" if p_value < 0.01 else "*" if p_value < 0.05 else ""
+            if stars:
+                ax.text(0.99, 0.97, f"Observed vs generated {stars}",
+                        transform=ax.transAxes, ha="right", va="top",
+                        fontsize=9, fontweight="bold",
+                        bbox={"boxstyle": "round,pad=0.25", "facecolor": "white",
+                              "edgecolor": "#aaaaaa", "alpha": 0.88},
+                        zorder=10)
     ax.set_xticks(
         x,
         [f"{p} {mark}" if mark else p for p, mark in zip(participants, marks)],
@@ -462,6 +475,15 @@ def _caption(trials: pd.DataFrame, usage: pd.DataFrame,
             "same key sequences — so the gap to the boundary is observed − reference, "
             "exported as difference_pct."
         )
+        differences = left_rows["difference_pct"].dropna().to_numpy(dtype=float)
+        if len(differences) >= 2:
+            test = sstats.ttest_1samp(differences, 0.0)
+            reference_note += (
+                f" Across all participants the mean deviation was {np.mean(differences):+.1f} pp "
+                f"(t({len(differences) - 1}) = {float(test.statistic):.2f}, "
+                f"p = {float(test.pvalue):.3g}); significant results are marked "
+                "* for p < .05 and ** for p < .01."
+            )
         if reported:
             group_means = left_rows.groupby("handedness")["difference_pct"].agg(
                 ["mean", "count"])

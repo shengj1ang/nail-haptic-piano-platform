@@ -39,6 +39,20 @@ MS = 1000.0
 PARTICIPANT_CMAP = "tab10"
 
 
+def _significance_stars(p) -> str:
+    try:
+        value = float(p)
+    except (TypeError, ValueError):
+        return ""
+    if not np.isfinite(value):
+        return ""
+    if value < 0.01:
+        return "**"
+    if value < 0.05:
+        return "*"
+    return ""
+
+
 def _participant_colors(participants) -> Dict[str, tuple]:
     import matplotlib
     # matplotlib.colormaps is the current API; cm.get_cmap is deprecated
@@ -250,6 +264,12 @@ def _equalisation_figure(res: dict) -> Figure:
         ax.set_xlim(-0.3, 1.3)
         ax.set_ylabel(ylabel, fontsize=9)
         ax.set_title(ylabel.split("(")[0].strip(), fontsize=10)
+        measure = next((m for m in res["measures"] if m["key"] == key), None)
+        stars = _significance_stars(measure["test"]["p_t"]) if measure else ""
+        if stars:
+            ax.text(0.5, 0.97, stars, transform=ax.transAxes,
+                    ha="center", va="top", fontsize=15,
+                    fontweight="bold", zorder=10)
         ax.legend(fontsize=7)
         zero_based_ylim(ax)
     fig.tight_layout()
