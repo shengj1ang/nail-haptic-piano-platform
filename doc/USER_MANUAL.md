@@ -12,15 +12,18 @@ protocols — those live in [`doc/PLATFORM.md`](PLATFORM.md),
 [`doc/RHYTHM_EXPERIMENT.md`](RHYTHM_EXPERIMENT.md), and are linked from each
 section below.
 
-> **About the screenshots.** Every image was captured from the real windows,
-> rendered offscreen against a copy of the project so no live data was
-> touched. The camera in each preview is a frame from a recorded study trial
+> **About the screenshots.** Every image is the real tool, not a mock-up. Each
+> was rendered offscreen **on macOS**, against a copy of the project, so no
+> live data was touched. The platform also runs on Windows, where these same
+> tools carry native Windows chrome around identical contents.
+>
+> The camera in each preview is a frame from a recorded study trial
 > (`main/data/quiz/P18-T25-Cγ/`) standing in for a live feed. It has to be a
-> recording made through the camera position the active profile was
-> calibrated against — anything else and the key masks would photograph
-> visibly offset from the keys they belong to. The serial and MIDI ports
-> shown are placeholders; on your machine those pickers list your own
-> hardware, and the Accelerometer Live View is replaying a saved run
+> recording made through the camera position the active profile was calibrated
+> against — anything else and the key masks would photograph visibly offset
+> from the keys they belong to. The serial and MIDI ports shown are
+> placeholders; on your machine those pickers list your own hardware, and the
+> Accelerometer Live View is replaying a saved run
 > (`main/data/validation_experiments/motor_acc_delay_experiment/`) in place of
 > a live rig.
 
@@ -50,23 +53,26 @@ section below.
 
 ## Before you start
 
-### Install
+### Install and launch
 
-Everything runs in one Python environment (the project calls it `fingercam`):
+The platform is tested on **macOS** and **Windows**, and there are two ways in.
+
+**Windows — the bundled package.** Download the archive from the repository's
+[Releases](https://github.com/shengj1ang/nail-haptic-piano-platform/releases),
+unpack it, and double-click `main\launcher.bat`. Nothing has to be installed:
+the bundle carries its own Python 3.11 under `main\runtime\Python311\`, and
+the `.bat` puts it on the PATH for that window only.
+
+**From source, on either platform.** Everything runs in one Python environment
+(the project calls it `fingercam`):
 
 ```bash
 pip install -r requirements.txt
+python launcher.py
 ```
 
 MediaPipe's hand model, `hand_landmarker.task`, is already bundled in this
-folder. On Windows, `runtime/Python311/` holds a portable interpreter and
-`launcher.bat` starts the hub with it.
-
-### Launch
-
-```bash
-python launcher.py
-```
+folder, so there is nothing else to download.
 
 Every tool also runs standalone from its own entry-point script
 (`python student_quiz.py`, `python music_playback.py`, and so on) — the

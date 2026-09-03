@@ -100,14 +100,37 @@ and frequency are the values they are rather than a guess.
 
 ## Getting started
 
-**Requirements.** Python 3.11+ and the pinned dependency set:
+**Platform support.** The platform is tested on **macOS** and **Windows**.
+Both run the same code — the differences are confined to how the rig is named
+(serial ports and MIDI ports enumerate differently) and to where the optional
+ffmpeg / 7z binaries are found, and both are handled in the code rather than
+left to the operator.
+
+### Windows — the bundled package
+
+Download the archive from
+[Releases](https://github.com/shengj1ang/nail-haptic-piano-platform/releases),
+unpack it anywhere, and **double-click `main\launcher.bat`**. The launcher
+window comes up; there is nothing to install.
+
+The bundle carries its own Python 3.11 interpreter under
+`main\runtime\Python311\`, and `launcher.bat` puts that interpreter and
+`main\runtime\bin\` on the PATH **for that window only** — nothing is
+written to the system PATH or to the registry, and a Python you already have
+installed is left alone.
+
+### macOS, Linux, or Windows from source
+
+Python 3.11+ and the pinned dependency set:
 
 ```bash
 pip install -r main/requirements.txt
+cd main && python launcher.py
 ```
 
-That file also carries the tele-training dependencies; `main/server/requirements.txt`
-lists the relay's alone, for deploying that folder by itself.
+That requirements file also carries the tele-training dependencies;
+`main/server/requirements.txt` lists the relay's alone, for deploying that
+folder by itself.
 
 **Hardware.** A Teensy 4.1 running the `haptic-piano` firmware (verify with the
 `E` command — see [doc/firmware.md](doc/firmware.md)), a MIDI keyboard, two
