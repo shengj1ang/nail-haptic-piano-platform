@@ -7,7 +7,7 @@ File writer in :mod:`melody_generator.midi_writer` is pure stdlib.
 
 Typical use::
 
-    cd individual_project_2026/main
+    cd main
     python -m melody_generator --seed 42 --out ./melody_out
 
 See README.md in this folder for the full option list.

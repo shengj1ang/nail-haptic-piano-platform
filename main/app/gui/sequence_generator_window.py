@@ -1,7 +1,7 @@
 """Experiment Sequence Generator.
 
 Builds the constrained bimanual motor-sequence stimuli described in
-final_report_2026/method/method.tex (§"Controlled Stimulus Sequence
+the final report's Methods chapter (§"Controlled Stimulus Sequence
 Generator"): click Generate and get a fresh matched family of 30-event
 sequences for *every* difficulty level (alpha, beta, gamma) at once -
 there is no level picker, since a stimulus set always needs all three.
@@ -10,7 +10,7 @@ sequence in a level's family is named "<level symbol>-<id>" (id =
 1..count), e.g. "α-1".."α-9".
 
 The table shows the five family-matching statistics from
-implementation.tex's "Pairwise matching tolerances" table (H_norm, d̄m/S, A_h, B_h, O_LR) plus
+the final report's implementation appendix's "Pairwise matching tolerances" table (H_norm, d̄m/S, A_h, B_h, O_LR) plus
 H_hand as a descriptive diagnostic; the full component set of
 D = (C_m, C_s, C_c) for saved sequences lives in the Sequence Metrics
 window, which recomputes them with the exact same functions. After every generation run the difficulty
@@ -24,7 +24,7 @@ There's no profile picker - this always generates against config.json's
 active_keyboard_profile (set by the Keyboard Calibration Wizard), so
 there's no way to accidentally generate a sequence for the wrong physical
 keyboard. START_NOTE/END_NOTE are actual MIDI note numbers, bounded by
-whatever that profile's own midi_mapping.json covers (implementation.tex
+whatever that profile's own midi_mapping.json covers (the final report's implementation appendix
 §"Hand Regions and Cross-Region Rules": the effective bounds k_min /
 k_max, optionally narrowed).
 
@@ -99,7 +99,7 @@ from ..sequence_generator import (
 from ..stimulus_validation import ValidationReport, validate_level_pools
 from .stimulus_validation_dialog import StimulusValidationDialog
 
-# The five family-matching statistics from implementation.tex Table
+# The five family-matching statistics from the final report's implementation appendix Table
 # "Pairwise matching tolerances", plus H_hand - shown as a descriptive diagnostic
 # only (it is neither a level constraint nor a matching tolerance; see
 # app.sequence_generator.LEVEL_CONSTRAINTS) - as (header,
@@ -373,7 +373,7 @@ class SequenceGeneratorWindow(QMainWindow):
         self.export_csv_btn.setEnabled(bool(self._rows))
 
         # Validate the freshly generated pools before they can be locked
-        # for the main user study (appendix/stimulus_register.tex).
+        # for the main user study (final report, stimulus-register appendix).
         pools = {level: list(family.values()) for level, family in families.items()}
         self._validation_report = validate_level_pools(pools) if pools else None
         self.validation_btn.setEnabled(self._validation_report is not None)

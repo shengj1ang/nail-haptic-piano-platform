@@ -308,7 +308,7 @@ def suspected_carryover(r: QuizResult) -> bool:
 
 def summarize(results: List[QuizResult]) -> Dict[str, object]:
     """Per-trial outcome measures, following the report's §"Outcome
-    Measures and Analysis" (final_report_2026/method/method.tex).
+    Measures and Analysis" (the final report's Methods chapter).
 
     Per event t: K_t = key correct, F_t = finger correct under the
     theta = 0.40 threshold rule (see app.finger_matching.is_finger_correct;

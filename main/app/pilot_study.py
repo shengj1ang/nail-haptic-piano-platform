@@ -1,7 +1,7 @@
 """Main user study: participant trial schedules.
 
-Implements the locked trial structure from final_report_2026/method/
-method.tex (§"Design and Procedure"): 3 feedback conditions (A key-only,
+Implements the locked trial structure from the final report's Methods chapter
+(§ "Design and Procedure"): 3 feedback conditions (A key-only,
 B visual finger cue, C vibrotactile finger cue) x 3 difficulty levels (alpha, beta,
 gamma) x 3 unique sequence trials per condition-level cell = 27 formal
 trials per participant, randomised as one interleaved list (not condition
@@ -20,7 +20,7 @@ conditions.
 
 The schedule is saved to
 data/MainUserStudy/<participant>/TrialStructure.json together with
-the participant metadata (method.tex §"Design and Procedure" logs
+the participant metadata (the final report's Methods chapter §"Design and Procedure" logs
 handedness etc. as descriptive metadata, not experimental factors). Every trial row carries its own
 status/timestamps and the document carries a derived progress block, so
 the future experiment runner can crash at any point and resume from
@@ -43,7 +43,7 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "MainUserStudy"
 TRIAL_STRUCTURE_FILENAME = "TrialStructure.json"
 SCHEMA_VERSION = 1
 
-# method.tex §"Design and Procedure" and its session-flow figure.
+# the final report's Methods chapter §"Design and Procedure" and its session-flow figure.
 CONDITIONS = ("A", "B", "C")
 CONDITION_LABEL = {
     "A": "Key-only practice",
@@ -53,7 +53,7 @@ CONDITION_LABEL = {
 
 TRIALS_PER_CELL = 3  # unique sequences per condition-level cell
 TOTAL_TRIALS = len(CONDITIONS) * len(LEVELS) * TRIALS_PER_CELL  # = 27
-# 2-min seated rests after these trial indices (method.tex §"Design and
+# 2-min seated rests after these trial indices (the final report's Methods chapter §"Design and
 # Procedure": fatigue management only, not condition/difficulty blocks).
 REST_AFTER_TRIALS = (9, 18)
 REST_DURATION_S = 120
@@ -61,7 +61,7 @@ REST_DURATION_S = 120
 # Participant metadata options. The study records *biological* sex
 # (male/female), but declining to answer must always be possible, so the
 # ethics-standard "prefer not to say" is offered too. Handedness is
-# descriptive metadata, not an experimental factor (method.tex
+# descriptive metadata, not an experimental factor (the final report's Methods chapter
 # §"Design and Procedure": "experience and handedness were metadata,
 # not eligibility criteria or analysis factors").
 SEX_OPTIONS = ("male", "female", "prefer not to say")
@@ -122,7 +122,7 @@ def discover_sequence_batches(sequence_data_dir: Path = SEQUENCE_DATA_DIR) -> Di
 
 
 def build_schedule(pools: Dict[str, List[str]], seed: int) -> List[dict]:
-    """The 27-trial randomised schedule (method.tex §"Design and
+    """The 27-trial randomised schedule (the final report's Methods chapter §"Design and
     Procedure"): for every
     condition-level cell, sample TRIALS_PER_CELL *different* sequences
     from that level's pool, then shuffle the complete factorial list into
@@ -183,7 +183,7 @@ def new_trial_structure(
     """A complete TrialStructure.json document. `participant` is the
     metadata dict (name, sex, age, handedness, ...); everything needed to
     audit or re-derive the schedule (batch, seed, profile) is recorded,
-    per method.tex §"Design and Procedure": "The trial list was pre-built
+    per the final report's Methods chapter §"Design and Procedure": "The trial list was pre-built
     and shuffled with a recorded participant-specific seed, interleaving
     condition and difficulty rather than blocking them"."""
     doc = {

@@ -1,10 +1,10 @@
 # Experiment Sequence Generator — Algorithm Reference
 
 This documents exactly what `app/sequence_generator.py` does, as implemented. It is kept in
-lockstep with `final_report_2026/method/method.tex` (§ "Controlled Stimulus Sequence Generator")
-and `final_report_2026/appendix/implementation.tex` (§ "Difficulty Components" through
-§ "Family Matching Tolerances") — as of 2026-07-09 the code and the
-thesis text describe the same design, including the two deliberate deviations that are documented
+lockstep with the [final report](../shengjiang_final_report.pdf), specifically
+§ "Controlled Stimulus Sequence Generator" and Appendix §§ "Difficulty Components"
+through "Family Matching Tolerances". As of 2026-07-09 the code and the
+report describe the same design, including the two deliberate deviations that are documented
 in both places (H_hand demoted to a diagnostic; P_pred estimated translation-invariantly).
 
 Code entry points: `app/sequence_generator.py` (all generation logic, GUI-free),

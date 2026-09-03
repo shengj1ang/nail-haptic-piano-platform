@@ -80,7 +80,7 @@ TIMBRES = {
     # elsewhere. Every timbre dropdown in the codebase just loops over
     # TIMBRES.items(), so this shows up as a normal "Mute" choice
     # everywhere for free. Useful for the auditory-control condition
-    # (final_report_2026/method/method.tex, §"Design and Procedure":
+    # (the final report's Methods chapter, §"Design and Procedure":
     # "keyboard sound and all other audio output were muted") where MIDI
     # sound must be disabled but events are still logged.
     "mute": Timbre(name="Mute", harmonics=[]),

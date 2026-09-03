@@ -29,7 +29,7 @@ it is written up.
 | **Tele-training** (section 8) | [`REMOTE_GUIDANCE.md`](REMOTE_GUIDANCE.md), and [`server/README.md`](server/README.md) for the relay |
 | **Validation experiments** (section 10) | [`validation_experiments/README.md`](validation_experiments/README.md), plus one README per experiment |
 | **Rhythm experiment** (section 11) | [`RHYTHM_EXPERIMENT.md`](RHYTHM_EXPERIMENT.md), and [`melody_generator/README.md`](melody_generator/README.md) for the generator |
-| Study protocols and rationale | `../../final_report_2026/method/method.tex` |
+| Study protocols and rationale | [`../shengjiang_final_report.pdf`](../shengjiang_final_report.pdf) |
 
 What is written up **here** and nowhere else: the directory layout, the
 FingerAccuracy pipeline and calibration profiles (sections 1–3), the Main
@@ -771,7 +771,7 @@ app/
                                #   matched families, seeded RNG (see SEQUENCE_GENERATOR_ALGORITHM.md)
   stimulus_validation.py       # difficulty validation of the alpha/beta/gamma level pools
   pilot_study.py               # main user study: 27-trial randomised schedules (3 conditions x
-                               #   3 levels x 3 sequences, method.tex § "Design and Procedure"), saved to
+                               #   3 levels x 3 sequences, final report § "Design and Procedure"), saved to
                                #   data/MainUserStudy/<participant>/TrialStructure.json with
                                #   per-trial status for crash-resume
   quiz.py                      # cue-response quiz logic shared by the visual/haptic quiz tools

@@ -1,7 +1,7 @@
 """Experiment Sequence Generator.
 
 Builds the constrained bimanual motor-sequence stimuli used by the
-main user study (final_report_2026/method/method.tex, §"Controlled
+main user study (the final report's Methods chapter, §"Controlled
 Stimulus Sequence Generator"): 30 single-key cue events per sequence,
 difficulty levels alpha/beta/gamma defined by measurable constraints on
 D = (C_m, C_s, C_c), matched families per level, and built-in difficulty

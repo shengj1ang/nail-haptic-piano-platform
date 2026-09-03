@@ -1,9 +1,9 @@
 # Nail-Mounted Haptic Cues for Piano Training and Tele-training
 
-Code repository for the MSc project of the same name. The thesis is a separate
-repository; its methodology chapter (`../final_report_2026/method/method.tex`)
-defines the protocols this software implements, and the two are meant to be
-read together.
+Code repository for the MSc project of the same name. It documents the
+platform implementation, operation, validation tools, and analysis workflow.
+The complete project report is included as
+[`shengjiang_final_report.pdf`](shengjiang_final_report.pdf).
 
 The platform is a multimodal piano-guidance rig: a MIDI keyboard with per-key
 LED backlighting, ten nail-mounted vibrotactile actuators driven by a Teensy
@@ -30,6 +30,7 @@ here repeats them.
 |---|---|
 | **[main/README.md](main/README.md)** | The platform: directory layout, every launcher section, the calibration→detection pipeline, and how to run each tool. **The main entry point for the software.** |
 | [teensy_driver/README.md](teensy_driver/README.md) | The firmware: motors, LEDs, accelerometers, and the complete serial protocol. |
+| [shengjiang_final_report.pdf](shengjiang_final_report.pdf) | The complete project report: research rationale, formal methods, results, discussion, and appendices. |
 
 ### The experiments
 
@@ -67,7 +68,7 @@ and frequency are the values they are rather than a guess.
 ## Repository structure
 
 ```
-individual_project_2026/
+./
 ├── main/                 the Python platform - launcher hub, calibration wizards,
 │   │                     quiz and study tools, analysis, all four studies
 │   ├── app/                     UI package: camera + MIDI finger-detection pipeline, GUIs
@@ -111,10 +112,12 @@ Every later tool reads the calibration profile those wizards produce.
 
 ## Notes for reviewers
 
-- **The protocols live in the thesis**, not here. This repository documents
-  what the software does and how it is built; `method.tex` defines what the
-  studies are and why. Where a design decision is forced by the methodology,
-  the code comments say so and name the section.
+- **This repository is the implementation record.** It documents what the
+  software does, how it is built, and how to operate it. The
+  [project report](shengjiang_final_report.pdf) provides the full research
+  rationale and formal study methods.
+  Where a design decision is constrained by the study methodology, the code
+  comments identify the corresponding report section.
 - **Each study's data stays in its own folder** under `main/data/`, and the
   studies are isolated from one another structurally rather than by
   convention — the constraints are stated in each study's document and are

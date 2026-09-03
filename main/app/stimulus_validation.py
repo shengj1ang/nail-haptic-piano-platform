@@ -1,6 +1,6 @@
 """Difficulty validation for the alpha/beta/gamma level pools, as
-specified in implementation.tex §"Family Matching Tolerances" and
-reported in appendix/stimulus_register.tex:
+specified in the final report's implementation appendix § "Family Matching Tolerances" and
+reported in its stimulus-register appendix:
 
   - For each scalar component of D = (C_m, C_s, C_c), report the median,
     interquartile range, and full range separately per level.
@@ -55,7 +55,7 @@ LEVELS = ("alpha", "beta", "gamma")
 # generation seed, which is what identifies a batch everywhere else too.
 VALIDATION_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "sequence_validation"
 
-# method.tex §"Controlled Stimulus Sequence Generator": level medians
+# the final report's Methods chapter §"Controlled Stimulus Sequence Generator": level medians
 # must follow the intended ordering "with fewer than 10% adjacent-level
 # violations".
 MONOTONIC_VIOLATION_LIMIT = 0.10
@@ -64,7 +64,7 @@ MONOTONIC_VIOLATION_LIMIT = 0.10
 @dataclass
 class GroupSummary:
     """Median, IQR, and full range of one component within one level's
-    pool - exactly the statistics appendix/stimulus_register.tex reports."""
+    pool - exactly the statistics the final report's stimulus-register appendix reports."""
 
     level: str
     n: int

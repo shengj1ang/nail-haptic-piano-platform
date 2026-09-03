@@ -69,7 +69,7 @@ works identically from the command line, with or without the launcher.
 ## Quick start
 
 ```bash
-cd individual_project_2026/main
+cd main
 python -m melody_generator --seed 42 --out ./melody_out
 ```
 

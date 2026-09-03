@@ -1,8 +1,8 @@
 # The Rhythm Experiment
 
 > **This is an exploratory pilot, it is not part of the thesis, and it
-> stopped after two testers.** No result here is reported in
-> `final_report_2026/`. It was built to find out whether the
+> stopped after two testers.** No result here is reported in the
+> [final report](../shengjiang_final_report.pdf). It was built to find out whether the
 > cue-withdrawal question is worth asking properly and whether this
 > apparatus can ask it. The answer to the second half is "not yet, and
 > here is the list" — see [Results](#results) and

@@ -335,7 +335,7 @@ SECTIONS = [
         ],
     ),
     (
-        # Remote guidance (method.tex §"Tele-training Deployment"):
+        # Remote guidance (the final report's Methods chapter §"Tele-training Deployment"):
         # every entry here starts an independent process, because the
         # student, the teacher and the relay run at the same time on
         # different devices.

@@ -1,13 +1,13 @@
 """Sequence/Music Metrics Viewer.
 
 Recomputes every scalar component of D = (C_m, C_s, C_c) - see
-final_report_2026/appendix/implementation.tex §"Difficulty Components"
+the final report's implementation appendix §"Difficulty Components"
 - for every already-saved song under data/music/ (real
 recordings) and data/sequence/ (generated sequences), auto-detected via
 app.song_library.list_song_entries(). The metrics come from
 app.sequence_generator.evaluate_song(), the exact same compute_stats()
 machinery the Experiment Sequence Generator uses to accept/reject a
-candidate while generating - implementation.tex requires this so that
+candidate while generating - the final report's implementation appendix requires this so that
 "metrics shown during generation and metrics reported later are directly
 comparable".
 

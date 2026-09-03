@@ -3,7 +3,7 @@
 Everything in this folder is **kept for reference only**: either an
 early prototype whose functionality now lives in `teensy_driver/` /
 `main/`, or a completed validation study whose data and
-analysis are cited by the final report and must stay unchanged. Do not
+analysis are cited by the [final report](../shengjiang_final_report.pdf) and must stay unchanged. Do not
 build new work on top of these.
 
 Repeatable calibration/validation experiments live in

@@ -3,15 +3,15 @@
 A single "About this platform" panel, laid out like the classic pre-Big Sur
 "About This Mac" window: the product image and name at the top, then a row of
 tabs whose content changes below (Overview, Abstract, Acknowledgements,
-Repositories). It is pure reference - it claims no hardware and writes
+Resources). It is pure reference - it claims no hardware and writes
 nothing, so the launcher keeps it in CONCURRENT_TOOLS (stays open alongside a
 tool, and re-clicking the button raises it rather than opening a second copy).
 
-The dissertation title, abstract and acknowledgements are copied verbatim
-from the report source (final_report_2026/main.tex): the abstract and the
+The report title, abstract and acknowledgements are copied verbatim from the
+final report: the abstract and the
 acknowledgement paragraph are the exact text of the submitted report, only
 with LaTeX escapes (\\,, \\%, en-dashes) rendered as their plain characters.
-Keep them in sync with that file if the report is revised.
+Keep them in sync if the report is revised.
 """
 
 import sys
@@ -33,7 +33,7 @@ ICON_IMAGE = (
     Path(__file__).resolve().parent.parent / "assets" / "image" / "icon.png"
 )
 
-# --- facts, all from the report (final_report_2026/main.tex) --------------
+# --- facts from the final report -----------------------------------------
 
 DISSERTATION_TITLE = (
     "Nail-Mounted Haptic Cues for Piano Training and Tele-training"
@@ -44,12 +44,12 @@ INSTITUTION = "Department of Bioengineering, Imperial College London"
 SUPERVISOR = "Dr. Alexis W.M. Devillard"
 CO_SUPERVISOR = "Dr. Etienne Burdet"
 
-# The two public repositories, so the About panel doubles as the "where does
-# this live" reference.
-CODE_REPO_URL = "https://github.com/shengj1ang/individual_project_2026"
-REPORT_REPO_URL = "https://github.com/shengj1ang/final_report_2026"
+# Project source and the report PDF included at the repository root.
+CODE_REPO_URL = "https://github.com/shengj1ang/nail-haptic-piano-platform"
+REPORT_PDF = Path(__file__).resolve().parents[3] / "shengjiang_final_report.pdf"
+REPORT_PDF_URL = REPORT_PDF.as_uri()
 
-# Verbatim from main.tex \begin{abstract} ... \end{abstract}, with LaTeX
+# Verbatim from the final report abstract, with LaTeX
 # escapes rendered: "247\,ms" -> "247 ms", "\%" -> "%", "key--finger" ->
 # "key-finger".
 ABSTRACT = (
@@ -79,8 +79,7 @@ ABSTRACT = (
     "remote use."
 )
 
-# Verbatim from main.tex, the \renewcommand{\abstractname}{Acknowledgements}
-# block.
+# Verbatim from the final report acknowledgements.
 ACKNOWLEDGEMENTS = (
     "I would like to thank Dr Alexis W.M. Devillard and Dr Etienne Burdet for "
     "their guidance throughout this project. Their advice shaped both the "
@@ -154,7 +153,7 @@ class AboutWindow(QWidget):
             "Acknowledgements",
             f"<p>{ACKNOWLEDGEMENTS}</p>",
         ), "Acknowledgements")
-        tabs.addTab(self._repositories_page(), "Repositories")
+        tabs.addTab(self._repositories_page(), "Resources")
         root.addWidget(tabs, 1)
 
         self.resize(560, 560)
@@ -227,19 +226,18 @@ class AboutWindow(QWidget):
 
     def _repositories_page(self) -> QWidget:
         html = (
-            "<p>The platform and the report it is based on are kept in two "
-            "public Git repositories:</p>"
+            "<p>Project source repository:</p>"
             "<p><b>Source code</b><br>"
             f"<a href='{CODE_REPO_URL}'>{CODE_REPO_URL}</a><br>"
             "<span style='color:#9a9ba5'>The platform itself — this launcher "
             "and every tool it opens, the firmware and the analysis "
             "pipeline.</span></p>"
-            "<p><b>Dissertation</b><br>"
-            f"<a href='{REPORT_REPO_URL}'>{REPORT_REPO_URL}</a><br>"
-            "<span style='color:#9a9ba5'>The LaTeX source of the report, "
-            f"<i>{DISSERTATION_TITLE}</i>.</span></p>"
+            "<p><span style='color:#9a9ba5'>The final report is included in "
+            "this repository as a PDF.</span></p>"
+            "<p><b>Final report</b><br>"
+            f"<a href='{REPORT_PDF_URL}'>shengjiang_final_report.pdf</a></p>"
         )
-        return self._text_page("Repositories", html)
+        return self._text_page("Resources", html)
 
     def _text_page(self, title: str, body_html: str) -> QWidget:
         """A page with a coloured heading and a scrollable rich-text body.

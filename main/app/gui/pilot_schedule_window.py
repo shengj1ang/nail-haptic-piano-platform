@@ -3,7 +3,7 @@
 Qt wrapper around app.pilot_study (which holds all the logic, GUI-free):
 fill in the participant's metadata, pick which generated stimulus batch
 under data/sequence/ to lock them to, and generate the 27-trial
-randomised schedule from method.tex §"Design and Procedure" - 3 conditions x 3
+randomised schedule from the final report's Methods chapter §"Design and Procedure" - 3 conditions x 3
 levels x 3 unique sequences per cell, interleaved by a seeded shuffle,
 with the two mandatory 2-min rests after trials 9 and 18 marked inline.
 The table is a preview of exactly what will run; Save writes it to
