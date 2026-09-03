@@ -49,6 +49,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -329,6 +330,7 @@ class GroupAnalysisWindow(QMainWindow):
             ("Fingers", self._build_fingers),
             ("Finger Confusion", self._build_finger_confusion),
             ("RM-ANOVA", self._build_rm_anova),
+            ("Accuracy GLMM", self._build_accuracy_glmm),
             ("Finger Benefit", self._build_finger_benefit),
             ("Quality", self._build_quality),
         ]
@@ -1817,7 +1819,10 @@ class GroupAnalysisWindow(QMainWindow):
               "and homogeneity assumptions behind an F ratio — and above all the Condition × Finger "
               "interaction test — are not credible. FA is therefore reported here as means, SDs and "
               "95% bootstrap CIs over the same complete-case participants as the reaction-time model, and "
-              "no F test is computed on it. Reaction time carries the inferential result.</i>")
+              "no F test is computed on it. Reaction time carries the inferential result. What the "
+              "ceiling rules out is the ANOVA, not every model: the <b>Accuracy GLMM</b> tab fits these "
+              "same cells as a binomial mixed model with a participant random intercept, where a cell at "
+              "100% is an ordinary observation, and reports the Condition × Finger test from there.</i>")
 
     def _anova_factor_figure(self, res: dict, metric_label: str,
                              tick_labels, xlabel: str, scale: float = 1000.0,
@@ -2004,6 +2009,246 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_ylabel("Main FA (%)")
         ax.set_title("Finger accuracy by homologous digit (descriptive)", fontsize=10)
         ax.legend(fontsize=7, loc="lower right")
+        fig.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # Accuracy GLMM (the bounded-outcome model the ANOVA cannot be)
+
+    def _build_accuracy_glmm(self):
+        res = ga.glmm_accuracy(self._data.event_rows, ga.ANOVA_CONDITIONS)
+        blocks = [
+            "<h3>Accuracy GLMM — binomial mixed model, participant random intercept</h3>",
+            "The RM-ANOVA tab keeps <b>finger accuracy</b> out of the F tests because it is a "
+            "bounded proportion sitting against 100%: at the ceiling the cell variance is "
+            "compressed and tied to the mean, so the normality and homogeneity assumptions "
+            "behind an F ratio are not credible. That rules out the <i>ANOVA</i>, not every "
+            "model — so the accuracy question is answered here with the model the outcome "
+            "actually has. Each (participant × condition × finger) cell contributes its "
+            "successes out of its judged events, "
+            "logit(p) = β₀ + β<sub>C</sub>·Condition + β<sub>F</sub>·Finger + "
+            "β<sub>CF</sub>·(Condition × Finger) + u<sub>participant</sub>, with "
+            "u ~ N(0, σ²), fitted by maximum likelihood with adaptive Gauss–Hermite "
+            "quadrature. The logit link removes the ceiling problem outright — a cell at 100% "
+            "is a large linear predictor, not a zero-variance cell — the binomial part supplies "
+            "the mean–variance relationship the ANOVA had to assume, and the random intercept is "
+            "what keeps events from being counted as independent observations. "
+            "<b>This is a sensitivity analysis:</b> the pre-specified inference stays the "
+            "participant-level paired contrast on the Contrasts tab, and the model is here to "
+            "show whether that conclusion depends on the aggregation.",
+            self._glmm_design_html(res),
+        ]
+        if res["reason"]:
+            blocks.append(f"<i>Model not fitted: {res['reason']}.</i>")
+            return "".join(f"<p>{b}</p>" for b in blocks), {}, {}
+
+        blocks.append(self._glmm_effects_html(res))
+        blocks.append(self._glmm_simple_effects_html(res))
+        blocks.append(self._glmm_agreement_html(res))
+        blocks.append(
+            "<i>Reading the model. Odds ratios, not percentage points: on a bounded outcome the "
+            "same cue benefit is a different number of points at 94% than at 98%, which is the "
+            "reason the descriptive per-finger differences cannot be compared across digits "
+            "directly. Standard errors are cluster-robust by participant on a t(N−1) reference, "
+            "because a random intercept alone assumes the condition contrast is the same size in "
+            "every participant, and its model-based standard error is anti-conservative when it "
+            "is not; the two are printed side by side so the difference is visible. Effects are "
+            "tested by likelihood-ratio tests, which are better behaved than Wald tests for a "
+            "variance-component model at this number of clusters. Simulation of this fitting code "
+            "at N = 20 gives the Condition LRT its nominal size, but leaves the 4-df interaction "
+            "LRT mildly liberal (about 7% of null datasets below p = .05), so an interaction p "
+            "near .05 is suggestive and not confirmatory. The ML estimate of σ is slightly "
+            "downward-biased at this N, as maximum likelihood variance components are.</i>")
+        blocks.append(
+            "<i>Figures: left — the C − B contrast as an odds ratio within each digit (dots and "
+            "bars are estimates with 95% cluster-robust intervals, the diamond is the single "
+            "overall effect from the additive model, dashed line = no difference, log axis so "
+            "equal ratios take equal space); right — the model-implied accuracy per cell against "
+            "the observed group means, which is where a model that fits the ceiling badly would "
+            "show it.</i>")
+
+        figs = {"group_glmm_accuracy": self._glmm_figure(res)}
+        datasets = {
+            "glmm_effects": ga.glmm_effect_table(res),
+            "glmm_cells": res["counts"],
+            "glmm_fitted": res["fitted"],
+        }
+        return "".join(f"<p>{b}</p>" for b in blocks), figs, datasets
+
+    @staticmethod
+    def _glmm_design_html(res: dict) -> str:
+        """Who is in the model and on how many events, before any estimate."""
+        parts = [f"<b>Design realised:</b> N = {res['n_participants']} participant(s), "
+                 f"{res['n_cells']} cells, {res['n_events']} judged events "
+                 f"({res['n_successes']} key-and-finger correct)."]
+        if res["incomplete_participants"]:
+            parts.append("Unlike the repeated-measures ANOVA this model needs no rectangular "
+                         "grid, so participants with an incomplete one are kept rather than "
+                         "deleted listwise: "
+                         + ", ".join(res["incomplete_participants"]) + ".")
+        else:
+            parts.append("Every participant has the complete "
+                         f"{res['cells_per_participant']}-cell grid here; the model would not "
+                         "need them to (it drops no one for a missing cell, unlike the ANOVA).")
+        if not res["converged"]:
+            parts.append("<b>The optimiser did not converge</b> — read nothing below as a "
+                         "result.")
+        if res["exploratory"]:
+            parts.append("<i>Exploratory at this sample size — read the intervals for "
+                         "direction and magnitude, not as generalisable inference.</i>")
+        return " ".join(parts)
+
+    @staticmethod
+    def _glmm_effects_html(res: dict) -> str:
+        """Type II LRT table plus the single overall condition effect."""
+        head = ("<table border='0' cellspacing='0' cellpadding='4'>"
+                "<tr><th align='left'>Effect</th><th>LR χ²</th><th>df</th><th>p</th></tr>")
+        rows = []
+        for e in res["effects"]:
+            rows.append(f"<tr><td>{e['label']}</td>"
+                        f"<td align='center'>{_fmt(e['chi2'], 3)}</td>"
+                        f"<td align='center'>{e['df']}</td>"
+                        f"<td align='center'>{_fmt_p(e['p']).lstrip('= ')}</td></tr>")
+        table = head + "".join(rows) + "</table>"
+        overall = res["condition_effect"]
+        summary = ""
+        if overall:
+            summary = (
+                f"<b>Overall C vs B</b> (additive model, the number to quote): odds ratio "
+                f"{overall['odds_ratio']:.2f}, 95% CI [{overall['or_lo']:.2f}, "
+                f"{overall['or_hi']:.2f}], log-odds {overall['estimate']:+.3f}, "
+                f"robust SE {overall['se_robust']:.3f}, t({res['n_participants'] - 1}) = "
+                f"{_fmt(overall['t'], 2)}, p {_fmt_p(overall['p'])}. Model-based SE would be "
+                f"{overall['se_model']:.3f} — the gap is the price of assuming one common "
+                "condition effect across participants, and the reason the robust value is the "
+                "one reported.<br>")
+        return ("<b>Type II likelihood-ratio tests.</b> Each term against the model holding "
+                "everything else; the interaction is the test the ceiling denied the ANOVA."
+                + table + summary
+                + f"<i>Participant SD σ = {res['sigma']:.3f} on the logit scale (latent-scale "
+                  f"ICC {res['icc']:.3f}), i.e. the between-participant spread the random "
+                  "intercept absorbs.</i>")
+
+    @staticmethod
+    def _glmm_simple_effects_html(res: dict) -> str:
+        """C - B within each digit: the interaction, made quotable."""
+        if not res["simple_effects"]:
+            return ""
+        head = ("<table border='0' cellspacing='0' cellpadding='4'>"
+                "<tr><th align='left'>C vs B within digit</th>"
+                + "".join(f"<th>{s['finger_id']} {s['finger']}</th>"
+                          for s in res["simple_effects"]) + "</tr>")
+        or_row = "".join(f"<td align='center'>{s['odds_ratio']:.2f}<br>"
+                         f"<span style='color:#888'>[{s['or_lo']:.2f}, {s['or_hi']:.2f}]</span>"
+                         "</td>" for s in res["simple_effects"])
+        p_row = "".join(f"<td align='center'>{_fmt_p(s['p']).lstrip('= ')}</td>"
+                        for s in res["simple_effects"])
+        return ("<b>Per-digit contrasts.</b>" + head
+                + f"<tr><td>Odds ratio [95% CI]</td>{or_row}</tr>"
+                + f"<tr><td>p</td>{p_row}</tr></table>"
+                + "<i>Each is β<sub>Condition</sub> plus that digit's interaction term, with its "
+                  "variance taken from the full covariance matrix — not two intervals added "
+                  "together. An odds ratio above 1 means the haptic cue raised that digit's odds "
+                  "of a correct key-and-finger action.</i>")
+
+    def _glmm_agreement_html(self, res: dict) -> str:
+        """Does the model agree with the pre-specified participant-level
+        test? Stated either way - a sensitivity analysis that is only
+        reported when it agrees is not one."""
+        paired = ga.condition_inference(self._pc, "fa_main")
+        if paired["reason"] or not paired["paired_t"]:
+            return ("<i>The participant-level paired contrast this model is a sensitivity "
+                    "check on was not run, so no agreement can be stated.</i>")
+        t = paired["paired_t"]
+        overall = res["condition_effect"]
+        if not overall:
+            return ""
+        agree = (t["p"] < 0.05) == (overall["p"] < 0.05) and (t["mean_diff"] > 0) == (
+            overall["estimate"] > 0)
+        verdict = ("<b>The two agree.</b>" if agree else
+                   "<b>The two disagree — the accuracy conclusion depends on the aggregation, "
+                   "and the pre-specified participant-level test is the one that stands.</b>")
+        return (f"{verdict} Participant-level paired t-test on Main FA: "
+                f"{t['mean_diff'] * 100:+.2f} percentage points, 95% CI "
+                f"[{t['ci95_lo'] * 100:+.2f}, {t['ci95_hi'] * 100:+.2f}], t = "
+                f"{_fmt(t['statistic'], 2)}, p {_fmt_p(t['p'])}. GLMM, same contrast on the "
+                f"odds scale: OR {overall['odds_ratio']:.2f} [{overall['or_lo']:.2f}, "
+                f"{overall['or_hi']:.2f}], p {_fmt_p(overall['p'])}. The paired test treats each "
+                "participant as one observation and makes no assumption about the shape of the "
+                "outcome; the model uses every event and assumes the binomial one. Neither is a "
+                "replacement for the other, which is why both are reported.")
+
+    def _glmm_figure(self, res: dict) -> Figure:
+        """Left: per-digit odds ratios with the overall effect. Right: the
+        model against the data it was fitted to."""
+        fig = Figure(figsize=(10.5, 4.0))
+        ax_or, ax_fit = fig.subplots(1, 2, width_ratios=[1.0, 1.15])
+
+        simple = res["simple_effects"]
+        overall = res["condition_effect"]
+        labels, y = [], []
+        # Digits top-down (thumb first), with the pooled effect below a rule.
+        for i, s in enumerate(reversed(simple)):
+            y.append(i + 1.0)
+            labels.append(f"{s['finger_id']} {s['finger']}")
+        for i, s in enumerate(reversed(simple)):
+            lo, hi = s["or_lo"], s["or_hi"]
+            ax_or.plot([lo, hi], [i + 1.0, i + 1.0], color="#444", linewidth=1.4, zorder=3)
+            ax_or.plot([s["odds_ratio"]], [i + 1.0], "o", markersize=7, zorder=4,
+                       color=CONDITION_COLORS.get("C", "#2c7fb8"), markeredgecolor="black")
+        if overall:
+            ax_or.plot([overall["or_lo"], overall["or_hi"]], [0.0, 0.0],
+                       color="#444", linewidth=1.6, zorder=3)
+            ax_or.plot([overall["odds_ratio"]], [0.0], "D", markersize=9, zorder=4,
+                       color="#c23b22", markeredgecolor="black")
+            labels.append("all digits")
+            y.append(0.0)
+            ax_or.axhline(0.5, color="#bbbbbb", linewidth=0.8, linestyle="-", zorder=1)
+        ax_or.axvline(1.0, color="#c23b22", linewidth=1.2, linestyle="--", zorder=2)
+        ax_or.set_xscale("log")
+        ax_or.set_yticks(y, labels, fontsize=8)
+        ax_or.set_ylim(-0.6, len(simple) + 0.6)
+        ax_or.set_xlabel("Odds ratio, C vs B (log scale)")
+        ax_or.set_title("Haptic-vs-visual odds ratio per digit", fontsize=10)
+        ticks = [0.5, 1, 2, 5, 10, 20]
+        finite = [v for s in simple for v in (s["or_lo"], s["or_hi"]) if np.isfinite(v)]
+        if finite:
+            ticks = [t for t in ticks if min(finite) / 2 <= t <= max(finite) * 2] or ticks
+        ax_or.set_xticks(ticks, [str(t) for t in ticks], fontsize=8)
+        ax_or.grid(axis="x", alpha=0.25, linewidth=0.6)
+
+        fitted = res["fitted"]
+        x = np.arange(len(ga.FINGER_IDS))
+        low = 100.0
+        for c in res["conditions"]:
+            sub = fitted[fitted["condition"] == c].set_index("finger_id")
+            model = np.array([sub.loc[f, "p_fitted"] * 100 for f in ga.FINGER_IDS])
+            obs = np.array([sub.loc[f, "observed"] * 100 for f in ga.FINGER_IDS])
+            colour = CONDITION_COLORS.get(c, "#666666")
+            ax_fit.plot(x, model, "-", color=colour, linewidth=2.4, alpha=0.75, zorder=3)
+            ax_fit.plot(x, obs, "o", color="white", markeredgecolor=colour,
+                        markeredgewidth=1.6, markersize=8, zorder=4)
+            # The condition letter is written beside its own line instead
+            # of in the legend, which leaves the legend to say what the two
+            # marks MEAN. Placed to the LEFT of the first point, where
+            # nothing is plotted: a longer label on the line itself ran
+            # into the middle-finger peak once the figure was scaled down
+            # to a printed page width.
+            ax_fit.annotate(c, (x[0], model[0]), textcoords="offset points",
+                            xytext=(-15, -4), fontsize=10, color=colour,
+                            fontweight="bold", zorder=5)
+            low = min(low, float(np.nanmin(np.concatenate([model, obs]))))
+        ax_fit.axhline(100, color="#c23b22", linewidth=1.0, linestyle="--", zorder=1)
+        ax_fit.set_xticks(x, [f"{f} {ga.FINGER_ID_NAMES[f]}" for f in ga.FINGER_IDS], fontsize=8)
+        ax_fit.set_xlim(-0.4, len(ga.FINGER_IDS) - 0.6)
+        ax_fit.set_ylim(low - 1.6, 100.6)
+        ax_fit.set_ylabel("Main FA (%)")
+        ax_fit.set_title("Model-implied vs observed accuracy", fontsize=10)
+        handles = [Line2D([], [], color="#555555", linewidth=2.4, alpha=0.75, label="model"),
+                   Line2D([], [], color="white", marker="o", linestyle="none",
+                          markeredgecolor="#555555", markeredgewidth=1.6, markersize=8,
+                          label="observed group mean")]
+        ax_fit.legend(handles=handles, fontsize=7, loc="lower left", ncol=2)
         fig.tight_layout()
         return fig
 

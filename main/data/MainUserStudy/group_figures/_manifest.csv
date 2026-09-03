@@ -1,5 +1,5 @@
 file,kind,rows,columns
-(export),provenance,N = 20,"participants: P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14, P15, P16, P17, P18, P19, P20; 540 trials, 16200 events (16199 valid); exported 2026-09-01T19:58:33"
+(export),provenance,N = 20,"participants: P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13, P14, P15, P16, P17, P18, P19, P20; 540 trials, 16200 events (16199 valid); exported 2026-09-03T02:19:11"
 group_condition_a_finger_strategy.png / group_condition_a_finger_strategy.svg,figure,,
 group_condition_a_finger_strategy_detailed.png / group_condition_a_finger_strategy_detailed.svg,figure,,
 group_condition_a_finger_usage_by_participant.png / group_condition_a_finger_usage_by_participant.svg,figure,,
@@ -18,6 +18,7 @@ group_finger_benefit_compensation.png / group_finger_benefit_compensation.svg,fi
 group_finger_equalisation.png / group_finger_equalisation.svg,figure,,
 group_finger_weakest.png / group_finger_weakest.svg,figure,,
 group_fingers.png / group_fingers.svg,figure,,
+group_glmm_accuracy.png / group_glmm_accuracy.svg,figure,,
 group_learning_difficulty_progression.png / group_learning_difficulty_progression.svg,figure,,
 group_learning_difficulty_progression_detailed.png / group_learning_difficulty_progression_detailed.svg,figure,,
 group_learning_repetition.png / group_learning_repetition.svg,figure,,
@@ -71,6 +72,9 @@ finger_weakest_summary.csv,table,4,"criterion, select_metric, benefit_metric, es
 fingers_group_summary.csv,table,30,"condition, finger_id, metric, n, mean, sd, sem, ci95_lo, ci95_hi"
 fingers_left_right_counts.csv,table,10,"condition, finger_id, n, n_left, n_right, n_judged, n_rt_complete"
 fingers_participant_cells.csv,table,200,"participant, condition, finger_id, n, n_left, n_right, n_judged, fa, rt_s, n_rt_complete, rt_complete_s"
+glmm_cells.csv,table,200,"participant, condition, finger_id, successes, trials, fa"
+glmm_effects.csv,table,19,"n_participants, n_events, part, term, label, chi2, df, p, estimate_logit, se_model, se_robust, t, odds_ratio, or_lo, or_hi, sigma_participant, icc_latent, se_type"
+glmm_fitted.csv,table,10,"condition, finger_id, p_fitted, p_median_participant, observed"
 group_tradeoff_group_centroids.csv,table,12,"condition, difficulty, n_participants, mean_rt_correct_key_ms, rt_sd, rt_ci95_lo, rt_ci95_hi, main_finger_accuracy, fa_sd, fa_ci95_lo, fa_ci95_hi, centroid_level"
 group_tradeoff_participant_centroids.csv,table,240,"participant_id, condition, difficulty, n_trials, mean_rt_correct_key_ms, main_finger_accuracy, valid_event_count, centroid_level"
 group_tradeoff_trial_points.csv,table,540,"participant_id, condition, difficulty, trial_order, mean_rt_correct_key_ms, main_finger_accuracy, valid_event_count, included, centroid_level"

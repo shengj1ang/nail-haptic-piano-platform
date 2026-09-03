@@ -74,6 +74,14 @@ the ceiling diagnostics stated alongside it, and no F test is computed
 on it. ceiling_diagnostics() recomputes that justification from
 whatever data is actually loaded rather than trusting the numbers above.
 
+What the ceiling rules out is the F ratio, not every model. The accuracy
+question is answered instead by glmm_accuracy() further down this module:
+the same cells as a binomial mixed model with a participant random
+intercept, where a cell at 100% is an ordinary observation. That is where
+the Condition x Finger test on accuracy lives, and it is a sensitivity
+analysis - the participant-level paired contrast stays the pre-specified
+inference.
+
 The ANOVA needs a complete (participant x condition x finger) grid;
 participants missing any cell are dropped from the model as a whole and
 listed by name, never imputed. Pingouin supplies the fit (one call
@@ -90,7 +98,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy import optimize as soptimize
 from scipy import stats as sstats
+from scipy.special import expit
 
 # The participant-LEVEL half of this analysis lives in
 # app.participant_analysis (see its docstring): everything that reduces
@@ -755,6 +765,611 @@ def finger_cell_descriptives(pf_df: pd.DataFrame, metric: str = "fa",
         return pd.DataFrame(columns=["condition", "finger_id", "n", "mean", "sd",
                                      "sem", "ci95_lo", "ci95_hi"])
     return group_center(frame, metric, ["condition", "finger_id"])
+
+
+# ---------------------------------------------------------------------------
+# Binomial GLMM on the bounded accuracy outcome (model and rationale below)
+#
+# The ANOVA above is fitted on reaction time only: finger accuracy is a
+# bounded proportion sitting against 1.0, and at the ceiling the cell
+# variance is compressed and tied to the mean, so an F ratio on those
+# cells - above all its interaction term - is not credible. That argument
+# rules out the ANOVA. It does NOT rule out a model built for bounded
+# outcomes, and saying "no test at all" where one exists would be the
+# weaker claim, so the accuracy question is answered here instead by the
+# model the outcome actually has:
+#
+#     y_ijk ~ Binomial(n_ijk, p_ijk)
+#     logit(p_ijk) = b0 + b_C*C_j + b_F*F_k + b_CF*(C_j x F_k) + u_i
+#     u_i ~ N(0, sigma^2)
+#
+# for participant i, condition j and homologous finger k. The logit link
+# removes the ceiling problem outright - a cell at 1.0 is a large linear
+# predictor, not a zero-variance cell - and the binomial part supplies
+# the mean-variance relationship the ANOVA had to assume away. The
+# participant random intercept u_i is what keeps events from being
+# treated as independent observations: it is the model-based version of
+# the aggregation rule this module follows everywhere else.
+#
+# Fitted on the same events as the per-finger cells (accuracy_cell_counts),
+# by maximum likelihood with adaptive Gauss-Hermite quadrature over u_i.
+# Only numpy/scipy are needed, so unlike the ANOVA this analysis has no
+# optional dependency to degrade around.
+#
+# Three things about the reporting are deliberate:
+#
+# 1. Headline standard errors are CLUSTER-ROBUST by participant (sandwich,
+#    with the G/(G-1) small-sample scaling and a t(G-1) reference), not the
+#    model-based ones. A random intercept alone assumes the condition
+#    contrast is homogeneous across participants; if it is not, the
+#    model-based SE of that contrast is anti-conservative. The sandwich
+#    stays valid under that misspecification, and t(G-1) is the same
+#    reference distribution as the participant-level paired t-test, which
+#    is the conservative counterpart this model has to agree with.
+# 2. Effects are tested by likelihood-ratio tests over the nested models
+#    (Type II: each term against the model holding everything else),
+#    reported alongside the Wald z, because the LRT is the better-behaved
+#    test for a variance-component model at 20 clusters.
+# 3. The model is a SENSITIVITY ANALYSIS. The pre-specified inference is
+#    the participant-level paired contrast; this exists to show that the
+#    accuracy conclusion does not depend on the aggregation, and it is
+#    reported as agreeing or not agreeing with it, never as replacing it.
+
+GLMM_QUAD_NODES = 15          # adaptive Gauss-Hermite nodes per participant
+GLMM_TERM_LABELS: Dict[str, str] = {
+    "condition": "Condition (B vs C)",
+    "finger_id": "Finger ID (1–5)",
+    "condition * finger_id": "Condition × Finger ID",
+}
+
+
+def accuracy_cell_counts(event_rows: List[dict],
+                         conditions: Optional[List[str]] = None) -> pd.DataFrame:
+    """Per (participant, condition, finger_id) SUCCESS / TRIAL counts over
+    exactly the events per_finger_metrics() judges: valid, responded,
+    target finger known, finger verdict present. `successes` counts the
+    events that were key AND finger correct, so successes / trials is the
+    same `fa` the per-finger cells and ceiling_diagnostics() are computed
+    from - the model and the descriptive table then describe one identical
+    set of events, cell by cell, and cannot drift apart.
+
+    Counts rather than proportions because the model is fitted on them:
+    every event in a cell shares one covariate row, so a Bernoulli GLMM
+    over events and a binomial GLMM over these counts have the same
+    likelihood. Aggregating costs nothing statistically and keeps the fit
+    at (participants x conditions x 5) rows instead of tens of thousands.
+    """
+    conditions = list(conditions or ANOVA_CONDITIONS)
+    events = [e for e in valid_events(event_rows)
+              if not e["timed_out"]
+              and e.get("target_finger") in FINGER_ORDER
+              and e["condition"] in conditions
+              and e.get("finger_correct") is not None]
+    rows: Dict[tuple, List[int]] = {}
+    for e in events:
+        key = (e["participant"], e["condition"], int(e["target_finger"][1]))
+        cell = rows.setdefault(key, [0, 0])
+        cell[0] += 1 if (e["key_correct"] and e["finger_correct"]) else 0
+        cell[1] += 1
+    order = {c: i for i, c in enumerate(conditions)}
+    out = pd.DataFrame(
+        [{"participant": p, "condition": c, "finger_id": f,
+          "successes": s, "trials": n, "fa": s / n}
+         for (p, c, f), (s, n) in rows.items()],
+        columns=["participant", "condition", "finger_id", "successes", "trials", "fa"])
+    if out.empty:
+        return out
+    return (out.assign(_c=out["condition"].map(order))
+               .sort_values(["participant", "_c", "finger_id"], ignore_index=True)
+               .drop(columns=["_c"]))
+
+
+def _glmm_design(counts: pd.DataFrame, conditions: List[str]):
+    """Treatment-coded design for logit(p) = 1 + condition * finger_id.
+
+    The reference cell is (conditions[0], FINGER_IDS[0]) - B and the thumb -
+    so the condition coefficient is the C-vs-B log odds ratio AT the thumb
+    and the interaction terms are the other digits' departures from it.
+    Two consequences the callers depend on: the single overall condition
+    effect has to come from the additive model rather than from this one,
+    and a per-digit contrast has to be built from the covariance matrix
+    (_glmm_simple_effects) rather than read off a coefficient.
+
+    term_cols groups the columns by model term, which is what makes the
+    Type II likelihood-ratio tests a matter of dropping a column block.
+    Returns (y, n, X, names, term_cols, group_index, participants)."""
+    fingers = list(FINGER_IDS)
+    participants = sorted(counts["participant"].unique())
+    pidx = {p: i for i, p in enumerate(participants)}
+    cond = counts["condition"].to_numpy()
+    fing = counts["finger_id"].to_numpy(dtype=int)
+
+    names = ["Intercept"]
+    columns = [np.ones(len(counts))]
+    term_cols: Dict[str, List[int]] = {"condition": [], "finger_id": [],
+                                       "condition * finger_id": []}
+
+    def add(term: str, name: str, column) -> None:
+        term_cols[term].append(len(names))
+        names.append(name)
+        columns.append(column.astype(float))
+
+    for c in conditions[1:]:
+        add("condition", f"condition[{c}]", cond == c)
+    for f in fingers[1:]:
+        add("finger_id", f"finger[{f}]", fing == f)
+    for c in conditions[1:]:
+        for f in fingers[1:]:
+            add("condition * finger_id", f"condition[{c}]:finger[{f}]",
+                (cond == c) & (fing == f))
+
+    X = np.column_stack(columns)
+    y = counts["successes"].to_numpy(dtype=float)
+    n = counts["trials"].to_numpy(dtype=float)
+    gi = np.array([pidx[p] for p in counts["participant"]], dtype=int)
+    return y, n, X, names, term_cols, gi, participants
+
+
+def _irls_logistic(y, n, X, iters: int = 50):
+    """Plain (no random effect) binomial IRLS - starting values for the
+    GLMM and the sigma = 0 reference the tests compare against."""
+    beta = np.zeros(X.shape[1])
+    for _ in range(iters):
+        eta = X @ beta
+        p = expit(eta)
+        w = n * p * (1 - p)
+        w = np.maximum(w, 1e-10)
+        z = eta + (y - n * p) / w
+        wx = X * w[:, None]
+        try:
+            step = np.linalg.solve(X.T @ wx, wx.T @ z)
+        except np.linalg.LinAlgError:
+            break
+        if not np.all(np.isfinite(step)):
+            break
+        delta = np.max(np.abs(step - beta))
+        beta = step
+        if delta < 1e-10:
+            break
+    return beta
+
+
+def _logsumexp(a, axis=0):
+    peak = np.max(a, axis=axis)
+    return peak + np.log(np.sum(np.exp(a - np.expand_dims(peak, axis)), axis=axis))
+
+
+def _cluster_logliks(theta, y, n, X, gi, n_groups, z_nodes, log_w_nodes):
+    """Per-participant marginal log-likelihood, integrating u_i out by
+    ADAPTIVE Gauss-Hermite quadrature.
+
+    Adaptive (nodes centred on each participant's own posterior mode and
+    scaled by its curvature) rather than plain: with hundreds of events
+    per participant the integrand is sharply peaked, and fixed nodes on
+    the N(0, sigma^2) scale would miss the peak entirely. One node
+    reproduces the Laplace approximation, which is what glmer's default
+    computes; more nodes refine it.
+
+    theta is [beta..., log sigma]. Returns a vector of length n_groups."""
+    beta, log_sigma = theta[:-1], theta[-1]
+    sigma = float(np.exp(log_sigma))
+    eta0 = X @ beta
+    # Posterior mode per participant: Newton on a strictly concave
+    # function (binomial log-likelihood + Gaussian prior), so it needs no
+    # safeguarding beyond an iteration cap.
+    u = np.zeros(n_groups)
+    curv = np.ones(n_groups)
+    for _ in range(60):
+        p = expit(eta0 + u[gi])
+        grad = np.bincount(gi, weights=(y - n * p), minlength=n_groups) - u / sigma ** 2
+        curv = np.bincount(gi, weights=(n * p * (1 - p)), minlength=n_groups) + 1 / sigma ** 2
+        step = grad / curv
+        u = u + step
+        if np.max(np.abs(step)) < 1e-10:
+            break
+    tau = 1.0 / np.sqrt(curv)
+    # log integrand at each node, then log-sum-exp over the node axis.
+    terms = np.empty((len(z_nodes), n_groups))
+    for m, zm in enumerate(z_nodes):
+        um = u + np.sqrt(2.0) * tau * zm
+        eta = eta0 + um[gi]
+        ll = np.bincount(gi, weights=(y * eta - n * np.logaddexp(0.0, eta)),
+                         minlength=n_groups)
+        log_prior = -0.5 * (um / sigma) ** 2 - np.log(sigma) - 0.5 * np.log(2 * np.pi)
+        terms[m] = log_w_nodes[m] + zm ** 2 + ll + log_prior
+    return np.log(np.sqrt(2.0) * tau) + _logsumexp(terms, axis=0)
+
+
+def _numeric_gradient(fun, x, step: float = 1e-5):
+    """Central-difference gradient - used to decide whether a fit really
+    is at an optimum, which a quasi-Newton optimiser working from forward
+    differences cannot reliably tell us."""
+    g = np.zeros(len(x))
+    h = step * np.maximum(1.0, np.abs(x))
+    for i in range(len(x)):
+        xp, xm = x.copy(), x.copy()
+        xp[i] += h[i]
+        xm[i] -= h[i]
+        g[i] = (fun(xp) - fun(xm)) / (2 * h[i])
+    return g
+
+
+def _numeric_hessian(fun, x, step: float = 1e-4):
+    """Central-difference Hessian of a scalar function. The likelihood
+    here has no closed-form second derivative worth hand-coding for 11
+    parameters, and the simulation test checks these standard errors
+    against the empirical spread of the estimator."""
+    k = len(x)
+    h = step * np.maximum(1.0, np.abs(x))
+    H = np.zeros((k, k))
+    for i in range(k):
+        for j in range(i, k):
+            xa, xb, xc, xd = x.copy(), x.copy(), x.copy(), x.copy()
+            xa[i] += h[i]; xa[j] += h[j]
+            xb[i] += h[i]; xb[j] -= h[j]
+            xc[i] -= h[i]; xc[j] += h[j]
+            xd[i] -= h[i]; xd[j] -= h[j]
+            H[i, j] = H[j, i] = ((fun(xa) - fun(xb) - fun(xc) + fun(xd))
+                                 / (4.0 * h[i] * h[j]))
+    return H
+
+
+def _fit_binomial_glmm(y, n, X, gi, n_groups, nodes: int = GLMM_QUAD_NODES,
+                       robust: bool = True) -> dict:
+    """ML fit of the random-intercept binomial GLMM. Returns a dict with
+    beta, the model-based and cluster-robust covariances, sigma and the
+    log-likelihood; `converged` False means the optimiser stopped short,
+    which the caller reports rather than hides."""
+    z_nodes, w_nodes = np.polynomial.hermite.hermgauss(nodes)
+    log_w = np.log(w_nodes)
+
+    def neg_ll(theta):
+        try:
+            value = -float(np.sum(_cluster_logliks(theta, y, n, X, gi, n_groups,
+                                                   z_nodes, log_w)))
+        except (FloatingPointError, ValueError):
+            return np.inf
+        return value if np.isfinite(value) else np.inf
+
+    beta0 = _irls_logistic(y, n, X)
+    theta = np.append(beta0, np.log(0.5))
+    # BFGS on a numerically differentiated likelihood routinely stops with
+    # "precision loss" while sitting exactly on the optimum, so convergence
+    # is judged by a gradient we measure ourselves rather than by the
+    # optimiser's own verdict, and a restart from the stopping point is
+    # allowed to clear a premature stop.
+    message = ""
+    for _ in range(3):
+        res = soptimize.minimize(neg_ll, theta, method="BFGS",
+                                 options={"maxiter": 500, "gtol": 1e-6})
+        message = str(res.message)
+        moved = float(np.max(np.abs(res.x - theta)))
+        theta = res.x
+        if res.success or moved < 1e-8:
+            break
+    grad = _numeric_gradient(neg_ll, theta)
+    converged = bool(np.max(np.abs(grad)) < 1e-3)
+    k_beta = X.shape[1]
+    out = {
+        "beta": theta[:-1],
+        "sigma": float(np.exp(theta[-1])),
+        "loglik": -float(res.fun),
+        "n_params": len(theta),
+        "converged": converged,
+        "grad_max": float(np.max(np.abs(grad))),
+        "message": message,
+        # Covariances are returned sliced to the FIXED EFFECTS. The fitted
+        # parameter vector carries log sigma in its last slot, and a
+        # contrast built over the coefficient names must not silently pick
+        # up that row.
+        "cov": None, "cov_robust": None, "se_log_sigma": np.nan,
+        "n_groups": n_groups,
+    }
+    H = _numeric_hessian(neg_ll, theta)
+    try:
+        cov = np.linalg.inv(H)
+    except np.linalg.LinAlgError:
+        return out
+    if not np.all(np.isfinite(cov)) or np.any(np.diag(cov) <= 0):
+        return out
+    out["cov"] = cov[:k_beta, :k_beta]
+    out["se_log_sigma"] = float(np.sqrt(cov[-1, -1]))
+    if not robust:
+        return out
+    # Cluster-robust sandwich: the score of each participant's own
+    # marginal log-likelihood, by central differences on the per-cluster
+    # vector the likelihood already returns.
+    k = len(theta)
+    scores = np.zeros((n_groups, k))
+    h = 1e-5 * np.maximum(1.0, np.abs(theta))
+    for j in range(k):
+        tp, tm = theta.copy(), theta.copy()
+        tp[j] += h[j]
+        tm[j] -= h[j]
+        scores[:, j] = (_cluster_logliks(tp, y, n, X, gi, n_groups, z_nodes, log_w)
+                        - _cluster_logliks(tm, y, n, X, gi, n_groups, z_nodes, log_w)
+                        ) / (2 * h[j])
+    meat = scores.T @ scores
+    scale = n_groups / max(n_groups - 1, 1)      # G/(G-1) small-sample scaling
+    robust_cov = scale * (cov @ meat @ cov)
+    if np.all(np.isfinite(robust_cov)) and np.all(np.diag(robust_cov) > 0):
+        out["cov_robust"] = robust_cov[:k_beta, :k_beta]
+    return out
+
+
+def _glmm_separation(counts: pd.DataFrame, conditions: List[str]) -> List[str]:
+    """Design cells with no errors (or no successes) POOLED over
+    participants. A single participant's perfect cell is ordinary data
+    for this model - that is the point of it - but a whole condition x
+    finger cell without one error makes its coefficient diverge, and a
+    number printed from a diverging coefficient is worse than no number."""
+    bad = []
+    for (c, f), g in counts.groupby(["condition", "finger_id"], sort=False):
+        s, t = int(g["successes"].sum()), int(g["trials"].sum())
+        if s == t:
+            bad.append(f"{c}/F{f} has no errors ({t} events)")
+        elif s == 0:
+            bad.append(f"{c}/F{f} has no correct events ({t} events)")
+    return bad
+
+
+def _glmm_effect_rows(names, beta, cov, cov_robust, df_t) -> List[dict]:
+    """One row per fixed effect: estimate on the logit scale, both
+    standard errors, and the odds ratio with the robust interval."""
+    se = np.sqrt(np.diag(cov)) if cov is not None else np.full(len(beta), np.nan)
+    se_r = (np.sqrt(np.diag(cov_robust)) if cov_robust is not None else se)
+    rows = []
+    for j, name in enumerate(names):
+        s = float(se_r[j])
+        t = float(beta[j] / s) if s > 0 else np.nan
+        crit = float(sstats.t.ppf(0.975, df_t)) if df_t > 0 else np.nan
+        rows.append({
+            "term": name,
+            "estimate": float(beta[j]),
+            "se_model": float(se[j]),
+            "se_robust": s,
+            "t": t,
+            "p": float(2 * sstats.t.sf(abs(t), df_t)) if np.isfinite(t) else np.nan,
+            "odds_ratio": float(np.exp(beta[j])),
+            "or_lo": float(np.exp(beta[j] - crit * s)),
+            "or_hi": float(np.exp(beta[j] + crit * s)),
+        })
+    return rows
+
+
+def _glmm_simple_effects(names, beta, cov_use, conditions, df_t) -> List[dict]:
+    """The C-vs-B log odds ratio WITHIN each finger, i.e. the contrast the
+    ANOVA's interaction term would have been about. At the reference
+    finger it is the condition coefficient; elsewhere it is that
+    coefficient plus the finger's interaction term, so the variance comes
+    from the full covariance matrix and not from adding two intervals."""
+    if len(conditions) < 2 or cov_use is None:
+        return []
+    c = conditions[1]
+    index = {name: j for j, name in enumerate(names)}
+    rows = []
+    crit = float(sstats.t.ppf(0.975, df_t)) if df_t > 0 else np.nan
+    for f in FINGER_IDS:
+        contrast = np.zeros(len(beta))
+        contrast[index[f"condition[{c}]"]] = 1.0
+        key = f"condition[{c}]:finger[{f}]"
+        if key in index:
+            contrast[index[key]] = 1.0
+        est = float(contrast @ beta)
+        var = float(contrast @ cov_use @ contrast)
+        se = float(np.sqrt(var)) if var > 0 else np.nan
+        t = est / se if se and np.isfinite(se) else np.nan
+        rows.append({
+            "finger_id": f,
+            "finger": FINGER_ID_NAMES[f],
+            "log_or": est,
+            "se": se,
+            "t": t,
+            "p": float(2 * sstats.t.sf(abs(t), df_t)) if np.isfinite(t) else np.nan,
+            "odds_ratio": float(np.exp(est)),
+            "or_lo": float(np.exp(est - crit * se)) if np.isfinite(se) else np.nan,
+            "or_hi": float(np.exp(est + crit * se)) if np.isfinite(se) else np.nan,
+        })
+    return rows
+
+
+def _glmm_fitted(counts, names, beta, sigma, conditions, nodes: int) -> pd.DataFrame:
+    """Model-implied and observed accuracy per (condition, finger).
+
+    The model-implied value is the POPULATION AVERAGE, E[expit(eta + u)]
+    over u ~ N(0, sigma^2) by the same quadrature the fit uses, because
+    that is what the observed group mean of the cell proportions
+    estimates. expit(eta) alone would be the median participant's value
+    and sits systematically higher near the ceiling."""
+    z_nodes, w_nodes = np.polynomial.hermite.hermgauss(nodes)
+    weights = w_nodes / np.sqrt(np.pi)
+    index = {name: j for j, name in enumerate(names)}
+    observed = counts.groupby(["condition", "finger_id"])["fa"].mean()
+    rows = []
+    for c in conditions:
+        for f in FINGER_IDS:
+            eta = beta[index["Intercept"]]
+            for key in (f"condition[{c}]", f"finger[{f}]", f"condition[{c}]:finger[{f}]"):
+                if key in index:
+                    eta += beta[index[key]]
+            p_avg = float(np.sum(weights * expit(eta + np.sqrt(2.0) * sigma * z_nodes)))
+            rows.append({
+                "condition": c, "finger_id": f,
+                "p_fitted": p_avg,
+                "p_median_participant": float(expit(eta)),
+                "observed": float(observed.get((c, f), np.nan)),
+            })
+    return pd.DataFrame(rows, columns=["condition", "finger_id", "p_fitted",
+                                       "p_median_participant", "observed"])
+
+
+def glmm_accuracy(event_rows: List[dict], conditions: Optional[List[str]] = None,
+                  nodes: int = GLMM_QUAD_NODES) -> dict:
+    """Binomial GLMM with a participant random intercept on finger
+    accuracy - the bounded-outcome sensitivity analysis for the ANOVA the
+    ceiling rules out (rationale: the section comment above).
+
+    Unlike the repeated-measures ANOVA this model needs no complete cell
+    grid: a participant missing a cell contributes the cells they have
+    instead of being deleted listwise, so no data is discarded to make the
+    design rectangular. Effects are tested by Type II likelihood-ratio
+    tests and reported with cluster-robust (by participant) Wald
+    intervals on a t(G-1) reference.
+
+    Returns a dict that is always complete enough to render: "reason"
+    says why when the model cannot be fitted and everything else stays
+    empty. Never raises for a data reason - a Group Analysis tab must not
+    be able to take the window down."""
+    conditions = list(conditions or ANOVA_CONDITIONS)
+    counts = accuracy_cell_counts(event_rows, conditions)
+    n_participants = int(counts["participant"].nunique()) if len(counts) else 0
+    grid = len(conditions) * len(FINGER_IDS)
+    incomplete = sorted(p for p, g in counts.groupby("participant")
+                        if len(g) < grid) if len(counts) else []
+    result = {
+        "conditions": conditions,
+        "counts": counts,
+        "n_participants": n_participants,
+        "n_cells": len(counts),
+        "n_events": int(counts["trials"].sum()) if len(counts) else 0,
+        "n_successes": int(counts["successes"].sum()) if len(counts) else 0,
+        "cells_per_participant": grid,
+        "incomplete_participants": incomplete,
+        "exploratory": n_participants < EXPLORATORY_N,
+        "quadrature_nodes": nodes,
+        "effects": [], "coefficients": [], "simple_effects": [],
+        "condition_effect": None,
+        "fitted": pd.DataFrame(),
+        "sigma": np.nan, "icc": np.nan,
+        "converged": False, "robust": False,
+        "separation": [],
+        "reason": None,
+    }
+    if n_participants < MIN_TEST_N:
+        result["reason"] = (f"requires N ≥ {MIN_TEST_N} participants with judged "
+                            f"finger events in {'/'.join(conditions)} (have "
+                            f"{n_participants})")
+        return result
+    separation = _glmm_separation(counts, conditions)
+    if separation:
+        result["separation"] = separation
+        result["reason"] = ("a condition × finger cell is completely separated, so its "
+                            "coefficient does not exist: " + "; ".join(separation))
+        return result
+    y, n, X, names, term_cols, gi, participants = _glmm_design(counts, conditions)
+    n_groups = len(participants)
+    try:
+        full = _fit_binomial_glmm(y, n, X, gi, n_groups, nodes)
+    except Exception as e:  # numerical failure is a reportable outcome, not a crash
+        result["reason"] = f"GLMM could not be fitted ({type(e).__name__}: {e})"
+        return result
+    if full["cov"] is None:
+        result["reason"] = ("GLMM standard errors are not available (the likelihood "
+                            "Hessian is singular at the optimum)"
+                            + ("" if full["converged"] else
+                               f"; the optimiser also stopped early: {full['message']}"))
+        return result
+
+    df_t = max(n_participants - 1, 1)
+    cov_use = full["cov_robust"] if full["cov_robust"] is not None else full["cov"]
+    result["converged"] = full["converged"]
+    result["robust"] = full["cov_robust"] is not None
+    result["sigma"] = full["sigma"]
+    # ICC on the latent logit scale: sigma^2 / (sigma^2 + pi^2/3), the
+    # share of the latent variance that is between participants. Quoted
+    # because it says how much the participant random effect is doing.
+    result["icc"] = float(full["sigma"] ** 2 / (full["sigma"] ** 2 + np.pi ** 2 / 3))
+    result["loglik"] = full["loglik"]
+    result["coefficients"] = _glmm_effect_rows(names, full["beta"], full["cov"],
+                                               full["cov_robust"], df_t)
+    result["simple_effects"] = _glmm_simple_effects(names, full["beta"], cov_use,
+                                                    conditions, df_t)
+    result["fitted"] = _glmm_fitted(counts, names, full["beta"], full["sigma"],
+                                    conditions, nodes)
+
+    # Type II likelihood-ratio tests: each term against the model that
+    # holds every other term. Refitting three reduced models is cheap
+    # here (the design is 10 columns over a few hundred binomial rows)
+    # and an LRT behaves better than a Wald test on a variance-component
+    # model with this many clusters.
+    keep_all = set(range(X.shape[1]))
+    additive_cols = sorted(keep_all - set(term_cols["condition * finger_id"]))
+    # The additive model is fitted once with robust standard errors and
+    # then reused: it is both the reference for the main-effect LRTs and
+    # the model the single overall C-vs-B odds ratio comes from. Quoting
+    # that number off the interaction model instead would silently make it
+    # the thumb's effect, because the thumb is the reference finger.
+    additive = _fit_binomial_glmm(y, n, X[:, additive_cols], gi, n_groups, nodes)
+    additive_names = [names[j] for j in additive_cols]
+    if additive["cov"] is not None and len(conditions) > 1:
+        rows = _glmm_effect_rows(additive_names, additive["beta"], additive["cov"],
+                                 additive["cov_robust"], df_t)
+        term = f"condition[{conditions[1]}]"
+        result["condition_effect"] = next((r for r in rows if r["term"] == term), None)
+    for source in ("condition", "finger_id", "condition * finger_id"):
+        drop = set(term_cols[source])
+        if not drop:
+            continue
+        if source != "condition * finger_id":
+            drop |= set(term_cols["condition * finger_id"])  # marginality
+        cols = sorted(keep_all - drop)
+        reference = full
+        if source != "condition * finger_id":
+            # Main effects are tested inside the additive model, so the
+            # comparison has to be additive on both sides.
+            reference = additive
+        reduced = _fit_binomial_glmm(y, n, X[:, cols], gi, n_groups, nodes,
+                                     robust=False)
+        chi2 = 2.0 * (reference["loglik"] - reduced["loglik"])
+        df = reference["n_params"] - reduced["n_params"]
+        result["effects"].append({
+            "source": source,
+            "label": GLMM_TERM_LABELS[source],
+            "chi2": float(max(chi2, 0.0)),
+            "df": int(df),
+            "p": float(sstats.chi2.sf(max(chi2, 0.0), df)) if df > 0 else np.nan,
+            "converged": bool(reduced["converged"] and reference["converged"]),
+        })
+    return result
+
+
+def glmm_effect_table(res: dict) -> pd.DataFrame:
+    """The rendered GLMM as one tidy export table: the LRT rows, the
+    fixed-effect rows and the per-finger simple effects, tagged by which
+    part of the model they came from so the CSV stands alone."""
+    rows = []
+    for e in res.get("effects", []):
+        rows.append({"part": "lrt", "term": e["source"], "label": e["label"],
+                     "chi2": e["chi2"], "df": e["df"], "p": e["p"]})
+    for c in res.get("coefficients", []):
+        rows.append({"part": "fixed_effect", "term": c["term"], "label": c["term"],
+                     "estimate_logit": c["estimate"], "se_model": c["se_model"],
+                     "se_robust": c["se_robust"], "t": c["t"], "p": c["p"],
+                     "odds_ratio": c["odds_ratio"], "or_lo": c["or_lo"],
+                     "or_hi": c["or_hi"]})
+    overall = res.get("condition_effect")
+    if overall:
+        rows.append({"part": "condition_effect", "term": overall["term"],
+                     "label": "C vs B, additive model",
+                     "estimate_logit": overall["estimate"],
+                     "se_model": overall["se_model"], "se_robust": overall["se_robust"],
+                     "t": overall["t"], "p": overall["p"],
+                     "odds_ratio": overall["odds_ratio"], "or_lo": overall["or_lo"],
+                     "or_hi": overall["or_hi"]})
+    for s in res.get("simple_effects", []):
+        rows.append({"part": "simple_effect", "term": f"C vs B | finger {s['finger_id']}",
+                     "label": f"{s['finger_id']} {s['finger']}",
+                     "estimate_logit": s["log_or"], "se_robust": s["se"], "t": s["t"],
+                     "p": s["p"], "odds_ratio": s["odds_ratio"],
+                     "or_lo": s["or_lo"], "or_hi": s["or_hi"]})
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df.insert(0, "n_participants", res.get("n_participants"))
+        df.insert(1, "n_events", res.get("n_events"))
+        df["sigma_participant"] = res.get("sigma")
+        df["icc_latent"] = res.get("icc")
+        df["se_type"] = "cluster-robust by participant" if res.get("robust") else "model-based"
+    return df
 
 
 # ---------------------------------------------------------------------------

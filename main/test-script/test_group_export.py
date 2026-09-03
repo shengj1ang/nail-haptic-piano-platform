@@ -53,6 +53,7 @@ TAB_TABLE_PREFIXES = {
     "Fingers": "fingers_",
     "Finger Confusion": "confusion_group_",
     "RM-ANOVA": "rm_anova_",
+    "Accuracy GLMM": "glmm_",
     "Finger Benefit": "finger_",
     "Quality": "quality_",
 }
@@ -68,6 +69,7 @@ TAB_FIGURE_PREFIXES = {
     "Fingers": "group_fingers",
     "Finger Confusion": "group_confusion",
     "RM-ANOVA": "group_rm_anova",
+    "Accuracy GLMM": "group_glmm",
     "Finger Benefit": "group_finger",
     "Quality": "group_quality",
 }
