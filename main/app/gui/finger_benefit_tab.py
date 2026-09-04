@@ -53,6 +53,26 @@ def _significance_stars(p) -> str:
     return ""
 
 
+def _add_pair_bracket(ax, x1: float, x2: float, p) -> bool:
+    """Place the paired-test result over the B and C distributions."""
+    stars = _significance_stars(p)
+    if not stars:
+        return False
+    y_lo, y_hi = ax.get_ylim()
+    span = y_hi - y_lo
+    if not np.isfinite(span) or span <= 0:
+        span = 1.0
+    y = y_hi + 0.025 * span
+    height = 0.035 * span
+    ax.plot([x1, x1, x2, x2], [y, y + height, y + height, y],
+            color="#333333", linewidth=1.2, clip_on=False, zorder=10)
+    ax.text((x1 + x2) / 2, y + height, stars,
+            ha="center", va="bottom", fontsize=15, fontweight="bold",
+            clip_on=False, zorder=11)
+    ax.set_ylim(y_lo, y_hi + 0.16 * span)
+    return True
+
+
 def _participant_colors(participants) -> Dict[str, tuple]:
     import matplotlib
     # matplotlib.colormaps is the current API; cm.get_cmap is deprecated
@@ -265,13 +285,10 @@ def _equalisation_figure(res: dict) -> Figure:
         ax.set_ylabel(ylabel, fontsize=9)
         ax.set_title(ylabel.split("(")[0].strip(), fontsize=10)
         measure = next((m for m in res["measures"] if m["key"] == key), None)
-        stars = _significance_stars(measure["test"]["p_t"]) if measure else ""
-        if stars:
-            ax.text(0.5, 0.97, stars, transform=ax.transAxes,
-                    ha="center", va="top", fontsize=15,
-                    fontweight="bold", zorder=10)
         ax.legend(fontsize=7)
         zero_based_ylim(ax)
+        if measure:
+            _add_pair_bracket(ax, 0, 1, measure["test"]["p_t"])
     fig.tight_layout()
     return fig
 

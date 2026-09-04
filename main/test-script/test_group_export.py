@@ -289,6 +289,28 @@ class TestExportCoverage(unittest.TestCase):
         self.assertFalse(diffs.duplicated(
             ["participant", "contrast", "metric"]).any())
 
+    def test_contrasts_draw_the_paired_test_over_b_and_c(self):
+        """A paired-test star must identify its two raw distributions."""
+        figure = self.window._figures["group_contrasts"]
+        n_annotated = 0
+        for ax in figure.axes:
+            self.assertEqual([tick.get_text() for tick in ax.get_xticklabels()], ["B", "C"])
+            participant_pairs = [
+                line for line in ax.lines
+                if np.isclose(line.get_linewidth(), 0.8)
+                and np.allclose(line.get_xdata(), [0, 1])
+            ]
+            self.assertEqual(len(participant_pairs), self.window._data.n)
+            brackets = [
+                line for line in ax.lines
+                if len(line.get_xdata()) == 4
+                and np.allclose(line.get_xdata(), [0, 0, 1, 1])
+            ]
+            star_texts = [text for text in ax.texts if text.get_text() in {"*", "**"}]
+            self.assertEqual(len(brackets), len(star_texts))
+            n_annotated += len(brackets)
+        self.assertGreater(n_annotated, 0)
+
     def test_error_figures_include_condition_a_reference_context(self):
         composition = self.window._figures["group_errors_composition"].axes[0]
         self.assertEqual(composition.get_xticklabels()[0].get_text(), "A\n(reference)")
@@ -324,6 +346,17 @@ class TestExportCoverage(unittest.TestCase):
         np.testing.assert_allclose(null.get_xdata(), [0, 1])
         self.assertAlmostEqual(null.get_ydata()[0], observed.get_ydata()[0])
         self.assertEqual(null.get_linestyle(), "--")
+
+    def test_equalisation_paired_test_uses_a_b_c_bracket(self):
+        figure = self.window._figures["group_finger_equalisation"]
+        for ax in figure.axes:
+            brackets = [
+                line for line in ax.lines
+                if len(line.get_xdata()) == 4
+                and np.allclose(line.get_xdata(), [0, 0, 1, 1])
+            ]
+            star_texts = [text for text in ax.texts if text.get_text() in {"*", "**"}]
+            self.assertEqual(len(brackets), len(star_texts))
 
     def test_condition_confusion_titles_put_sample_size_on_its_own_line(self):
         figure = self.window._figures["group_confusion_by_condition"]

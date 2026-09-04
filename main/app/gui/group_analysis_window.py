@@ -132,6 +132,34 @@ def significance_stars(p) -> str:
     return ""
 
 
+def _add_pair_bracket(ax, x1: float, x2: float, p) -> bool:
+    """Draw a significance bracket over the two groups actually tested.
+
+    This helper is deliberately limited to an explicit two-group contrast.
+    Omnibus ANOVA main effects and interactions continue to use their own
+    labelled annotation because neither has two unambiguous bracket ends.
+    """
+    stars = significance_stars(p)
+    if not stars:
+        return False
+
+    # Work from the current display range after all data artists have been
+    # added, then reserve a little headroom so the bracket is never clipped.
+    y_lo, y_hi = ax.get_ylim()
+    span = y_hi - y_lo
+    if not np.isfinite(span) or span <= 0:
+        span = 1.0
+    y = y_hi + 0.025 * span
+    height = 0.035 * span
+    ax.plot([x1, x1, x2, x2], [y, y + height, y + height, y],
+            color="#333333", linewidth=1.2, clip_on=False, zorder=10)
+    ax.text((x1 + x2) / 2, y + height, stars,
+            ha="center", va="bottom", fontsize=15, fontweight="bold",
+            clip_on=False, zorder=11)
+    ax.set_ylim(y_lo, y_hi + 0.16 * span)
+    return True
+
+
 def _reported_effect_p(res: dict, source: str) -> float:
     """Reported (GG-corrected where applicable) p for one ANOVA effect."""
     for effect in res.get("effects", []):
@@ -779,9 +807,9 @@ class GroupAnalysisWindow(QMainWindow):
         # retained as a sensitivity analysis in the tidy exports, but a
         # second panel would be visually redundant.
         specs = [
-            ("fa_main", 100, "pp", "Main Finger Accuracy (percentage points)"),
-            ("key_accuracy", 100, "pp", "Key Accuracy (percentage points)"),
-            ("rt_complete_s", 1000, "ms", "RT — key-and-finger-correct (ms)"),
+            ("fa_main", 100, "%", "pp", "Main Finger Accuracy"),
+            ("key_accuracy", 100, "%", "pp", "Key Accuracy"),
+            ("rt_complete_s", 1000, "ms", "ms", "RT — key-and-finger-correct"),
         ]
         # Keep the historical tidy-export order while making the strict
         # RT the plotted primary. dict.fromkeys prevents a metric from
@@ -790,68 +818,55 @@ class GroupAnalysisWindow(QMainWindow):
         tested_metrics = list(dict.fromkeys(
             plotted_metrics[:-1] + ["rt_correct_key_s"] + plotted_metrics[-1:]
         ))
-        contrast_labels = [f"{a}−{b}" for a, b in ga.CONTRASTS]
         all_diffs, inference_rows = [], []
         fig = Figure(figsize=(10.5, 3.9))
         axes = fig.subplots(1, 3)
         cap_blocks = ["<h3>Paired B–C guidance contrast (within-participant)</h3>",
-                      "C−B compares haptic with visual target-finger guidance. Condition A is not "
+                      "C compares haptic with visual target-finger guidance. Condition A is not "
                       "an inferential baseline because it provides no target-finger information. One dot per "
-                      "participant (their paired difference), diamond = group mean, bar = 95% bootstrap CI "
-                      "(needs N ≥ 2). Accuracy differences are in percentage points; the underlying "
-                      "proportions (previous tabs) stay the computation basis."]
+                      "participant and condition; a grey line joins the same participant's B and C values. "
+                      "Diamonds and bars are group means and 95% participant-bootstrap CIs (needs N ≥ 2). "
+                      "The bracket identifies the two distributions used by the paired t-test."]
         for metric in tested_metrics:
             all_diffs.append(ga.paired_differences(self._pc, metric).assign(metric=metric))
             inference_rows.extend(self._inference_rows(metric))
-        for ax, (metric, scale, unit, title) in zip(axes, specs):
-            diffs = ga.paired_differences(self._pc, metric)
+        for ax, (metric, scale, axis_unit, difference_unit, title) in zip(axes, specs):
             inference = ga.condition_inference(self._pc, metric)
-            x = np.arange(len(contrast_labels))
-            ax.axhline(0, color="#bbbbbb", linewidth=1)
+            pivot = ga.condition_pivot(self._pc, metric)
+            complete = pivot[list(ga.GUIDANCE_CONDITIONS)].dropna()
+            x = np.arange(len(ga.GUIDANCE_CONDITIONS), dtype=float)
             metric_lines = [f"<b>{title}</b>"]
-            for xi, label in enumerate(contrast_labels):
-                sub = diffs[diffs["contrast"] == label]["diff"] * scale
-                n_pairs = len(sub)
-                # Spread the per-participant dots into a narrow vertical band
-                # around the column centre (linear, not random, so a rerun is
-                # reproducible). Smaller factor = tighter band.
-                jitter = (np.arange(n_pairs) - (n_pairs - 1) / 2) * (0.14 / max(n_pairs, 1))
-                ax.scatter(xi + jitter, sub, s=26, color="#3a76c4", alpha=0.75, zorder=2)
-                if n_pairs:
-                    mean = float(sub.mean())
-                    if n_pairs >= 2:
-                        # Participant bootstrap of the mean difference, the
-                        # same interval condition_inference reports for the
-                        # caption (asymmetric, so drawn low/high separately).
-                        lo, hi = ga.bootstrap_ci(sub.to_numpy(dtype=float))
+            n_pairs = len(complete)
+            for _, row in complete.iterrows():
+                ys = row[list(ga.GUIDANCE_CONDITIONS)].to_numpy(dtype=float) * scale
+                ax.plot(x, ys, "-", color="#b7b7b7", linewidth=0.8,
+                        alpha=0.75, zorder=1)
+            for xi, condition in enumerate(ga.GUIDANCE_CONDITIONS):
+                values = complete[condition].to_numpy(dtype=float) * scale
+                ax.scatter(np.full(len(values), xi), values, s=28,
+                           color=CONDITION_COLORS[condition], alpha=0.72, zorder=2)
+                if len(values):
+                    mean = float(np.mean(values))
+                    if len(values) >= 2:
+                        lo, hi = ga.bootstrap_ci(values)
                         ax.errorbar([xi], [mean], yerr=[[mean - lo], [hi - mean]],
                                     color="black", capsize=4, linewidth=1.3, zorder=3)
-                    ax.scatter([xi], [mean], s=140, marker="D", color="#d9663d",
+                    ax.scatter([xi], [mean], s=125, marker="D",
+                               color=CONDITION_COLORS[condition],
                                edgecolor="black", zorder=4)
-                    missing = self._data.n - n_pairs
-                    metric_lines.append(
-                        f"{label}: mean {mean:+.1f} {unit}, n = {n_pairs} pairs"
-                        + (f" ({missing} participant(s) missing a side)" if missing else ""))
-                else:
-                    metric_lines.append(f"{label}: no complete pairs")
-            ax.set_xticks(x, contrast_labels)
-            ax.set_ylabel(unit)
+            missing = self._data.n - n_pairs
+            metric_lines.append(
+                f"B versus C: n = {n_pairs} complete pairs"
+                + (f" ({missing} participant(s) missing a side)" if missing else ""))
+            ax.set_xticks(x, list(ga.GUIDANCE_CONDITIONS))
+            ax.set_ylabel(axis_unit)
             ax.set_title(title, fontsize=10)
             if not inference["reason"]:
-                stars = significance_stars(inference["paired_t"]["p"])
-                if stars:
-                    ax.text(0.5, 0.97, stars, transform=ax.transAxes,
-                            ha="center", va="top", fontsize=15,
-                            fontweight="bold", zorder=10)
-            metric_lines.append(self._inference_html(metric, scale, unit))
+                if metric.startswith("rt_"):
+                    zero_based_ylim(ax)
+                _add_pair_bracket(ax, x[0], x[1], inference["paired_t"]["p"])
+            metric_lines.append(self._inference_html(metric, scale, difference_unit))
             cap_blocks.append("<br>".join(metric_lines))
-        # Each difference panel is pinned to a fixed range so a
-        # participant at the extreme reads as an outlier, not a point
-        # pressed against the frame. The panels use different units, so
-        # each keeps its own range rather than sharing one.
-        axes[0].set_ylim(-5, 10)       # Main Finger Accuracy (pp)
-        axes[1].set_ylim(-2, 5)        # Key Accuracy (pp)
-        axes[2].set_ylim(-500, 0)      # RT — key-and-finger-correct (ms)
         fig.tight_layout()
         rt_note = self._rt_definition_note(
             self._pc, ["condition"], plotted_metric="rt_complete_s")
