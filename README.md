@@ -22,7 +22,7 @@ cd main && python launcher.py
 
 **Every document lives in [`doc/`](doc/).** This README is the index and stays
 short: each subject below is written up in exactly one place, and nothing here
-repeats it. Screenshots used by the documents are in [`doc/image/`](doc/image).
+repeats it.
 
 ### Start here
 
