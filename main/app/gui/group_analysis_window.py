@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
 from .. import group_analysis as ga
 from .. import group_tradeoff as gt
 from .. import figure_prefs
-from ..figure_axes import zero_based_ylim
+from ..figure_axes import cap_percent_ticks, zero_based_ylim
 from .. import session_progression as sp
 from .. import session_progression_figures as sp_figures
 from ..pilot_study import DATA_DIR as STUDY_DATA_DIR
@@ -138,6 +138,10 @@ def _add_pair_bracket(ax, x1: float, x2: float, p) -> bool:
     This helper is deliberately limited to an explicit two-group contrast.
     Omnibus ANOVA main effects and interactions continue to use their own
     labelled annotation because neither has two unambiguous bracket ends.
+
+    The headroom is reserved inside the axes, so on a percentage panel the
+    range can end above 100. The frame stays where it is and
+    ``cap_percent_ticks`` drops the tick labels a percentage cannot reach.
     """
     stars = significance_stars(p)
     if not stars:
@@ -833,7 +837,7 @@ class GroupAnalysisWindow(QMainWindow):
         fig = Figure(figsize=(10.5, 3.9))
         axes = fig.subplots(1, 3)
         cap_blocks = ["<h3>Paired B–C guidance contrast (within-participant)</h3>",
-                      "C compares haptic with visual target-finger guidance. Condition A is not "
+                      "C compares vibrotactile with visual target-finger guidance. Condition A is not "
                       "an inferential baseline because it provides no target-finger information. One dot per "
                       "participant and condition; a grey line joins the same participant's B and C values. "
                       "Diamonds and bars are group means and 95% participant-bootstrap CIs (needs N ≥ 2). "
@@ -876,9 +880,21 @@ class GroupAnalysisWindow(QMainWindow):
                 if metric.startswith("rt_"):
                     zero_based_ylim(ax)
                 _add_pair_bracket(ax, x[0], x[1], inference["paired_t"]["p"])
+            # The bracket's headroom runs these near-ceiling panels past
+            # 100%. The frame keeps that space for the bracket; only the
+            # tick labels a percentage cannot reach come off.
+            if axis_unit == "%":
+                cap_percent_ticks(ax)
             metric_lines.append(self._inference_html(metric, scale, difference_unit))
             cap_blocks.append("<br>".join(metric_lines))
-        fig.tight_layout()
+        # x is just "B" and "C" here, so without this the panel is the one
+        # figure in the set that never says what the two conditions are.
+        fig.legend(handles=[
+            Patch(facecolor=CONDITION_COLORS[c], edgecolor="black",
+                  label=self._cond_titles[c])
+            for c in ga.GUIDANCE_CONDITIONS
+        ], loc="lower center", ncol=2, fontsize=8, frameon=False)
+        fig.tight_layout(rect=(0, 0.08, 1, 1))
         rt_note = self._rt_definition_note(
             self._pc, ["condition"], plotted_metric="rt_complete_s")
         if rt_note:
@@ -1202,7 +1218,7 @@ class GroupAnalysisWindow(QMainWindow):
                 (ax_fa, "fa_main", 100, "Complete-action Accuracy (%)",
                  "Complete-action Accuracy across repetitions"),
                 (ax_rt, "rt_correct_key_s", 1000, "Reaction Time (ms)",
-                 "Reaction time across repetitions")):
+                 "Reaction Time across repetitions")):
             for c in ga.GUIDANCE_CONDITIONS:
                 sub = rep[rep["condition"] == c]
                 if figure_prefs.show_participant_traces:
@@ -1567,7 +1583,7 @@ class GroupAnalysisWindow(QMainWindow):
         vmax = max((max(row) for row in guided["matrix"]), default=1) or 1
         self._draw_confusion(ax_counts, guided, f"Event counts (n = {guided['total']})",
                              normalized=False, vmax=vmax, cell_fontsize=6.5)
-        self._draw_confusion(ax_norm, guided, "Row-normalized % per target finger",
+        self._draw_confusion(ax_norm, guided, "Row-normalised % per target finger",
                              normalized=True, vmax=100.0, cell_fontsize=6.5)
         ax_counts.set_ylabel("target finger", fontsize=8)
         fig1.suptitle(
@@ -1589,7 +1605,7 @@ class GroupAnalysisWindow(QMainWindow):
                                  f"{self._cond_titles[c]}\n(n = {by_cond[c]['total']})",
                                  normalized=True, vmax=100.0, cell_fontsize=6.0)
         axes[0].set_ylabel("target finger", fontsize=8)
-        fig2.suptitle("Row-normalized % per target finger, by condition", fontsize=11)
+        fig2.suptitle("Row-normalised % per target finger, by condition", fontsize=11)
         fig2.tight_layout()
 
         top = top_confusion(guided["matrix"])
@@ -2334,7 +2350,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax_or.set_yticks(y, labels, fontsize=8)
         ax_or.set_ylim(-0.6, len(simple) + 0.6)
         ax_or.set_xlabel("Odds ratio, C vs B (log scale)")
-        ax_or.set_title("Haptic-vs-visual odds ratio per digit", fontsize=10)
+        ax_or.set_title("Odds ratio per digit", fontsize=10)
         ticks = [0.5, 1, 2, 5, 10, 20]
         finite = [v for s in simple for v in (s["or_lo"], s["or_hi"]) if np.isfinite(v)]
         if finite:
@@ -2393,7 +2409,7 @@ class GroupAnalysisWindow(QMainWindow):
     def _build_finger_benefit(self):
         metric = ga.ANOVA_METRICS[0][0]  # the same RT the RM-ANOVA leads with
         caption, figures, datasets = finger_benefit_tab.build(
-            self._data.event_rows, metric=metric)
+            self._data.event_rows, metric=metric, cond_titles=self._cond_titles)
         return caption, figures, datasets
 
     # ------------------------------------------------------------------

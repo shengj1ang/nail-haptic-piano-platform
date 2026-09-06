@@ -10,7 +10,12 @@ helper here for doing so.  This study's accuracy sits against the ceiling
 (94-99%), so a full-range axis collapses every condition into one flat
 line and the per-level movement the figure exists to show disappears.
 They autoscale instead, and the captions say so, because a legible
-near-ceiling panel with honest tick labels beats an unreadable one.  The
+near-ceiling panel with honest tick labels beats an unreadable one.
+A significance bracket reserves its headroom inside the axes, which
+on a panel whose data already touch 100% runs the range past what
+a percentage can be.  The frame keeps that space - the bracket
+needs it - and ``cap_percent_ticks`` takes off the tick labels
+that would print an impossible value.  The
 few panels that were already pinned before this policy existed keep their
 own ``set_ylim`` call at the call site.
 """
@@ -41,6 +46,22 @@ def zero_based_ylim(*axes, headroom: float = 0.05) -> None:
         return
     for ax in axes:
         ax.set_ylim(0.0, top * (1.0 + headroom))
+
+
+def cap_percent_ticks(*axes, upper: float = 100.0) -> None:
+    """Drop y tick labels above a bounded maximum, keeping the range.
+
+    The range itself has to stay: a paired-test bracket is drawn in the
+    headroom above the highest point, and cropping back to 100% would
+    clip it.  What comes off is only the tick labels, so the axis never
+    prints a percentage that cannot exist.
+    """
+    for ax in axes:
+        lo, hi = ax.get_ylim()
+        keep = [t for t in ax.get_yticks() if lo <= t <= min(hi, upper) + 1e-9]
+        if keep:
+            ax.set_yticks(keep)
+            ax.set_ylim(lo, hi)
 
 
 def zero_based_xlim(*axes, headroom: float = 0.05) -> None:

@@ -21,7 +21,7 @@ the tab and register the figures/CSVs for "Export figures + data"
 without knowing anything about what is on it.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -256,7 +256,15 @@ def _equalisation_html(res: dict) -> str:
                            f"<b>Reading:</b> {v}" if v else ""] if p)
 
 
-def _equalisation_figure(res: dict) -> Figure:
+def _tick_label(condition: str, titles: Dict[str, str]) -> str:
+    """"B" over its condition name, e.g. "B\nVisual finger-cue guidance"."""
+    title = titles.get(condition, "")
+    name = title[len(condition):].strip(" ()") if title.startswith(condition) else title
+    return f"{condition}\n{name}" if name else condition
+
+
+def _equalisation_figure(res: dict,
+                        cond_titles: Optional[Dict[str, str]] = None) -> Figure:
     table = res["table"]
     baseline, cued = res["baseline"], res["cued"]
     fig = Figure(figsize=(10.5, 3.9))
@@ -280,7 +288,12 @@ def _equalisation_figure(res: dict) -> Figure:
             ax.plot([0, 1], [means[0], null], "--", linewidth=1.6,
                     color="#c23b22", zorder=3,
                     label="expected under proportional speed-up")
-        ax.set_xticks([0, 1], [baseline, cued])
+        # Condition is encoded by x position alone in this figure - the
+        # traces are grey and the means black - so the tick has to carry
+        # the condition name rather than just its letter.
+        titles = cond_titles or {}
+        ax.set_xticks([0, 1], [_tick_label(c, titles) for c in (baseline, cued)],
+                      fontsize=8)
         ax.set_xlim(-0.3, 1.3)
         ax.set_ylabel(ylabel, fontsize=9)
         ax.set_title(ylabel.split("(")[0].strip(), fontsize=10)
@@ -371,9 +384,15 @@ def _weakest_figure(results: List[dict]) -> Figure:
 # ---------------------------------------------------------------------------
 
 
-def build(event_rows: List[dict], metric: str = "rt_complete_s"
+def build(event_rows: List[dict], metric: str = "rt_complete_s",
+          cond_titles: Optional[Dict[str, str]] = None
           ) -> Tuple[str, List[Figure], Dict[str, pd.DataFrame]]:
-    """(caption_html, figures, datasets) for the Finger Benefit tab."""
+    """(caption_html, figures, datasets) for the Finger Benefit tab.
+
+    ``cond_titles`` carries the study's own condition labels ("B (Visual
+    finger-cue guidance)") so the equalisation panels can name the two
+    conditions on their x axis instead of leaving bare letters.
+    """
     comp = fb.compensation_analysis(event_rows, metric)
     equal = fe.equalisation_analysis(event_rows, metric)
     weak = [fw.weakest_finger_analysis(event_rows, criterion, metric)
@@ -405,7 +424,7 @@ def build(event_rows: List[dict], metric: str = "rt_complete_s"
             datasets[f"finger_benefit_{e['key']}_per_participant"] = e["per_participant"]
         datasets["finger_benefit_summary"] = _compensation_summary(comp)
     if not equal["reason"]:
-        figures["group_finger_equalisation"] = _equalisation_figure(equal)
+        figures["group_finger_equalisation"] = _equalisation_figure(equal, cond_titles)
         datasets["finger_equalisation_dispersion"] = equal["table"]
         datasets["finger_equalisation_tests"] = _equalisation_summary(equal)
     usable_weak = [r for r in weak if not r["reason"]]
