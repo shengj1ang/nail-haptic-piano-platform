@@ -757,7 +757,9 @@ def save_waveform_figure(path: str, groups: Dict[str, MethodGroup],
     for ax in (ax_full, ax_rise):
         ax.axvline(0.0, color="black", linewidth=1.0)
         ax.set_xlabel(f"Time since {align_label} (ms)")
-        ax.set_ylabel("Envelope (counts)")
+        # Same statistic, same words as the delay experiment - and
+        # spelled out, because the rise panel is cropped out on its own.
+        ax.set_ylabel(mad.ENVELOPE_AXIS_LABEL, fontsize=9)
         ax.grid(True, alpha=0.4)
         ax.legend(fontsize=7)
     ax_full.set_title(f"Mean vibration envelope, aligned at {align_label}\n"

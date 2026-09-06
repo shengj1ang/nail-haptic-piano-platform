@@ -1290,8 +1290,7 @@ def save_plot(path: str, results: List[AdhesionTrialResult],
     ax2.set_title("Vibration envelope per trial   (▼ onset, ● stable state)"
                   if drew else "Vibration envelope (no per-sample data)")
     ax2.set_xlabel("Time since motor command (ms)")
-    ax2.set_ylabel(f"Per-axis deviation envelope (counts)\n"
-                   f"centred {mad.ENVELOPE_WINDOW_S * 1000:.0f} ms moving RMS")
+    ax2.set_ylabel(mad.ENVELOPE_AXIS_LABEL, fontsize=9)
     ax2.grid(True, alpha=0.4)
     if drew:
         ax2.legend(fontsize=7)

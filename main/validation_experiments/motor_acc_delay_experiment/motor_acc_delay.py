@@ -276,6 +276,16 @@ ONSET_SUSTAIN_FRACTION = 0.40
 # systematic lag that would inflate every settling time.
 ENVELOPE_WINDOW_S = 0.020
 
+#: The y-axis label EVERY envelope panel carries, written out once
+#: here. Single panels get cropped out of these summary figures for
+#: the write-up, so each one has to name its own axis on its own -
+#: including what a count is worth, because the intensity panels
+#: next to them are plotted in m/s².
+ENVELOPE_AXIS_LABEL = (
+    "Per-axis deviation envelope (counts)\n"
+    f"centred {ENVELOPE_WINDOW_S * 1000:.0f} ms moving RMS\n"
+    f"(1 count = 1 mg = {MS2_PER_COUNT:.4f} m/s²)")
+
 # -- steady state --------------------------------------------------------
 # The steady level is the MEDIAN envelope over the last
 # STEADY_REF_FRACTION of the drive window (median, so a late glitch
@@ -1413,9 +1423,11 @@ def save_plot(path: str, results: List[TrialResult], actuator_type: str,
             ax.axhline(threshold_hint, linestyle=":", color="tab:gray",
                        label=f"Detection level ≈ {threshold_hint:.0f}")
     # The detector's own statistic - deliberately not one of the shared
-    # windowed intensity metrics (see the module docstring).
-    ax4.set_ylabel(f"Per-axis deviation envelope (counts)\n"
-                   f"centred {ENVELOPE_WINDOW_S * 1000:.0f} ms moving RMS")
+    # windowed intensity metrics (see the module docstring). BOTH
+    # panels are labelled: the zoom is the one the write-up crops
+    # out, and a cropped panel keeps only its own axis labels.
+    for ax in (ax4, ax5):
+        ax.set_ylabel(ENVELOPE_AXIS_LABEL, fontsize=9)
     if any_trace or threshold_hint is not None:
         ax4.legend(fontsize=6, loc="upper left")
         ax5.legend(fontsize=6, loc="lower right")
