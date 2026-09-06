@@ -168,15 +168,21 @@ def _reported_effect_p(res: dict, source: str) -> float:
     return np.nan
 
 
-def _annotate_effect_stars(ax, labelled_p_values) -> None:
-    """Add a compact in-panel key for significant omnibus effects only."""
+def _annotate_effect_stars(ax, labelled_p_values, corner: str = "upper left") -> None:
+    """Add a compact in-panel key for significant omnibus effects only.
+
+    ``corner`` is "upper left" or "lower left". Move it down when the top
+    of the panel is already taken - by the legend, or by data that rises
+    towards the left edge.
+    """
     lines = [f"{label} {stars}" for label, p in labelled_p_values
              if (stars := significance_stars(p))]
     if not lines:
         return
+    y, va = (0.97, "top") if corner == "upper left" else (0.03, "bottom")
     ax.text(
-        0.03, 0.97, "\n".join(lines), transform=ax.transAxes,
-        ha="left", va="top", fontsize=8.5, fontweight="bold",
+        0.03, y, "\n".join(lines), transform=ax.transAxes,
+        ha="left", va=va, fontsize=8.5, fontweight="bold",
         bbox={"boxstyle": "round,pad=0.25", "facecolor": "white",
               "edgecolor": "#aaaaaa", "alpha": 0.88},
         zorder=10,
@@ -1223,13 +1229,20 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7)
+        # Accuracy pinned to 90-100%: autoscaled, the band ran to the
+        # bottom of the panel and the legend covered its lower edge. The
+        # top is 100 rather than 99 because C's CI reaches 99.1% and a
+        # clipped interval hides where it ends.
+        ax_fa.set_ylim(90.0, 100.0)
         zero_based_ylim(ax_rt)
+        # Bottom-left: the RT panel's legend owns the top right and both
+        # traces descend from the left, so the top-left default sat on B.
         _annotate_effect_stars(ax_rt, [
             ("Condition", _reported_effect_p(rep_anova, "condition")),
             ("Repetition", _reported_effect_p(rep_anova, "repetition")),
             ("Condition × Repetition",
              _reported_effect_p(rep_anova, "condition * repetition")),
-        ])
+        ], corner="lower left")
         fig1.tight_layout()
 
         pos = ga.session_position_metrics(self._data.trial_rows)
@@ -1303,9 +1316,10 @@ class GroupAnalysisWindow(QMainWindow):
             "the adjustment moves a single trial by up to 584 ms and can put adjusted key accuracy "
             "above 100%, which is a table result rather than a plotted one. This remains "
             "descriptive and does not make a condition-effect claim.</p>"
-            "<p><b>Axes:</b> RT panels start at zero on every figure on this tab. Accuracy panels "
-            "autoscale to their own near-ceiling range, so a visually large accuracy movement can "
-            "be a fraction of a percentage point — the tick values are the ones to quote.</p>"
+            "<p><b>Axes:</b> RT panels start at zero on every figure on this tab. The within-cell "
+            "repetition accuracy panel is pinned to 90-100%; the other accuracy panels autoscale to "
+            "their own near-ceiling range. Either way a visually large accuracy movement can be a "
+            "fraction of a percentage point — the tick values are the ones to quote.</p>"
             "<h3>Condition × Repetition repeated-measures ANOVA</h3>"
             "<p>The same two-way within-participant model as the RM-ANOVA tab, with <b>within-cell "
             "repetition</b> (1st, 2nd, 3rd presentation of a condition × level cell) as the second "
