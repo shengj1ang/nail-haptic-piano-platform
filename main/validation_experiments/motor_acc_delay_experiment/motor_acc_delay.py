@@ -286,6 +286,16 @@ ENVELOPE_AXIS_LABEL = (
     f"centred {ENVELOPE_WINDOW_S * 1000:.0f} ms moving RMS\n"
     f"(1 count = 1 mg = {MS2_PER_COUNT:.4f} m/s²)")
 
+# -- figure --------------------------------------------------------------
+# X span of the "zoom on the rise" panel. FIXED, not fitted to each
+# run: the ERM and the LRA panels are read side by side, and an axis
+# that shrinks to whatever the actuator needed makes the fast one
+# look exactly as slow as the slow one - the eye reads the shape of
+# the rise across the panel, not the tick labels. A run whose rise
+# needs longer still gets the room (nothing is ever cut off), and the
+# span never exceeds the drive window.
+ZOOM_END_S = 1.000
+
 # -- steady state --------------------------------------------------------
 # The steady level is the MEDIAN envelope over the last
 # STEADY_REF_FRACTION of the drive window (median, so a late glitch
@@ -1259,11 +1269,21 @@ def _draw_envelopes(ax, results: List[TrialResult],
                     xytext=(rep.onset_rel_time * 1000.0, y),
                     arrowprops=dict(arrowstyle="<->", color="tab:orange",
                                     lw=1.6))
-        ax.text((rep.onset_rel_time + rep.stable_rel_time) * 500.0,
+        # Centred on the arrow, unless the arrow sits so close to the
+        # left edge (a fast actuator on the shared span) that a
+        # centred caption would spill over the y axis: then it
+        # starts just past the arrow instead.
+        x_left, x_right = ax.get_xlim()
+        span = x_right - x_left
+        middle_ms = (rep.onset_rel_time + rep.stable_rel_time) * 500.0
+        crowded = (middle_ms - x_left) < 0.22 * span
+        ax.text(rep.stable_rel_time * 1000.0 + 0.015 * span if crowded
+                else middle_ms,
                 low + 0.83 * (high - low),
                 f"rise / settling = "
                 f"{rep.settling_time_from_onset_ms:.1f} ms",
-                ha="center", fontsize=8, color="tab:orange")
+                ha="left" if crowded else "center", fontsize=8,
+                color="tab:orange")
     return any_trace
 
 
@@ -1404,13 +1424,17 @@ def save_plot(path: str, results: List[TrialResult], actuator_type: str,
                   "Vibration envelope (no per-sample traces for this run)",
                   fontsize=10)
 
-    # Zoom: enough room for the slowest stable state, at least 100 ms.
+    # Zoom: the shared ZOOM_END_S span. It only widens for a run that
+    # would otherwise have its own marked instants off the panel -
+    # margin around the rise is what the fixed span already buys - and
+    # it never runs past motor-off.
     stables = [r.stable_rel_time for r in results
                if r.stable_rel_time is not None]
     onsets = [r.onset_rel_time for r in results if r.onset_rel_time is not None]
-    zoom_end_s = max(0.100, 1.6 * max(stables) if stables else 0.0,
-                     6.0 * max(onsets) if onsets else 0.0)
-    zoom_end_s = min(zoom_end_s, float(vib_duration_s))
+    marked_s = max(max(stables) if stables else 0.0,
+                   max(onsets) if onsets else 0.0)
+    zoom_end_s = min(max(ZOOM_END_S, 1.25 * marked_s),
+                     float(vib_duration_s))
     ax5.set_xlim(-0.04 * zoom_end_s * 1000.0, zoom_end_s * 1000.0)
     _draw_envelopes(ax5, results, representative, annotate=True, ylim_top=top)
     ax5.set_title(f"Zoom on the rise (first {zoom_end_s * 1000:.0f} ms)",
