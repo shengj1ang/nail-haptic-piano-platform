@@ -355,8 +355,9 @@ def shared_rt_limits(points: pd.DataFrame) -> tuple:
     return (0.0, hi * 1.05)
 
 
-_X_LABEL = "Mean RT of correct-key events (ms)"
-_Y_LABEL_2D = "Finger outcome (%)\n(B/C: Main FA; A: hidden-target agreement)"
+_X_LABEL = "Mean Reaction Time of correct-key events (ms)"
+_Y_LABEL_2D = ("Finger outcome (%)\n(B/C Complete-action Accuracy;"
+               "\nA hidden-target agreement)")
 _Y_LABEL_3D = "Finger outcome (%)"
 
 
@@ -407,7 +408,7 @@ def build_group_tradeoff_2d(data: TradeoffData,
     ax.set_ylim(FA_LIMITS)
     ax.set_xlabel(_X_LABEL)
     ax.set_ylabel(_Y_LABEL_2D)
-    ax.set_title("Group speed–accuracy trade-off", fontsize=11)
+    ax.set_title("Speed and accuracy", fontsize=11)
     handles = [Line2D([0], [0], marker="o", linestyle="none", markersize=6,
                       color=colors[c], label=_cond_label(cond_titles, c))
                for c in data.conditions]

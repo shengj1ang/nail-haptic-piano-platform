@@ -130,7 +130,7 @@ class TestSummaryAndFigures(unittest.TestCase):
                 ["Correct-key reaction time", "Key accuracy"],
             )
             self.assertEqual([ax.get_ylabel() for ax in figure.axes],
-                             ["RT (ms)", "key accuracy (%)"])
+                             ["Reaction Time (ms)", "key accuracy (%)"])
             visible_text = " ".join(
                 [ax.get_title() for ax in figure.axes]
                 + [text.get_text()

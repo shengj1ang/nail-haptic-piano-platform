@@ -332,7 +332,7 @@ class TestExportedFilesReadable(unittest.TestCase):
             data, cond_titles={"A": "A (Key-only practice)",
                                "B": "B (Visual finger-cue guidance)",
                                "C": "C (Vibrotactile finger guidance)"})
-        titles = {"group_tradeoff_2d": "Group speed–accuracy trade-off",
+        titles = {"group_tradeoff_2d": "Speed and accuracy",
                   "group_tradeoff_by_difficulty_3d": "Speed–accuracy trade-off by difficulty",
                   "group_tradeoff_by_participant_3d": "Speed–accuracy trade-off by participant"}
         with tempfile.TemporaryDirectory() as tmp:
@@ -340,11 +340,11 @@ class TestExportedFilesReadable(unittest.TestCase):
             for slug, fig in figs.items():
                 ax = fig.axes[0]
                 self.assertEqual(ax.get_title(), titles[slug])
-                self.assertIn("Mean RT of correct-key events (ms)", ax.get_xlabel())
+                self.assertIn("Mean Reaction Time of correct-key events (ms)", ax.get_xlabel())
                 self.assertIn("Finger outcome (%)", ax.get_ylabel())
                 if slug == "group_tradeoff_2d":
-                    self.assertIn("B/C: Main FA", ax.get_ylabel())
-                    self.assertIn("A: hidden-target agreement", ax.get_ylabel())
+                    self.assertIn("B/C Complete-action Accuracy", ax.get_ylabel())
+                    self.assertIn("A hidden-target agreement", ax.get_ylabel())
                 self.assertTrue(fig.legends or ax.get_legend())
                 # The export path: tight bbox includes every
                 # artist (titles, labels, outside legends) by definition;

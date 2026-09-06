@@ -87,7 +87,7 @@ def build_progression_figure(frame: pd.DataFrame,
     fig = Figure(figsize=(10.5, 4.2))
     rt_ax, key_ax = fig.subplots(1, 2)
     _plot_panel(rt_ax, frame, summary, "rt_correct_key_s_raw", 1000,
-                "RT (ms)", "Correct-key reaction time")
+                "Reaction Time (ms)", "Correct-key reaction time")
     _plot_panel(key_ax, frame, summary, "key_accuracy_raw", 100,
                 "key accuracy (%)", "Key accuracy")
     # Both panels autoscale. This auxiliary figure is a within-difficulty

@@ -453,8 +453,8 @@ ANOVA_CONDITIONS: List[str] = list(GUIDANCE_CONDITIONS)
 
 # Reaction-time metrics the ANOVA can be fitted on, primary first.
 ANOVA_METRICS: List[Tuple[str, str]] = [
-    ("rt_complete_s", "RT — key-and-finger-correct events"),
-    ("rt_s", "RT — all responded events"),
+    ("rt_complete_s", "Complete-action reaction time"),
+    ("rt_s", "Reaction time for all responded events"),
 ]
 
 # Displayed names for pingouin's Source values, in reporting order.

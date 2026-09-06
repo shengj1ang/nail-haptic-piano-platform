@@ -167,7 +167,7 @@ def _strategy_figure(trials: pd.DataFrame, usage_summary: pd.DataFrame,
         ylim=(1, 10),
     )
     dominant_ax.legend(fontsize=6.8, frameon=False, loc="best")
-    fig.suptitle("Condition A — free-fingering preference and strategy", fontsize=11)
+    fig.suptitle("Unguided finger choice in Condition A", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     return fig
 
@@ -311,7 +311,7 @@ def _performance_figure(trials: pd.DataFrame,
     )
     _progression_panel(
         rt_ax, trials, level_occurrence, "median_correct_key_rt_ms",
-        "median correct-key RT (ms)", "Response speed",
+        "median correct-key Reaction Time (ms)", "Response speed",
     )
     _progression_panel(
         accuracy_ax, trials, level_occurrence, "key_accuracy_pct",

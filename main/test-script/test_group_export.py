@@ -281,7 +281,9 @@ class TestExportCoverage(unittest.TestCase):
 
     def test_contrasts_plot_primary_complete_rt_without_duplicate_exports(self):
         figure = self.window._figures["group_contrasts"]
-        self.assertIn("key-and-finger-correct", figure.axes[2].get_title())
+        # The panel is the strict key-and-finger-correct RT; the report
+        # vocabulary for that is "complete actions".
+        self.assertIn("complete actions", figure.axes[2].get_title())
         diffs = self.window._datasets["contrasts_participant_differences"]
         self.assertEqual(set(diffs["metric"]), {
             "fa_main", "key_accuracy", "rt_complete_s", "rt_correct_key_s",
@@ -336,7 +338,7 @@ class TestExportCoverage(unittest.TestCase):
     def test_finger_accuracy_descriptive_title_is_concise(self):
         figure = self.window._figures["group_rm_anova_fa_descriptive"]
         self.assertEqual(figure.axes[0].get_title(),
-                         "Finger accuracy by homologous digit (descriptive)")
+                         "Complete-action Accuracy by finger")
 
     def test_equalisation_null_is_a_b_to_c_trajectory(self):
         axis = self.window._figures["group_finger_equalisation"].axes[0]

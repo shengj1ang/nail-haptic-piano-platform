@@ -82,9 +82,13 @@ class TestConditionAStrategy(unittest.TestCase):
         figure = cas_tab._participant_hand_usage_figure(hand_usage)
         ax = figure.axes[0]
         labels = ax.get_xticklabels()
-        self.assertEqual([label.get_text() for label in labels], ["P01", "P02 *"])
+        # Read the glyph and wording from the table rather than repeating
+        # them: this assertion was hardcoded to "*" and silently went stale
+        # when the left-hander mark became "L".
+        mark, _marker, wording = cas_tab.HANDEDNESS_MARKS["left"]
+        self.assertEqual([label.get_text() for label in labels], ["P01", f"P02 {mark}"])
         self.assertEqual(labels[1].get_color(), cas_tab.HANDEDNESS_MARK_COLOR)
-        self.assertIn("* self-reported left-hander",
+        self.assertIn(f"{mark} {wording}",
                       [text.get_text() for text in ax.get_legend().get_texts()])
         heights = {round(patch.get_height(), 6) for patch in ax.patches}
         self.assertEqual(

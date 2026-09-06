@@ -577,8 +577,8 @@ class GroupAnalysisWindow(QMainWindow):
         fig1 = Figure(figsize=(10.5, 3.6))
         axes = fig1.subplots(1, 3)
         for ax, (metric, title) in zip(axes, [("key_accuracy", "Key Accuracy"),
-                                              ("fa_main", "FA (B/C); A hidden-target agreement"),
-                                              ("fa_given_key", "FA | key (B/C); A agreement")]):
+                                              ("fa_main", "Complete-action Accuracy (B/C);\nA hidden-target agreement"),
+                                              ("fa_given_key", "Finger Accuracy given correct key (B/C);\nA agreement")]):
             self._condition_axis(ax, metric, 100, "%", title)
             ax.set_ylim(0, 105)
         fig1.tight_layout()
@@ -592,7 +592,7 @@ class GroupAnalysisWindow(QMainWindow):
         fig2 = Figure(figsize=(6.0, 3.6))
         ax_rt = fig2.subplots(1, 1)
         self._condition_axis(ax_rt, "rt_correct_key_s", 1000, "ms",
-                             "RT — correct-key events")
+                             "Reaction Time for correct-key events")
         zero_based_ylim(ax_rt)
         fig2.tight_layout()
 
@@ -688,11 +688,11 @@ class GroupAnalysisWindow(QMainWindow):
         # data the two agree to ~1 ms, so a fourth panel duplicated the
         # third. It is still summarised in export_specs below.
         specs = [
-            ("fa_main", 100, "%", "Main Finger Accuracy"),
+            ("fa_main", 100, "%", "Complete-action Accuracy"),
             ("key_accuracy", 100, "%", "Key Accuracy"),
-            ("rt_correct_key_s", 1000, "ms", "RT — correct-key"),
+            ("rt_correct_key_s", 1000, "ms", "Reaction Time for correct-key events"),
         ]
-        export_specs = specs + [("rt_complete_s", 1000, "ms", "RT — complete correct")]
+        export_specs = specs + [("rt_complete_s", 1000, "ms", "Reaction Time for complete actions")]
         fig = Figure(figsize=(10.5, 3.9))
         axes = fig.subplots(1, 3)
         x = np.arange(len(LEVELS))
@@ -718,10 +718,15 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_ylabel(unit)
             ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7, title="Feedback condition", title_fontsize=7)
-        # RT on a zero-based axis; the two accuracy panels keep their own
-        # autoscaled windows. On a full 0-100% axis both conditions sit as
-        # flat lines against the ceiling and the per-level movement that
-        # this figure exists to show is no longer legible.
+        # RT on a zero-based axis. Both accuracy panels are pinned rather
+        # than autoscaled, because autoscaled the legend sat on top of the
+        # lower edge of B's CI band. The two windows differ because the two
+        # measures do: complete actions run 92-99% and get 85-100%, key
+        # presses run 97-100% and get 93-100%, which keeps each panel's
+        # 1-2 pp movement readable. A full 0-100% axis would flatten both
+        # into flat lines against the ceiling.
+        axes[0].set_ylim(85.0, 100.0)
+        axes[1].set_ylim(93.0, 100.0)
         zero_based_ylim(axes[2])
         _annotate_effect_stars(axes[2], [
             ("Condition", _reported_effect_p(anova, "condition")),
@@ -772,9 +777,9 @@ class GroupAnalysisWindow(QMainWindow):
             "Condition A is excluded because it provides no target-finger information.</p>"
             "<p>Faint lines: one per participant per condition (their mean over that cell's trials). "
             "Bold lines: group mean across participants; shaded band = 95% bootstrap CI (needs N ≥ 2). "
-            "The RT panel starts at zero. <b>The two accuracy panels are autoscaled and each spans "
-            "only the top few percent</b>, so their vertical gaps are magnified relative to the RT "
-            "panel — read them off the tick values. Cell means per group:</p>"
+            "The RT panel starts at zero. <b>The accuracy panels are pinned to 85-100% and 93-100%</b>, "
+            "which still magnifies their vertical gaps relative to a full-range axis — read them "
+            "off the tick values. Cell means per group:</p>"
             "<p>" + "<br>".join(cap_rows) + "</p>"
             f"<p>{missing_note}</p>"
             + (f"<p>{rt_note}</p>" if rt_note else "")
@@ -794,7 +799,7 @@ class GroupAnalysisWindow(QMainWindow):
         figs = {"group_condition_difficulty": fig}
         if len(anova["frame"]):
             figs["group_rm_anova_difficulty"] = self._anova_factor_figure(
-                anova, "RT — key-and-finger-correct events",
+                anova, "Complete-action reaction time",
                 [LEVEL_TICK_LABELS[lv] for lv in LEVELS], "difficulty level")
         return caption, figs, datasets
 
@@ -807,9 +812,9 @@ class GroupAnalysisWindow(QMainWindow):
         # retained as a sensitivity analysis in the tidy exports, but a
         # second panel would be visually redundant.
         specs = [
-            ("fa_main", 100, "%", "pp", "Main Finger Accuracy"),
+            ("fa_main", 100, "%", "pp", "Complete-action Accuracy"),
             ("key_accuracy", 100, "%", "pp", "Key Accuracy"),
-            ("rt_complete_s", 1000, "ms", "ms", "RT — key-and-finger-correct"),
+            ("rt_complete_s", 1000, "ms", "ms", "Reaction Time for complete actions"),
         ]
         # Keep the historical tidy-export order while making the strict
         # RT the plotted primary. dict.fromkeys prevents a metric from
@@ -1187,8 +1192,11 @@ class GroupAnalysisWindow(QMainWindow):
         rep_anova = ga.rm_anova_repetition(rep, "rt_complete_s", ga.GUIDANCE_CONDITIONS)
         fig1 = Figure(figsize=(10.5, 3.8))
         ax_fa, ax_rt = fig1.subplots(1, 2)
-        for ax, metric, scale, ylabel in ((ax_fa, "fa_main", 100, "Main FA (%)"),
-                                          (ax_rt, "rt_correct_key_s", 1000, "RT (ms)")):
+        for ax, metric, scale, ylabel, title in (
+                (ax_fa, "fa_main", 100, "Complete-action Accuracy (%)",
+                 "Complete-action Accuracy across repetitions"),
+                (ax_rt, "rt_correct_key_s", 1000, "Reaction Time (ms)",
+                 "Reaction time across repetitions")):
             for c in ga.GUIDANCE_CONDITIONS:
                 sub = rep[rep["condition"] == c]
                 if figure_prefs.show_participant_traces:
@@ -1213,7 +1221,7 @@ class GroupAnalysisWindow(QMainWindow):
             ax.set_xticks([1, 2, 3], ["1st", "2nd", "3rd"])
             ax.set_xlabel("occurrence within condition × level cell")
             ax.set_ylabel(ylabel)
-            ax.set_title(f"Within-cell repetition 1 → 3 — {ylabel}", fontsize=10)
+            ax.set_title(title, fontsize=10)
             ax.legend(fontsize=7)
         zero_based_ylim(ax_rt)
         _annotate_effect_stars(ax_rt, [
@@ -1231,8 +1239,8 @@ class GroupAnalysisWindow(QMainWindow):
         # columns are still computed and exported, but a plotted point has
         # to be a value someone can find in the trial table.
         for ax, metric, scale, ylabel in (
-                (bx_fa, "fa_main_raw", 100, "Main FA (%)"),
-                (bx_rt, "rt_correct_key_s_raw", 1000, "RT (ms)")):
+                (bx_fa, "fa_main_raw", 100, "Complete-action Accuracy (%)"),
+                (bx_rt, "rt_correct_key_s_raw", 1000, "Reaction Time (ms)")):
             positions = sorted(pos["position"].unique())
             if figure_prefs.show_participant_traces:
                 for _, prow in pos.groupby("participant"):
@@ -1327,7 +1335,7 @@ class GroupAnalysisWindow(QMainWindow):
                    "group_learning_session_position": fig2}
         if len(rep_anova["frame"]):
             figures["group_rm_anova_repetition"] = self._anova_factor_figure(
-                rep_anova, "RT — key-and-finger-correct events",
+                rep_anova, "Complete-action reaction time",
                 ["1st", "2nd", "3rd"], "repetition within cell", zero_based_rt=False)
         figures.update(difficulty_figures)
         return caption, figures, datasets
@@ -1662,8 +1670,10 @@ class GroupAnalysisWindow(QMainWindow):
             f" / R {int(counts.loc[fid, 'n_right']) if fid in counts.index else 0}"
             for fid in ga.FINGER_IDS
         ]
-        for ax, ylabel, title in ((ax_fa, "Main FA (%)", "Finger accuracy by homologous finger ID"),
-                                  (ax_rt, "RT (ms)", "Reaction time by homologous finger ID")):
+        for ax, ylabel, title in (
+                (ax_fa, "Complete-action Accuracy (%)",
+                 "Complete-action Accuracy by homologous finger ID"),
+                (ax_rt, "Reaction Time (ms)", "Reaction time by homologous finger ID")):
             ax.set_xticks(x, tick_labels, fontsize=8)
             ax.set_ylabel(ylabel)
             ax.set_title(title, fontsize=10)
@@ -2010,8 +2020,8 @@ class GroupAnalysisWindow(QMainWindow):
                         label=self._cond_titles[c], zorder=3)
         ax.set_xticks(x, [f"{fid}\n{ga.FINGER_ID_NAMES[fid]}" for fid in ga.FINGER_IDS], fontsize=8)
         ax.set_xlabel("homologous finger ID")
-        ax.set_ylabel("RT (ms)")
-        ax.set_title(f"{metric_label} — condition × finger cell means", fontsize=10)
+        ax.set_ylabel("Reaction Time (ms)")
+        ax.set_title(f"{metric_label} by condition and finger", fontsize=10)
         ax.legend(fontsize=7)
         _annotate_effect_stars(ax, [
             ("Condition", _reported_effect_p(res, "condition")),
@@ -2040,7 +2050,7 @@ class GroupAnalysisWindow(QMainWindow):
                           color="#d9663d", markeredgecolor="black", capsize=4,
                           linewidth=1.3, linestyle="none", zorder=4)
             ax_d.set_title(f"Paired {hi_c} − {lo_c} per finger (interaction term)", fontsize=10)
-            ax_d.set_ylabel(f"{hi_c} − {lo_c} RT (ms)")
+            ax_d.set_ylabel(f"{hi_c} − {lo_c} Reaction Time (ms)")
             _annotate_effect_stars(ax_d, [
                 ("Condition × Finger",
                  _reported_effect_p(res, "condition * finger_id")),
@@ -2097,8 +2107,8 @@ class GroupAnalysisWindow(QMainWindow):
         ax.set_xticks(x, [f"{fid} {ga.FINGER_ID_NAMES[fid]}" for fid in ga.FINGER_IDS], fontsize=8)
         ax.set_ylim(max(0.0, floor - 3.0), 102.5)
         ax.set_xlim(-0.5, len(ga.FINGER_IDS) - 0.5)
-        ax.set_ylabel("Main FA (%)")
-        ax.set_title("Finger accuracy by homologous digit (descriptive)", fontsize=10)
+        ax.set_ylabel("Complete-action Accuracy (%)")
+        ax.set_title("Complete-action Accuracy by finger", fontsize=10)
         ax.legend(fontsize=7, loc="lower right")
         fig.tight_layout()
         return fig
@@ -2349,7 +2359,7 @@ class GroupAnalysisWindow(QMainWindow):
         ax_fit.set_xticks(x, [f"{f} {ga.FINGER_ID_NAMES[f]}" for f in ga.FINGER_IDS], fontsize=8)
         ax_fit.set_xlim(-0.4, len(ga.FINGER_IDS) - 0.6)
         ax_fit.set_ylim(low - 1.6, 100.6)
-        ax_fit.set_ylabel("Main FA (%)")
+        ax_fit.set_ylabel("Complete-action Accuracy (%)")
         ax_fit.set_title("Model-implied vs observed accuracy", fontsize=10)
         handles = [Line2D([], [], color="#555555", linewidth=2.4, alpha=0.75, label="model"),
                    Line2D([], [], color="white", marker="o", linestyle="none",
