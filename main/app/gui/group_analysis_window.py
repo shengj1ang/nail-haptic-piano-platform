@@ -105,6 +105,15 @@ LEVELS = ga.LEVELS
 LEVEL_DISPLAY_LABELS = ga.LEVEL_DISPLAY_LABELS
 LEVEL_TICK_LABELS = ga.LEVEL_TICK_LABELS
 PARTICIPANT_LINE = "#9a9a9a"
+
+# Report-facing condition names for figure panels and legends, overriding the
+# label recorded with each trial. Condition A is written as "unguided choice",
+# NOT "key-only practice": trials are one interleaved list with no practice
+# phase, and A cues no finger, so its finger data is an unguided-choice
+# reference rather than a modality baseline (see the Results "Finger confusion"
+# and the Discussion). B and C keep the guidance-modality label recorded in the
+# data. A condition absent here falls back to its recorded condition_label.
+CONDITION_DISPLAY_LABEL = {"A": "Unguided choice"}
 # Outlines the confusion cells the theta rule forgave, matching the amber
 # the per-trial matrix uses for the same events (app/gui/quiz_detail_window.py).
 NEAR_TIE_COLOR = "#e0a020"
@@ -423,9 +432,11 @@ class GroupAnalysisWindow(QMainWindow):
     def _condition_titles(trial_rows: List[dict]) -> Dict[str, str]:
         titles = {}
         for c in CONDITIONS:
-            labels = {t.get("condition_label") for t in trial_rows
-                      if t["condition"] == c and t.get("condition_label")}
-            label = next(iter(sorted(labels)), "")
+            label = CONDITION_DISPLAY_LABEL.get(c)
+            if label is None:
+                labels = {t.get("condition_label") for t in trial_rows
+                          if t["condition"] == c and t.get("condition_label")}
+                label = next(iter(sorted(labels)), "")
             titles[c] = f"{c} ({label})" if label else c
         return titles
 
